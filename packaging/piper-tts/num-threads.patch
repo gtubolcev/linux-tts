@@ -1,0 +1,27 @@
+diff --git a/libpiper/src/piper.cpp b/libpiper/src/piper.cpp
+index 56b61b0..c86a239 100644
+--- a/libpiper/src/piper.cpp
++++ b/libpiper/src/piper.cpp
+@@ -2,6 +2,7 @@
+ #include "piper.h"
+ #include "piper_impl.hpp"
+ 
++#include <cstdlib>
+ #include <array>
+ #include <cstddef>
+ #include <filesystem>
+@@ -263,7 +264,13 @@ auto piper_create_with_options(const piper_create_options *options)
+   synth->session_options.DisableCpuMemArena();
+   synth->session_options.DisableMemPattern();
+   synth->session_options.DisableProfiling();
+-  synth->session_options.SetIntraOpNumThreads(1);
++  // 0 lets onnxruntime use one thread per physical core; PIPER_NUM_THREADS
++  // overrides it (1 restores the old single threaded behaviour)
++  int num_threads = 0;
++  if (const char *env = std::getenv("PIPER_NUM_THREADS")) {
++    num_threads = std::atoi(env);
++  }
++  synth->session_options.SetIntraOpNumThreads(num_threads);
+   synth->session_options.SetInterOpNumThreads(1);
+   synth->session_options.SetGraphOptimizationLevel(
+       GraphOptimizationLevel::ORT_ENABLE_BASIC);

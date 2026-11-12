@@ -1,0 +1,47 @@
+#!/bin/sh
+# sherpa-say MODEL [-l LANG] [-v VOICE] [-s SPEAKER] [-r SPEED] [-t THREADS] [-n STEPS] [TEXT...]
+# Speaks TEXT (or stdin) with a sherpa-onnx TTS model directory; the model
+# family is detected from the files in it. MODEL is a directory or a name
+# under /usr/share/sherpa-onnx/tts. Set OUT=file.wav to save instead of playing.
+# THREADS defaults to the number of CPUs, at most 4 (more threads were slower on an
+# 8-thread Ryzen); STEPS (Supertonic) defaults to 5: 8 sounds the same and takes
+# 1.6 times longer, 3 is audibly worse.
+set -e
+usage() { echo "usage: sherpa-say MODEL [-l LANG] [-v VOICE] [-s SPEAKER] [-r SPEED] [-t THREADS] [-n STEPS] [TEXT...]" >&2
+  ls /usr/share/sherpa-onnx/tts 2>/dev/null | sed 's/^/  /' >&2; exit 2; }
+[ $# -ge 1 ] || usage
+M=$1; shift
+[ -d "$M" ] || M=/usr/share/sherpa-onnx/tts/$M
+[ -d "$M" ] || usage
+LANG_=en; VOICE=; SID=0; SPEED=1; STEPS=5; THREADS=$(nproc); [ "$THREADS" -le 4 ] || THREADS=4
+while getopts l:v:s:r:t:n: o; do case $o in
+  l) LANG_=$OPTARG;; v) VOICE=$OPTARG;; s) SID=$OPTARG;; r) SPEED=$OPTARG;;
+  t) THREADS=$OPTARG;; n) STEPS=$OPTARG;; *) usage;; esac; done
+shift $((OPTIND - 1))
+if [ $# -gt 0 ]; then TEXT="$*"; else TEXT=$(cat); fi
+f() { ls "$M"/$1 2>/dev/null | head -1; }
+if [ -n "$(f tts.json)" ]; then
+  set -- --supertonic-duration-predictor="$(f 'duration_predictor*.onnx')" \
+    --supertonic-text-encoder="$(f 'text_encoder*.onnx')" \
+    --supertonic-vector-estimator="$(f 'vector_estimator*.onnx')" \
+    --supertonic-vocoder="$(f 'vocoder*.onnx')" --supertonic-tts-json="$M/tts.json" \
+    --supertonic-unicode-indexer="$M/unicode_indexer.bin" \
+    --supertonic-voice-style="${VOICE:-$M/voice.bin}" --lang="$LANG_" --num-steps="$STEPS"
+elif [ -n "$(f 'lm_main*.onnx')" ]; then
+  set -- --pocket-lm-flow="$(f 'lm_flow*.onnx')" --pocket-lm-main="$(f 'lm_main*.onnx')" \
+    --pocket-encoder="$(f 'encoder*.onnx')" --pocket-decoder="$(f 'decoder*.onnx')" \
+    --pocket-text-conditioner="$(f 'text_conditioner*.onnx')" \
+    --pocket-vocab-json="$M/vocab.json" --pocket-token-scores-json="$M/token_scores.json" \
+    --reference-audio="${VOICE:-$M/test_wavs/bria.wav}"
+elif [ -n "$(f voices.bin)" ]; then
+  echo "sherpa-say: Kitten needs phonemes from an external phonemizer (sherpa-onnx >= 2.0)" >&2
+  exit 1
+else
+  # VITS with a character vocabulary (MMS); sherpa-onnx wants lower case
+  TEXT=$(printf '%s' "$TEXT" | sed 's/.*/\L&/')
+  set -- --vits-model="$(f '*.onnx')" --vits-tokens="$M/tokens.txt"
+fi
+DIR=$(mktemp -d); trap 'rm -r "$DIR"' EXIT
+sherpa-onnx-offline-tts --num-threads="$THREADS" --sid="$SID" --speed="$SPEED" "$@" --output-filename="$DIR/out.wav" "$TEXT" 2>&1 \
+  | grep -E "^Real-time|rror" | grep -v "^Schema error" >&2 || true
+if [ -n "$OUT" ]; then cp "$DIR/out.wav" "$OUT"; else paplay "$DIR/out.wav" 2>/dev/null || aplay -q "$DIR/out.wav"; fi
