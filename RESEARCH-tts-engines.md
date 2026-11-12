@@ -63,6 +63,21 @@ local, CPU, low latency, stream/interrupt, Russian + English.
 - **KittenTTS** — tiny, English.
 - **Silero v5.5** (ru) — good, but restrictive licence (avoided in the group); RuVoice TTS
   (Android) builds on it.
+  **Checked 2026-11-12** (files in /home/grigory/Storage/Claude/silero, run only in docker
+  `silero-test`, the .pt files are torch.package = pickled code):
+  - Licences: all models CC BY-NC-SA 4.0 (README badge says BY-NC, the LICENSE file is
+    BY-NC-SA), except `v5_cis_base` / `v5_cis_base_nostress` (MIT, LICENSE_CIS; 29 `ru_*`
+    voices, need `+` stress marks) and silero-stress (MIT, stress + homographs + ё).
+    → PPA: only cis_base + silero-stress; v5_ru via an installer (speech-settings PLAN).
+  - Speed, 4 CPU threads, 24 kHz: v5_6_ru RTF ≈ 0.10, 0.25 s for a short phrase after
+    warm-up (first call 1.7 s), load 3.6 s; cis_base + silero-stress RTF ≈ 0.10, stress
+    5–30 ms per sentence, homograph зам+ок / з+амке right. Docker image torch-cpu 1.6 GB.
+  - Ports: official = PyTorch only. **some1-in-here/silero-tts-onnx** (CC BY-NC-SA,
+    "heavily built with AI"): weights moved into reimplemented modules, exported to ONNX
+    (acoustic, duration/pitch, vocoder, ISTFT + stress/ngram), torch-free Python frontend
+    (numbers, abbreviations, stress, ё, homographs), runtime onnxruntime + numpy + soundfile
+    + num2words (all in resolute), ~25× realtime; v5_ru and v5_6_ru only (not cis_base).
+    No ggml / Vulkan port (audio.cpp has Silero VAD only); a ggml port would be own work.
 - Benchmark: heyneo.com/blog/kokoro-supertonic-inflect-nano-pocket-tts-cpu-benchmark.
 
 - **ZONOS3-Mini** (Zyphra, added 2026-11-10; github.com/Zyphra/ZONOS3-Mini, code MIT, model
@@ -109,6 +124,8 @@ local, CPU, low latency, stream/interrupt, Russian + English.
   below), so long first sentences wait; streaming within a sentence is the next step.
 
 ### Heavy (GPU, audiobooks / dubbing) — not for a system voice, maybe "read a file" later
+(User, 2026-11-12: an audiobook GUI is a separate, far-future project with its own GUI,
+heavy models, LLM preprocessing of the text, etc. — not part of speech-settings.)
 F5-TTS (Russian fine-tune "Misha"; short context), OmniVoice (k2-fsa; good cloning,
 stress issues), Qwen3-TTS, CosyVoice3, Higgs v3, FireRedTTS, MOSS, VibeVoice.
 
@@ -356,3 +373,10 @@ lines on every model load; stderr goes to /dev/null during the load unless Debug
 Measured (protocol test, busy laptop): "Кафе на углу открылось в девять утра." 2.8 s of speech in
 1.3 s, first audio 2.2 s after SPEAK including the model load; "Привет!" 0.9 s.
 
+
+## To do: wider survey (from the user, 2026-11-12)
+- Go through GitHub's "tts" repositories sorted by stars
+  (https://github.com/search?q=tts&type=repositories&s=stars&o=desc), page by page:
+  for each engine note licence (code and weights), languages (ru/en), CPU speed,
+  streaming, last activity, packaging. Add what fits to "Engines by class".
+  Part of the big research, together with the Telegram notes above.
