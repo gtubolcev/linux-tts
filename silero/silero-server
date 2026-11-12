@@ -1,0 +1,176 @@
+#!/usr/bin/python3 -I
+"""silero-server: a small localhost HTTP server for sd_silero.
+
+It keeps a Silero TTS model (ONNX, run by the silero-tts-onnx runtime)
+loaded, so speech-dispatcher does not load it for every message.
+
+  GET  /v2/health    200 once the model is loaded
+  GET  /v2/voices    {"version": ..., "speakers": [...]}
+  POST /v2/generate  {"text": str, "speaker": str,
+                      "rate": float (1 = normal), "pitch": float (1 = normal)}
+                     -> float32 mono PCM, X-Audio-Sample-Rate header
+
+The model and the runtime are not part of this program; they are
+installed with their licences into a directory given by --dir:
+
+  <dir>/silero_onnx/   the runtime (python package)
+  <dir>/models/        the ONNX files of the model version
+
+Copyright (C) 2026 Grigory Tuboltsev
+SPDX-License-Identifier: MIT
+"""
+import argparse
+import json
+import os
+import sys
+import threading
+import time
+from http.server import BaseHTTPRequestHandler, HTTPServer
+from xml.sax.saxutils import escape
+
+engine = None
+engine_lock = threading.Lock()
+SAMPLE_RATE = 48000
+
+
+def log(*a):
+    print("silero-server:", *a, file=sys.stderr, flush=True)
+
+
+def load(args):
+    global engine
+    sys.path.insert(0, args.dir)
+    import numpy  # noqa: F401  (fail early with a clear message)
+    from silero_onnx import ort as silero_ort
+    from silero_onnx.engine import SileroTTS
+
+    base_options = silero_ort.session_options
+
+    def session_options():
+        so = base_options()
+        so.intra_op_num_threads = args.threads
+        return so
+
+    # create_session looks the function up at call time
+    silero_ort.session_options = session_options
+    t = time.monotonic()
+    tts = SileroTTS(model_dir=os.path.join(args.dir, "models"), version=args.version)
+    # the first call builds caches; do it now, not with the first message
+    tts.synthesize("Готово.", speaker=tts.speakers[0])
+    engine = tts
+    log(f"{args.version} loaded in {time.monotonic() - t:.1f} s, "
+        f"{args.threads} thread(s), speakers: {' '.join(tts.speakers)}")
+
+
+def to_ssml(text, rate, pitch):
+    # "*word*" means emphasis to the runtime, "+" before a vowel stress;
+    # keep "+" (users may write stress marks), drop the asterisks
+    text = escape(text.replace("*", " "))
+    attrs = ""
+    if abs(rate - 1.0) > 0.01:
+        attrs += f' rate="{round(rate * 100)}%"'
+    if abs(pitch - 1.0) > 0.01:
+        p = round((pitch - 1.0) * 100)
+        attrs += f' pitch="{"+" if p >= 0 else "-"}{abs(p)}%"'
+    if attrs:
+        text = f"<prosody{attrs}>{text}</prosody>"
+    return f"<speak>{text}</speak>"
+
+
+class Handler(BaseHTTPRequestHandler):
+    protocol_version = "HTTP/1.1"
+
+    def log_message(self, fmt, *a):
+        if self.server.verbose:
+            log(fmt % a)
+
+    def reply(self, status, body, ctype="application/json", headers=()):
+        self.send_response(status)
+        self.send_header("Content-Type", ctype)
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Connection", "close")
+        for k, v in headers:
+            self.send_header(k, v)
+        self.end_headers()
+        try:
+            self.wfile.write(body)
+        except (BrokenPipeError, ConnectionResetError):
+            pass   # the module stopped listening (speech stopped)
+        self.close_connection = True
+
+    def error(self, status, msg):
+        self.reply(status, json.dumps({"error": msg}).encode())
+
+    def do_GET(self):
+        if engine is None:
+            return self.error(503, "loading")
+        if self.path == "/v2/health":
+            return self.reply(200, b'{"status": "ok"}')
+        if self.path == "/v2/voices":
+            return self.reply(200, json.dumps({"version": self.server.version,
+                                               "speakers": engine.speakers}).encode())
+        self.error(404, "not found")
+
+    def do_POST(self):
+        if self.path != "/v2/generate":
+            return self.error(404, "not found")
+        if engine is None:
+            return self.error(503, "loading")
+        try:
+            n = int(self.headers.get("Content-Length", "0"))
+            if not 0 < n <= 1 << 20:
+                return self.error(400, "bad length")
+            req = json.loads(self.rfile.read(n))
+            text = str(req.get("text", "")).strip()
+            speaker = str(req.get("speaker", engine.speakers[0]))
+            rate = min(max(float(req.get("rate", 1.0)), 0.5), 2.0)
+            pitch = min(max(float(req.get("pitch", 1.0)), 0.75), 1.25)
+        except (ValueError, TypeError, AttributeError) as e:
+            return self.error(400, f"bad request: {e}")
+        if speaker not in engine.speakers:
+            return self.error(400, f"unknown speaker {speaker}")
+        audio = b""
+        if text:
+            try:
+                with engine_lock:
+                    if abs(rate - 1.0) > 0.01 or abs(pitch - 1.0) > 0.01:
+                        out, _dur = engine.synthesize(to_ssml(text, rate, pitch),
+                                                      speaker=speaker, ssml=True)
+                    else:   # plain text: the frontend handles + and * marks itself
+                        out, _dur = engine.synthesize(text, speaker=speaker)
+                audio = out.astype("<f4").tobytes()
+            except Exception as e:   # noqa: BLE001  (a bad sentence must not kill the server)
+                log(f"cannot synthesize {text!r}: {type(e).__name__}: {e}")
+                return self.error(500, f"{type(e).__name__}: {e}")
+        self.reply(200, audio, "application/octet-stream",
+                   [("X-Audio-Sample-Rate", str(SAMPLE_RATE))])
+
+
+def main():
+    ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
+    ap.add_argument("--dir", required=True, help="runtime + models directory")
+    ap.add_argument("--version", default="v5_6_ru")
+    ap.add_argument("--host", default="127.0.0.1")
+    ap.add_argument("--port", type=int, required=True)
+    ap.add_argument("--threads", type=int, default=2)
+    ap.add_argument("--verbose", action="store_true")
+    args = ap.parse_args()
+
+    httpd = HTTPServer((args.host, args.port), Handler)
+    httpd.verbose = args.verbose
+    httpd.version = args.version
+    # answer /v2/health with 503 while the model loads
+    threading.Thread(target=httpd.serve_forever, daemon=True).start()
+    try:
+        load(args)
+    except BaseException as e:   # noqa: BLE001
+        log(f"cannot load the model from {args.dir}: {type(e).__name__}: {e}")
+        sys.exit(1)
+    try:
+        threading.Event().wait()
+    except KeyboardInterrupt:
+        pass
+
+
+if __name__ == "__main__":
+    main()
