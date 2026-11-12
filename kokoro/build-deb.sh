@@ -11,7 +11,7 @@ K=/home/grigory/Storage/Claude/kokoro-ru
 MODEL=${MODEL:-$K/model}
 RU_DICT=${RU_DICT:-$K/data/espeak-ng-data/ru_dict}
 OUT=${OUT:-$K/deb}
-VER=0.1-1~local
+VER=0.1-2~local
 MVER=0.1-1~local
 SYS=/usr/lib/x86_64-linux-gnu/espeak-ng-data
 rm -rf "$OUT/root"; mkdir -p "$OUT/root"

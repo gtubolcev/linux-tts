@@ -7,7 +7,7 @@ umask 022
 HERE=$(cd "$(dirname "$0")" && pwd)
 MODEL=${MODEL:-/home/grigory/Storage/Claude/vosk/model/vosk-model-tts-ru-0.9-multi}
 OUT=${OUT:-/home/grigory/Storage/Claude/vosk/deb}
-VER=0.1-3~local
+VER=0.1-4~local
 MVER=0.9-1~local
 rm -rf "$OUT/root"; mkdir -p "$OUT/root"
 

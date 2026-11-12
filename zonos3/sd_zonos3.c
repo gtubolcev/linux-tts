@@ -1234,7 +1234,9 @@ send_audio (GByteArray *pcm, int sample_rate)
   size_t n = pcm->len / sizeof (float);
   const float *f = (const float *) pcm->data;
   short *s;
-  double gain = CLAMP ((set_volume + 100) / 100.0, 0.0, 2.0);
+  /* 0 and above keep the level the model made (its peaks are already near
+   * full scale, any boost clips); below 0 it gets quieter. */
+  double gain = set_volume >= 0 ? 1.0 : CLAMP ((set_volume + 100) / 100.0, 0.0, 1.0);
   AudioTrack track;
 
   if (n == 0)
