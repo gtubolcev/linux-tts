@@ -3,7 +3,7 @@
 set -e
 umask 022
 HERE=$(cd "$(dirname "$0")" && pwd)
-VER=0.1-5~local
+VER=0.1-6~local
 W=$HERE/deb/speech-dispatcher-zonos3
 rm -rf "$HERE/deb"; mkdir -p $W/DEBIAN $W/usr/lib/speech-dispatcher-modules \
     $W/etc/speech-dispatcher/modules $W/usr/share/doc/speech-dispatcher-zonos3

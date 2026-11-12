@@ -707,7 +707,9 @@ static void
 send_audio (const float *f, size_t n, int sample_rate)
 {
   short *s;
-  double gain = CLAMP ((set_volume + 100) / 100.0, 0.0, 2.0);
+  /* 0 and above keep the level the model made (its peaks are already near
+   * full scale, any boost clips); below 0 it gets quieter. */
+  double gain = set_volume >= 0 ? 1.0 : CLAMP ((set_volume + 100) / 100.0, 0.0, 1.0);
   AudioTrack track;
 
   if (n == 0)
