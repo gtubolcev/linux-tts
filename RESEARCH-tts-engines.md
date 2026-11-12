@@ -60,7 +60,11 @@ local, CPU, low latency, stream/interrupt, Russian + English.
   F16/Q8_0, 54 stock voices, CPU/Vulkan/CUDA/Metal, `kokoro-cli`) — the Vulkan candidate;
   TTS.cpp (mmwillet and forks) — proof of concept, patched ggml, macOS only tested.
   Same name, ONNX Runtime inside: koth/kokoro.cpp, rzafiamy (kokoro-server).
-- **KittenTTS** — tiny, English.
+- **KittenTTS** — tiny, English. 0.8 (2026-11-12): nano 15M / micro 40M / mini 80M, ONNX,
+  StyleTTS 2 + espeak-ng phonemes, 8 voices, weights Apache-2.0 — a candidate for weak
+  machines. KittenTTS 2 (1.7B speech LM, 20 languages incl. ru, voice cloning) is under the
+  Stellon Labs Community License (not free, revocable) and needs ~6 GB RAM — not a system
+  voice.
 - **Silero v5.5** (ru) — good, but restrictive licence (avoided in the group); RuVoice TTS
   (Android) builds on it.
   **Checked 2026-11-12** (files in /home/grigory/Storage/Claude/silero, run only in docker
