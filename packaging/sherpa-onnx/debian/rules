@@ -1,0 +1,34 @@
+#!/usr/bin/make -f
+# The dependencies that CMake would fetch are in the orig tarball at the top
+# (see packaging/sherpa-onnx/make-source.sh); CMake takes them from there.
+export DEB_BUILD_MAINT_OPTIONS = hardening=+all
+LIBDIR = usr/lib/$(DEB_HOST_MULTIARCH)
+
+%:
+	dh $@ --buildsystem=cmake
+
+# debhelper sets FETCHCONTENT_FULLY_DISCONNECTED=ON, which skips unpacking
+# the local tarballs too; the URLs are local files, nothing is downloaded
+override_dh_auto_configure:
+	dh_auto_configure -- -DCMAKE_BUILD_TYPE=Release \
+	  -DFETCHCONTENT_FULLY_DISCONNECTED=OFF \
+	  -DBUILD_SHARED_LIBS=ON -DSHERPA_ONNX_ENABLE_PORTAUDIO=OFF \
+	  -DSHERPA_ONNX_ENABLE_WEBSOCKET=OFF -DSHERPA_ONNX_ENABLE_PYTHON=OFF \
+	  -DSHERPA_ONNX_ENABLE_TESTS=OFF -DSHERPA_ONNX_ENABLE_BINARY=ON \
+	  -DSHERPA_ONNX_BUILD_C_API_EXAMPLES=OFF
+
+# cmake installs to /usr/lib, copies the system onnxruntime next to the
+# libraries and writes a .pc with an rpath: move the libraries to the
+# multiarch dir, drop the copies, write our own .pc
+override_dh_auto_install:
+	dh_auto_install
+	cd debian/tmp && rm -f usr/lib/libonnxruntime* usr/sherpa-onnx.pc \
+	  && mkdir -p $(LIBDIR)/pkgconfig \
+	  && mv usr/lib/libsherpa-onnx-*.so $(LIBDIR)/
+	sed -e 's|@LIBDIR@|$(LIBDIR)|' -e 's|@VERSION@|$(DEB_VERSION_UPSTREAM)|' \
+	  debian/sherpa-onnx.pc.in > debian/tmp/$(LIBDIR)/pkgconfig/sherpa-onnx.pc
+	patchelf --remove-rpath debian/tmp/usr/bin/* debian/tmp/$(LIBDIR)/*.so
+	install -m755 debian/sherpa-say debian/tmp/usr/bin/
+
+# "make check" of sherpa-onnx is clang-tidy, not tests
+override_dh_auto_test:
