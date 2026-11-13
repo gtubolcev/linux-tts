@@ -1,0 +1,2 @@
+usr/lib/speech-dispatcher-modules/sd_vosk
+etc/speech-dispatcher/modules/vosk.conf
