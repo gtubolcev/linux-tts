@@ -10,21 +10,16 @@
  */
 
 #include "ru-g2p.h"
+#include "ru-stress.h"
 
 #include <espeak-ng/speak_lib.h>
-#include <errno.h>
-#include <fcntl.h>
 #include <string.h>
-#include <sys/mman.h>
-#include <sys/stat.h>
-#include <unistd.h>
 
 #define ACUTE 0x0301
 
 struct RuG2p
 {
-  const char *dict;     /* mmap of the sorted dictionary */
-  gsize dict_size;
+  RuStress *stress;     /* NULL: no dictionary, no stress marks */
   GRegex *marks_re;     /* phonemizer's punctuation */
 };
 
@@ -95,12 +90,6 @@ ustr_free_utf8 (UStr *u)
   return s;
 }
 
-static gchar *
-ucs4_to_utf8 (const gunichar *w, glong n)
-{
-  return g_ucs4_to_utf8 (w, n, NULL, NULL, NULL);
-}
-
 /* the word without the stress marks */
 static gchar *
 strip_acute (const gunichar *w, glong n)
@@ -130,47 +119,6 @@ seat_acute (const gchar *bare, int vowel_n)
 
 
 
-/* ---------------------------------------------------------- dictionary */
-
-static gchar *
-dict_lookup (RuG2p *g, const gchar *word)
-{
-  gsize lo = 0, hi = g->dict_size, wl = strlen (word);
-
-  if (g->dict == NULL || wl == 0)
-    return NULL;
-  while (lo < hi)
-    {
-      gsize mid = lo + (hi - lo) / 2, start = mid, tab;
-      int c;
-
-      while (start > lo && g->dict[start - 1] != '\n')
-        start--;
-      tab = start;
-      while (tab < g->dict_size && g->dict[tab] != '\t' && g->dict[tab] != '\n')
-        tab++;
-      c = memcmp (g->dict + start, word, MIN (tab - start, wl));
-      if (c == 0 && tab - start != wl)
-        c = tab - start < wl ? -1 : 1;
-      if (c == 0)
-        {
-          const char *p = g->dict + tab + 1;
-          const char *nl = memchr (p, '\n', g->dict_size - (p - g->dict));
-          return g_strndup (p, (nl != NULL ? nl : g->dict + g->dict_size) - p);
-        }
-      if (c < 0)
-        {
-          const char *nl = memchr (g->dict + tab, '\n', g->dict_size - tab);
-          lo = nl != NULL ? (gsize) (nl - g->dict) + 1 : g->dict_size;
-        }
-      else
-        hi = start;
-    }
-  return NULL;
-}
-
-
-
 /* ------------------------------------------------------------ espeak */
 
 RuG2p *
@@ -195,29 +143,10 @@ ru_g2p_new (const gchar *dict, const gchar *espeak_path, GError **error)
   g->marks_re = g_regex_new ("(\\s*(?:[;:!?¡¿—…\"«»“”(){}\\[\\]]"
                              "|(?<![0-9])[,.]|[,.](?![0-9]))+\\s*)+",
                              G_REGEX_OPTIMIZE, 0, NULL);
-  if (dict != NULL)
+  if (dict != NULL && (g->stress = ru_stress_new (dict, error)) == NULL)
     {
-      int fd = open (dict, O_RDONLY | O_CLOEXEC);
-      struct stat st;
-      if (fd < 0 || fstat (fd, &st) != 0)
-        {
-          g_set_error (error, G_FILE_ERROR, g_file_error_from_errno (errno),
-                       "%s: %s", dict, g_strerror (errno));
-          if (fd >= 0)
-            close (fd);
-          ru_g2p_free (g);
-          return NULL;
-        }
-      if (st.st_size > 0)
-        {
-          void *p = mmap (NULL, st.st_size, PROT_READ, MAP_SHARED, fd, 0);
-          if (p != MAP_FAILED)
-            {
-              g->dict = p;
-              g->dict_size = st.st_size;
-            }
-        }
-      close (fd);
+      ru_g2p_free (g);
+      return NULL;
     }
   return g;
 }
@@ -227,8 +156,7 @@ ru_g2p_free (RuG2p *g)
 {
   if (g == NULL)
     return;
-  if (g->dict != NULL)
-    munmap ((void *) g->dict, g->dict_size);
+  ru_stress_free (g->stress);
   if (g->marks_re != NULL)
     g_regex_unref (g->marks_re);
   g_free (g);
@@ -747,88 +675,28 @@ gchar *
 ru_g2p_accentuate (RuG2p *g, const gchar *text)
 {
   gchar *lower = g_utf8_strdown (text, -1);
+  gchar *marked;
   glong n;
-  gunichar *t = g_utf8_to_ucs4_fast (lower, -1, &n);
+  gunichar *t;
   UStr *out = ustr_new ();
 
-  for (glong i = 0; i < n;)
-    {
-      glong j = i;
-      gboolean marked = FALSE;
-      if (!is_ru_letter (t[i]))
-        {
-          ustr_add (out, t[i++]);
-          continue;
-        }
-      while (j < n && (is_ru_letter (t[j]) || t[j] == ACUTE))
-        {
-          marked = marked || t[j] == ACUTE;
-          j++;
-        }
-      {
-        gchar *word = ucs4_to_utf8 (t + i, j - i);
-        gchar *ph = marked ? NULL : dict_lookup (g, word);
-        int nv = 0;
-        for (glong k = i; k < j; k++)
-          nv += is_ru_vowel (t[k]);
-        if (ph == NULL && !marked && strstr (word, "ё") != NULL)
-          {
-            gchar *e = replace_all (g_strdup (word), "ё", "е");
-            ph = dict_lookup (g, e);
-            g_free (e);
-          }
-        if (ph != NULL && nv >= 2)
-          {
-            gchar **tok = g_strsplit (ph, " ", -1);
-            GPtrArray *vt = g_ptr_array_new ();
-            for (int k = 0; tok[k] != NULL; k++)
-              {
-                gsize l = strlen (tok[k]);
-                if (l >= 2 && (tok[k][l - 1] == '0' || tok[k][l - 1] == '1'))
-                  g_ptr_array_add (vt, tok[k]);
-              }
-            if ((int) vt->len == nv)
-              {
-                int v = 0;
-                for (glong k = i; k < j; k++)
-                  {
-                    gunichar c = t[k];
-                    if (!is_ru_vowel (c))
-                      {
-                        ustr_add (out, c);
-                        continue;
-                      }
-                    {
-                      const gchar *p = vt->pdata[v++];
-                      gboolean st = p[strlen (p) - 1] == '1';
-                      if (st && c == 0x0435 && p[0] == 'o')
-                        ustr_add (out, 0x0451);   /* е -> ё */
-                      else
-                        {
-                          ustr_add (out, c);
-                          if (st && c != 0x0451)
-                            ustr_add (out, ACUTE);
-                        }
-                    }
-                  }
-                g_ptr_array_free (vt, TRUE);
-                g_strfreev (tok);
-                g_free (ph);
-                g_free (word);
-                i = j;
-                continue;
-              }
-            g_ptr_array_free (vt, TRUE);
-            g_strfreev (tok);
-          }
-        g_free (ph);
-        g_free (word);
-        g_array_append_vals (out, t + i, j - i);
-        i = j;
-      }
-    }
-  g_free (t);
+  if (g->stress == NULL)
+    return lower;
+  marked = ru_stress_apply (g->stress, lower, RU_STRESS_ACUTE);
   g_free (lower);
+  /* a stress the user set with "+" before the vowel: the acute after it */
+  t = g_utf8_to_ucs4_fast (marked, -1, &n);
+  g_free (marked);
+  for (glong i = 0; i < n; i++)
+    if (t[i] == '+' && i + 1 < n && is_ru_vowel (t[i + 1]))
+      {
+        ustr_add (out, t[++i]);
+        if (t[i] != 0x0451)
+          ustr_add (out, ACUTE);
+      }
+    else
+      ustr_add (out, t[i]);
+  g_free (t);
   return ustr_free_utf8 (out);
 }
 
