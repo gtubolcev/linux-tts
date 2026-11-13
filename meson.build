@@ -15,10 +15,23 @@ threads = dependency('threads')
 
 # libspeechd-dev has no .pc file for the module library: the header is
 # <speech-dispatcher/spd_module_main.h>, spd_audio.h is shimmed per module
-speechd_module = cc.find_library('speechd_module', has_headers: ['speech-dispatcher/spd_module_main.h'])
 speechd_inc = include_directories('/usr/include/speech-dispatcher')
 shim_inc = include_directories('kokoro/shim')
 common_inc = include_directories('common')
+speechd_module = cc.find_library('speechd_module', required: false,
+  has_headers: ['speech-dispatcher/spd_module_main.h'])
+if not speechd_module.found()
+  # speech-dispatcher before 0.12.0 (noble has 0.12.0~rc2) does not install
+  # the module library: build the copy of 0.12.1 in speechd-module/
+  speechd_module = declare_dependency(
+    include_directories: include_directories('speechd-module'),
+    link_with: static_library('speechd_module',
+      'speechd-module/module_main.c', 'speechd-module/module_readline.c',
+      'speechd-module/module_process.c',
+      include_directories: [include_directories('speechd-module/speech-dispatcher'),
+                            speechd_inc, shim_inc],
+      dependencies: threads))
+endif
 
 module_dir = get_option('prefix') / 'lib' / 'speech-dispatcher-modules'
 conf_dir = get_option('sysconfdir') / 'speech-dispatcher' / 'modules'

@@ -1,0 +1,5 @@
+The module library of speech-dispatcher 0.12.1 (src/modules: module_main.c,
+module_readline.c, module_process.c, spd_module_main.h), BSD-2-Clause,
+Copyright Samuel Thibault. speech-dispatcher installs it as libspeechd_module
+since 0.12.0; meson.build builds this copy only for older releases (noble has
+0.12.0~rc2, which has the same code but does not install it).
