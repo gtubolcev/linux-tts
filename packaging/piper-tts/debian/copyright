@@ -1,0 +1,38 @@
+Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
+Upstream-Name: piper1-gpl
+Source: https://github.com/OHF-Voice/piper1-gpl
+Comment: The orig tarball is the v1.8.0 release with the tarball of
+ espeak-ng (commit 212928b, which libpiper/CMakeLists.txt would clone) put
+ at its top; it is linked in statically and its data is shipped.
+
+Files: *
+Copyright: 2022-2026 Michael Hansen, The Home Assistant Authors
+License: GPL-3
+
+Files: espeak-ng-*.tar.gz
+Copyright: 1995-2014 Jonathan Duddington, 2013-2025 Reece H. Dunn and
+ the espeak-ng contributors
+License: GPL-3+
+Comment: Some files in it are BSD-2-Clause, Apache-2.0 or under the
+ Unicode data licence (COPYING.BSD2, COPYING.APACHE, COPYING.UCD in it).
+
+Files: debian/*
+Copyright: 2026 Grigory Tuboltsev
+License: GPL-3+
+
+License: GPL-3
+ This program is free software: you can redistribute it and/or modify it
+ under the terms of the GNU General Public License version 3 as published
+ by the Free Software Foundation.
+ .
+ On Debian systems, the complete text of the GNU General Public License
+ version 3 can be found in /usr/share/common-licenses/GPL-3.
+
+License: GPL-3+
+ This program is free software: you can redistribute it and/or modify it
+ under the terms of the GNU General Public License as published by the Free
+ Software Foundation, either version 3 of the License, or (at your option)
+ any later version.
+ .
+ On Debian systems, the complete text of the GNU General Public License
+ version 3 can be found in /usr/share/common-licenses/GPL-3.

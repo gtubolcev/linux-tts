@@ -10,7 +10,7 @@ replaced by `debian/` directories for a PPA.
 | `rhvoice/` | rhvoice 1.14.0-3+voice1 | Ubuntu multiverse source package (has the voices) | `apply-voice-patch.py <src/sd_module>`: adds `RHVoiceVoice "<language>" "<voice>"` to the speech-dispatcher module, the voice used for a language when the client does not name one. |
 | `sherpa-onnx/` | sherpa-onnx 2.0.1 | github.com/k2-fsa/sherpa-onnx tag v2.0.1 (af2d8d8) | Nothing in the code. Built against Ubuntu's libonnxruntime with the flags below; `make-source.sh` builds the PPA source package (the CMake dependencies from `deps.txt` go into the orig tarball, so the build needs no network). `debian/sherpa-say` is a small command line helper (model family detected from the files). |
 | `sherpa-onnx-models/` | sherpa-onnx-tts-* | sherpa-onnx `tts-models` release | `build-model-debs.sh`: one arch-independent package per model, files under `/usr/share/sherpa-onnx/tts/<name>/`. |
-| `piper-tts/` | piper-tts 1.8.0 | github.com/OHF-Voice/piper1-gpl (639388b) | `num-threads.patch`: onnxruntime picks the thread count (was fixed at 1), `PIPER_NUM_THREADS` overrides it. |
+| `piper-tts/` | piper-tts 1.8.0 | github.com/OHF-Voice/piper1-gpl tag v1.8.0 (639388b) | `debian/patches/num-threads.patch`: onnxruntime picks the thread count (was fixed at 1), `PIPER_NUM_THREADS` overrides it; `local-espeak-ng.patch`: espeak-ng 212928b from the orig tarball instead of a git clone. `make-source.sh` builds the PPA source package (like sherpa-onnx's). Layout: `/usr/lib/piper-tts/{piper,libpiper.so,espeak-ng-data}`, command `piper-tts`. |
 
 sherpa-onnx was configured in an `ubuntu:26.04` container with `libonnxruntime-dev`:
 

@@ -19,7 +19,9 @@ separately; see each `build-deb.sh`. Measurements and notes on the engines:
 
 A settings dialog for Xfce: [xfce4-speech-settings](https://github.com/gtubolcev/xfce4-speech-settings).
 
-Status: early, local packages only; a PPA is planned.
+Status: early. Packages for Ubuntu 26.04: `sudo add-apt-repository ppa:gtubolcev/linux-tts`
+(the engines, the modules, speech-dispatcher and RHVoice with fixes; see
+[packaging/README.md](packaging/README.md)).
 
 ## License
 

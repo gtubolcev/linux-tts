@@ -35,7 +35,7 @@ NEWEST=$(find "$S" -type f ! -name '*.tar.gz' ! -name '*.zip' -printf '%T@\n' | 
 NEWEST=${NEWEST%.*}
 [ "$NEWEST" -gt 946684800 ] || { echo "error: no usable times in the release" >&2; exit 1; }
 find "$S" -newermt "@$NEWEST" -exec touch -h -d "@$NEWEST" {} +
-tar --sort=name --owner=0 --group=0 --numeric-owner --owner=0 --group=0 --numeric-owner -cJf "$ORIG" "$S"
+tar --sort=name --owner=0 --group=0 --numeric-owner -cJf "$ORIG" "$S"
 cp -r "$HERE/debian" "$S/"
 cd "$S"
 N=1
