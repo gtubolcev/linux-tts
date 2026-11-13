@@ -4,7 +4,8 @@
 #
 #   scripts/upload-ppa.sh [codename]
 #
-# The upstream version is the one in meson.build, plus +git<date>.<commit>
+# The upstream version is the one in meson.build, plus +git<UTC date and time>.<commit>
+# (the time keeps the versions in order; the commit hash alone does not)
 # of the last commit outside debian/ and scripts/ when that is not the tag
 # v<version>: the orig tarball is that commit without debian/, debian/ comes
 # from HEAD, so a packaging change keeps the tarball. The package version
@@ -26,7 +27,7 @@ git -C "$ROOT" diff --quiet HEAD || { echo "error: uncommitted changes" >&2; exi
 CODE=$(git -C "$ROOT" log -1 --format=%H -- . ':(exclude)debian' ':(exclude)scripts')
 UPSTREAM=$(git -C "$ROOT" show "$CODE:meson.build" | sed -n "s/^  version: '\(.*\)',$/\1/p")
 if ! git -C "$ROOT" tag --points-at "$CODE" | grep -qx "v$UPSTREAM"; then
-  UPSTREAM=$UPSTREAM+git$(git -C "$ROOT" log -1 --date=format:%Y%m%d --format=%cd "$CODE").$(git -C "$ROOT" rev-parse --short=7 "$CODE")
+  UPSTREAM=$UPSTREAM+git$(TZ=UTC0 git -C "$ROOT" log -1 --date=format-local:%Y%m%d%H%M%S --format=%cd "$CODE").$(git -C "$ROOT" rev-parse --short=7 "$CODE")
 fi
 
 # the next upload number for versions $1<N>~$DIST
