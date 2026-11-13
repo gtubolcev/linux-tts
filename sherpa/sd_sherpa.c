@@ -28,6 +28,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <glib.h>
+#include <malloc.h>
 #include <math.h>
 #include <poll.h>
 #include <stdint.h>
@@ -80,6 +81,8 @@ static int cfg_threads = 0;
 static int cfg_steps = 5;
 static int cfg_first_chunk = 40;
 static gchar *cfg_preload = NULL;          /* a voice or model name */
+static int cfg_idle_timeout = 0;            /* s; 0 keeps the model */
+static gint64 last_use = 0;                 /* the last command of the server */
 static int debug_on = 0;
 
 static GPtrArray *models = NULL;
@@ -154,6 +157,8 @@ module_config (const char *configfile)
         cfg_steps = atoi (value);
       else if (g_ascii_strcasecmp (line, "SherpaFirstChunk") == 0)
         cfg_first_chunk = atoi (value);
+      else if (g_ascii_strcasecmp (line, "SherpaIdleTimeout") == 0)
+        cfg_idle_timeout = atoi (value);
       else if (g_ascii_strcasecmp (line, "SherpaPreload") == 0)
         {
           g_free (cfg_preload);
@@ -1006,9 +1011,31 @@ module_close (void)
 
 
 
+/* frees the model after SherpaIdleTimeout seconds without a command from
+ * the server; the next message loads it again */
+static void
+unload_if_idle (void)
+{
+  if (cfg_idle_timeout <= 0
+      || g_get_monotonic_time () - last_use < (gint64) cfg_idle_timeout * G_TIME_SPAN_SECOND)
+    return;
+  /* sherpa loads in this thread, nothing to wait for */
+  if (tts == NULL)
+    return;
+  SherpaOnnxDestroyOfflineTts (tts);
+  tts = NULL;
+  loaded_model = NULL;
+  /* give the freed heap back to the system */
+  malloc_trim (0);
+  DBG ("model unloaded after %d s without speech", cfg_idle_timeout);
+}
+
+
+
 int
 module_loop (void)
 {
+  last_use = g_get_monotonic_time ();
   if (cfg_preload != NULL)
     {
       /* SherpaPreload names a voice or a model */
@@ -1026,7 +1053,7 @@ module_loop (void)
   for (;;)
     {
       struct pollfd fd = { STDIN_FILENO, POLLIN, 0 };
-      int ret = poll (&fd, 1, -1);
+      int ret = poll (&fd, 1, cfg_idle_timeout > 0 ? 5000 : -1);
 
       if (ret < 0 && errno != EINTR)
         return -1;
@@ -1034,6 +1061,7 @@ module_loop (void)
         {
           if ((fd.revents & POLLIN) && module_process (STDIN_FILENO, 0) == 0)
             quit_requested = TRUE;
+          last_use = g_get_monotonic_time ();
           if (quit_requested)
             {
               module_close ();
@@ -1045,5 +1073,6 @@ module_loop (void)
               return -1;
             }
         }
+      unload_if_idle ();
     }
 }
