@@ -1,4 +1,4 @@
-linux-tts (0.1.0-1) resolute; urgency=medium
+speech-dispatcher-modules (0.1.0-1) resolute; urgency=medium
 
   * Initial release: speech-dispatcher modules for Vosk TTS, Kokoro,
     TeraTTSv2 and Silero.
