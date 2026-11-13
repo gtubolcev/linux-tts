@@ -11,7 +11,7 @@ K=/home/grigory/Storage/Claude/kokoro-ru
 MODEL=${MODEL:-$K/model}
 RU_DICT=${RU_DICT:-$K/data/espeak-ng-data/ru_dict}
 OUT=${OUT:-$K/deb}
-VER=0.1-2~local
+VER=0.1-3~local
 MVER=0.1-1~local
 SYS=/usr/lib/x86_64-linux-gnu/espeak-ng-data
 rm -rf "$OUT/root"; mkdir -p "$OUT/root"
@@ -73,7 +73,8 @@ Comment: compiled from ru_rules, ru_list and ru_emoji of espeak-ng master
  (688cb60), which honour the stress mark U+0301.
 X
 for f in sd_kokoro.c kokoro.c ru-g2p.c; do gzip -9n -c $HERE/$f > $D/$f.gz; done
-install -m644 $HERE/kokoro.h $HERE/ru-g2p.h $D/
+gzip -9n -c $HERE/../common/ru-stress.c > $D/ru-stress.c.gz
+install -m644 $HERE/kokoro.h $HERE/ru-g2p.h $HERE/../common/ru-stress.h $D/
 cat > $W/DEBIAN/control <<X
 Package: speech-dispatcher-kokoro
 Version: $VER

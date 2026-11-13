@@ -33,5 +33,6 @@ DESTDIR=$PWD/stage cmake --install build
 | pocket | CC-BY-4.0 | yes |
 | supertonic-3 | OpenRAIL-M (model), MIT (code) | to check: OpenRAIL-M has use restrictions |
 | kokoro-tts-model-ru | OpenRAIL (kokoro-ru) | to check, as above |
+| teratts-model-v2 | OpenRAIL-M + commercial attribution (TeraSpace); LICENSE and LICENSE-OPENRAIL must ship with it | to check, as Supertonic |
 | mms-ru | CC-BY-NC-4.0 | no, non-commercial |
 | Silero | CC BY-NC-SA 4.0 | no, installed by the user |
