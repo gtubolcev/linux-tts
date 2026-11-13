@@ -7,6 +7,7 @@ Build-Depends: debhelper-compat (= 13),
                libespeak-ng-dev,
                libglib2.0-dev (>= 2.70),
                libjson-glib-dev,
+               libsherpa-onnx-dev,
                libonnxruntime-dev,
                libspeechd-dev (>= 0.12),
                meson,
@@ -50,6 +51,17 @@ Description: Speech Dispatcher module for TeraTTSv2 voices
  as English; numbers are spelt out; the Russian stress marks come from the
  dictionary of Vosk TTS. The model is loaded into the module once and stays
  loaded. Settings in /etc/speech-dispatcher/modules/teratts.conf.
+
+Package: speech-dispatcher-sherpa
+Architecture: any
+# libsherpa-onnx-c-api.so has no versioned soname, so no shlibs entry
+Depends: sherpa-onnx (>= 2.0.1), speech-dispatcher (>= 0.12), ${misc:Depends}, ${shlibs:Depends}
+Description: Speech Dispatcher module for sherpa-onnx voices
+ Speaks with the text to speech models of sherpa-onnx through its C API:
+ Supertonic, Pocket TTS and VITS models on characters. Models are looked
+ up in /usr/share/sherpa-onnx/tts and ~/.local/share/sherpa-onnx/tts; a
+ model is loaded into the module once and stays loaded.
+ Settings in /etc/speech-dispatcher/modules/sherpa.conf.
 
 Package: speech-dispatcher-silero
 Architecture: any
