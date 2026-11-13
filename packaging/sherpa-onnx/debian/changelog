@@ -1,5 +1,7 @@
-sherpa-onnx (2.0.1+deps-1) resolute; urgency=medium
+sherpa-onnx (2.0.1+deps2-1) resolute; urgency=medium
 
+  * Keep the times of the release in the orig tarball; the files at 1970
+    made Launchpad reject the .debs.
   * Package the v2.0.1 release for the linux-tts PPA, built against
     Ubuntu's onnxruntime; the CMake dependencies are in the orig tarball.
 
