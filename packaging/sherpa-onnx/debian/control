@@ -1,0 +1,30 @@
+Source: sherpa-onnx
+Section: sound
+Priority: optional
+Maintainer: Grigory Tuboltsev <gtubolcev@gmail.com>
+Build-Depends: debhelper-compat (= 13), cmake, libonnxruntime-dev, patchelf
+Standards-Version: 4.7.2
+Homepage: https://github.com/k2-fsa/sherpa-onnx
+Rules-Requires-Root: no
+
+Package: sherpa-onnx
+Architecture: amd64
+Depends: ${shlibs:Depends}, ${misc:Depends}
+Recommends: pulseaudio-utils | alsa-utils
+Description: local speech recognition and synthesis (sherpa-onnx)
+ sherpa-onnx runs speech models with ONNX Runtime on the CPU:
+ text to speech (VITS/Piper, Matcha, Kokoro, Kitten, Pocket TTS,
+ Supertonic, ZipVoice), speech recognition, VAD, speaker diarization.
+ Models: https://github.com/k2-fsa/sherpa-onnx/releases
+ .
+ This package has the command line tools, sherpa-say (speaks a text with
+ a model directory) and the C and C++ API libraries.
+
+Package: libsherpa-onnx-dev
+Architecture: amd64
+Section: libdevel
+Depends: sherpa-onnx (= ${binary:Version}), libonnxruntime-dev, ${misc:Depends}
+Description: local speech recognition and synthesis (sherpa-onnx) - headers
+ sherpa-onnx runs speech models with ONNX Runtime on the CPU.
+ .
+ This package has the headers of the C and C++ API and sherpa-onnx.pc.

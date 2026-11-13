@@ -1,0 +1,6 @@
+sherpa-onnx (2.0.1+deps-1) resolute; urgency=medium
+
+  * Package the v2.0.1 release for the linux-tts PPA, built against
+    Ubuntu's onnxruntime; the CMake dependencies are in the orig tarball.
+
+ -- Grigory Tuboltsev <gtubolcev@gmail.com>  Fri, 13 Nov 2026 12:00:00 +0100

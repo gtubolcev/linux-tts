@@ -1,0 +1,11 @@
+prefix=/usr
+includedir=${prefix}/include
+libdir=/@LIBDIR@
+
+Name: sherpa-onnx
+Description: Speech recognition and synthesis with ONNX Runtime
+URL: https://github.com/k2-fsa/sherpa-onnx
+Version: @VERSION@
+Cflags: -I${includedir}
+Libs: -L${libdir} -lsherpa-onnx-c-api
+Libs.private: -lonnxruntime
