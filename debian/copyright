@@ -1,5 +1,5 @@
 Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
-Upstream-Name: linux-tts
+Upstream-Name: speech-dispatcher-modules
 Upstream-Contact: Grigory Tuboltsev <gtubolcev@gmail.com>
 Source: https://github.com/gtubolcev/linux-tts
 
