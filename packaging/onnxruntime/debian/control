@@ -1,0 +1,32 @@
+Source: onnxruntime
+Section: science
+Priority: optional
+Maintainer: Grigory Tuboltsev <gtubolcev@gmail.com>
+Build-Depends: debhelper-compat (= 13), cmake (>= 3.28), python3, patch
+Standards-Version: 4.7.2
+Homepage: https://onnxruntime.ai
+Rules-Requires-Root: no
+
+Package: libonnxruntime1
+Architecture: amd64
+Section: libs
+Multi-Arch: same
+Depends: ${shlibs:Depends}, ${misc:Depends}
+Description: ONNX Runtime - inference engine for ONNX models (library)
+ ONNX Runtime runs machine learning models in the ONNX format. This build
+ has only the CPU execution provider; its dependencies (protobuf, onnx,
+ abseil, re2, ...) are linked in statically.
+ .
+ It is for Ubuntu releases that have no onnxruntime package, for the
+ speech modules of the linux-tts PPA.
+
+Package: libonnxruntime-dev
+Architecture: amd64
+Section: libdevel
+Multi-Arch: same
+Depends: libonnxruntime1 (= ${binary:Version}), ${misc:Depends}
+Description: ONNX Runtime - inference engine for ONNX models (headers)
+ ONNX Runtime runs machine learning models in the ONNX format.
+ .
+ This package has the headers of the C and C++ API, libonnxruntime.pc and
+ the CMake package configuration.
