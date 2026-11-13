@@ -1,0 +1,3 @@
+usr/lib/speech-dispatcher-modules/sd_kokoro
+etc/speech-dispatcher/modules/kokoro.conf
+usr/share/speech-dispatcher-kokoro

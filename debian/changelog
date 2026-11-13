@@ -1,0 +1,6 @@
+linux-tts (0.1.0-1) resolute; urgency=medium
+
+  * Initial release: speech-dispatcher modules for Vosk TTS, Kokoro,
+    TeraTTSv2 and Silero.
+
+ -- Grigory Tuboltsev <gtubolcev@gmail.com>  Fri, 13 Nov 2026 02:00:00 +0100

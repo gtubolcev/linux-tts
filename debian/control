@@ -1,0 +1,71 @@
+Source: linux-tts
+Section: sound
+Priority: optional
+Maintainer: Grigory Tuboltsev <gtubolcev@gmail.com>
+Build-Depends: debhelper-compat (= 13),
+               espeak-ng,
+               libespeak-ng-dev,
+               libglib2.0-dev (>= 2.70),
+               libjson-glib-dev,
+               libonnxruntime-dev,
+               libspeechd-dev (>= 0.12),
+               meson,
+               pkgconf
+Standards-Version: 4.7.0
+Homepage: https://github.com/gtubolcev/linux-tts
+Vcs-Browser: https://github.com/gtubolcev/linux-tts
+Vcs-Git: https://github.com/gtubolcev/linux-tts.git
+Rules-Requires-Root: no
+
+Package: speech-dispatcher-vosk
+Architecture: any
+Depends: speech-dispatcher (>= 0.12), ${misc:Depends}, ${shlibs:Depends}
+Recommends: vosk-tts-model-ru-0.9-multi
+Description: Speech Dispatcher module for Vosk TTS voices
+ Speaks with the neural voices of Vosk TTS (Alpha Cephei) through ONNX
+ Runtime, without Python: the Russian multi-speaker model has 5 voices
+ (3 female, 2 male) with stress marks from a large dictionary and the
+ sentence intonation from a BERT model. The model is loaded into the
+ module once and stays loaded.
+ Settings in /etc/speech-dispatcher/modules/vosk.conf.
+
+Package: speech-dispatcher-kokoro
+Architecture: any
+Depends: espeak-ng-data, speech-dispatcher (>= 0.12), ${misc:Depends}, ${shlibs:Depends}
+Recommends: kokoro-tts-model-ru, vosk-tts-model-ru-0.9-multi
+Description: Speech Dispatcher module for Kokoro voices
+ Speaks with Kokoro neural voices through ONNX Runtime, without Python.
+ So far Russian (the kokoro-ru model): stress marks from the dictionary of
+ Vosk TTS, phonemes from espeak-ng with a dictionary that honours them.
+ The model is loaded into the module once and stays loaded.
+ Settings in /etc/speech-dispatcher/modules/kokoro.conf.
+
+Package: speech-dispatcher-teratts
+Architecture: any
+Depends: speech-dispatcher (>= 0.12), ${misc:Depends}, ${shlibs:Depends}
+Recommends: teratts-model-v2, vosk-tts-model-ru-0.9-multi
+Description: Speech Dispatcher module for TeraTTSv2 voices
+ Speaks with the TeraTTSv2 voices of TeraSpace (Russian and English, 44.1 kHz)
+ through ONNX Runtime, without Python. Latin words in Russian text are read
+ as English; numbers are spelt out; the Russian stress marks come from the
+ dictionary of Vosk TTS. The model is loaded into the module once and stays
+ loaded. Settings in /etc/speech-dispatcher/modules/teratts.conf.
+
+Package: speech-dispatcher-silero
+Architecture: any
+Depends: python3,
+         python3-num2words,
+         python3-numpy,
+         python3-onnxruntime,
+         speech-dispatcher (>= 0.12),
+         ${misc:Depends},
+         ${shlibs:Depends}
+Description: Speech Dispatcher module for Silero TTS (Russian)
+ Speaks with the neural Silero voices (v5_6_ru: aidar, baya, eugene,
+ kseniya, xenia). The model runs in a resident silero-server (ONNX Runtime,
+ CPU), loaded once; it survives speech-dispatcher reloads and stops after an
+ hour without speech. Settings in /etc/speech-dispatcher/modules/silero.conf.
+ .
+ The model and its runtime are licensed CC BY-NC-SA 4.0 (non-commercial use
+ only) and are not part of this package; install them, with their licences,
+ into ~/.local/share/silero-tts/v5_6_ru.
