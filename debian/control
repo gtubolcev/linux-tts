@@ -9,7 +9,7 @@ Build-Depends: debhelper-compat (= 13),
                libjson-glib-dev,
                libsherpa-onnx-dev,
                libonnxruntime-dev,
-               libspeechd-dev (>= 0.12),
+               libspeechd-dev (>= 0.12~),
                meson,
                pkgconf
 Standards-Version: 4.7.0
@@ -20,7 +20,7 @@ Rules-Requires-Root: no
 
 Package: speech-dispatcher-vosk
 Architecture: any
-Depends: speech-dispatcher (>= 0.12), ${misc:Depends}, ${shlibs:Depends}
+Depends: speech-dispatcher (>= 0.12~), ${misc:Depends}, ${shlibs:Depends}
 Recommends: vosk-tts-model-ru-0.9-multi
 Description: Speech Dispatcher module for Vosk TTS voices
  Speaks with the neural voices of Vosk TTS (Alpha Cephei) through ONNX
@@ -32,7 +32,7 @@ Description: Speech Dispatcher module for Vosk TTS voices
 
 Package: speech-dispatcher-kokoro
 Architecture: any
-Depends: espeak-ng-data, speech-dispatcher (>= 0.12), ${misc:Depends}, ${shlibs:Depends}
+Depends: espeak-ng-data, speech-dispatcher (>= 0.12~), ${misc:Depends}, ${shlibs:Depends}
 Recommends: kokoro-tts-model-ru, vosk-tts-model-ru-0.9-multi
 Description: Speech Dispatcher module for Kokoro voices
  Speaks with Kokoro neural voices through ONNX Runtime, without Python.
@@ -43,7 +43,7 @@ Description: Speech Dispatcher module for Kokoro voices
 
 Package: speech-dispatcher-teratts
 Architecture: any
-Depends: speech-dispatcher (>= 0.12), ${misc:Depends}, ${shlibs:Depends}
+Depends: speech-dispatcher (>= 0.12~), ${misc:Depends}, ${shlibs:Depends}
 Recommends: teratts-model-v2, vosk-tts-model-ru-0.9-multi
 Description: Speech Dispatcher module for TeraTTSv2 voices
  Speaks with the TeraTTSv2 voices of TeraSpace (Russian and English, 44.1 kHz)
@@ -55,7 +55,7 @@ Description: Speech Dispatcher module for TeraTTSv2 voices
 Package: speech-dispatcher-sherpa
 Architecture: any
 # libsherpa-onnx-c-api.so has no versioned soname, so no shlibs entry
-Depends: sherpa-onnx (>= 2.0.1), speech-dispatcher (>= 0.12), ${misc:Depends}, ${shlibs:Depends}
+Depends: sherpa-onnx (>= 2.0.1), speech-dispatcher (>= 0.12~), ${misc:Depends}, ${shlibs:Depends}
 Description: Speech Dispatcher module for sherpa-onnx voices
  Speaks with the text to speech models of sherpa-onnx through its C API:
  Supertonic, Pocket TTS and VITS models on characters. Models are looked
@@ -69,7 +69,7 @@ Depends: python3,
          python3-num2words,
          python3-numpy,
          python3-onnxruntime,
-         speech-dispatcher (>= 0.12),
+         speech-dispatcher (>= 0.12~),
          ${misc:Depends},
          ${shlibs:Depends}
 Description: Speech Dispatcher module for Silero TTS (Russian)

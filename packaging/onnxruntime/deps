@@ -1,0 +1,15 @@
+# The entries of cmake/deps.txt that a CPU-only build of the shared library
+# fetches (found with a trial configure on noble); URL and SHA1 come from
+# the release's deps.txt
+abseil_cpp
+date
+eigen
+flatbuffers
+json
+microsoft_gsl
+mp11
+onnx
+protobuf
+pytorch_cpuinfo
+re2
+safeint

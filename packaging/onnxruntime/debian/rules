@@ -1,0 +1,22 @@
+#!/usr/bin/make -f
+# The archives that CMake would fetch are in mirror/ of the orig tarball
+# (see packaging/onnxruntime/make-source.sh); CMake takes them from there.
+# LTO over the statically linked dependencies takes hours and much memory
+export DEB_BUILD_MAINT_OPTIONS = hardening=+all optimize=-lto
+
+%:
+	dh $@ --buildsystem=cmake --sourcedirectory=cmake
+
+# debhelper sets FETCHCONTENT_FULLY_DISCONNECTED=ON, which skips unpacking
+# the local archives too; the URLs are local files, nothing is downloaded
+override_dh_auto_configure:
+	dh_auto_configure -- -DCMAKE_BUILD_TYPE=Release \
+	  -DFETCHCONTENT_FULLY_DISCONNECTED=OFF \
+	  -Donnxruntime_BUILD_SHARED_LIB=ON \
+	  -Donnxruntime_BUILD_UNIT_TESTS=OFF \
+	  -Donnxruntime_BUILD_BENCHMARKS=OFF \
+	  -Donnxruntime_ENABLE_PYTHON=OFF \
+	  -Donnxruntime_USE_XNNPACK=OFF \
+	  -DPython_EXECUTABLE=/usr/bin/python3
+
+override_dh_auto_test:
