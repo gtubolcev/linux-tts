@@ -22,12 +22,20 @@ fetch() { # file url sha256
 fetch sherpa-onnx-$VER.tar.gz https://github.com/k2-fsa/sherpa-onnx/archive/refs/tags/v$VER.tar.gz "$(cat "$HERE/release.sha256")"
 while read -r f url sum; do fetch "$f" "$url" "$sum"; done < "$HERE/deps.txt"
 
-ORIG=sherpa-onnx_$VER+deps.orig.tar.xz
+# +deps2: the first orig tarball had all its times at 1970, which
+# Launchpad rejects in the .debs; the name of a rejected orig is taken
+ORIG=sherpa-onnx_$VER+deps2.orig.tar.xz
 rm -rf "$WORK/$DIST"; mkdir -p "$WORK/$DIST"; cd "$WORK/$DIST"
 tar xf "$CACHE/sherpa-onnx-$VER.tar.gz"
 S=sherpa-onnx-$VER
 while read -r f _; do cp "$CACHE/$f" "$S/"; done < "$HERE/deps.txt"
-tar --sort=name --mtime=@0 --owner=0 --group=0 --numeric-owner -cJf "$ORIG" "$S"
+# the times of the release; the copied dependency tarballs are clamped to
+# the newest of them, so the tarball does not depend on the download time
+NEWEST=$(find "$S" -type f ! -name '*.tar.gz' ! -name '*.zip' -printf '%T@\n' | sort -n | tail -1)
+NEWEST=${NEWEST%.*}
+[ "$NEWEST" -gt 946684800 ] || { echo "error: no usable times in the release" >&2; exit 1; }
+find "$S" -newermt "@$NEWEST" -exec touch -h -d "@$NEWEST" {} +
+tar --sort=name --owner=0 --group=0 --numeric-owner --owner=0 --group=0 --numeric-owner -cJf "$ORIG" "$S"
 cp -r "$HERE/debian" "$S/"
 cd "$S"
 N=1
