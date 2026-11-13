@@ -1,0 +1,179 @@
+Description: Fix leaks and stale state on configuration reload
+ - symbols: SIGHUP re-reads the configuration, which lists the symbol files
+   again, so the files were appended once more and every punctuation symbol
+   was spoken once per reload.  Clear the list on reload and rebuild the
+   dictionaries when it changed.
+ - output: close the audio connection the server opened for a module when
+   the module is closed; a reload leaked one per module that had spoken.
+   The connection in use by the speak queue is closed once replaced.
+ - pulse: forget the connection parameters when the connection is closed,
+   so that the next track reopens it after a write error (sound server
+   restarted) instead of failing forever; guard end/stop/feed against the
+   closed connection.
+ .
+ The port to 0.12.0~rc2 (noble) keeps only the reset in pulse.c: rc2 plays
+ a track in one pulse_play() call, which already reopens the connection.
+Author: Grigory Tuboltsev
+Forwarded: no
+Last-Update: 2026-11-13
+
+--- a/src/audio/pulse.c
++++ b/src/audio/pulse.c
+@@ -178,6 +178,11 @@
+ 		pa_simple_free(pulse_id->pa_simple);
+ 		pulse_id->pa_simple = NULL;
+ 	}
++	/* Make the next pulse_begin open a new connection, e.g. after a write
++	 * error when the sound server went away */
++	pulse_id->pa_current_rate = -1;
++	pulse_id->pa_current_bps = -1;
++	pulse_id->pa_current_channels = -1;
+ }
+ 
+ static AudioID *pulse_open(void **pars)
+--- a/src/server/module.c
++++ b/src/server/module.c
+@@ -363,6 +363,7 @@
+ 		return NULL;
+ 	}
+ 
++	module->audio = NULL;
+ 	module->name = (char *)g_strdup(mod_name);
+ 	module->progdir = g_strdup(mod_prog_dir);
+ 	module->configdir = g_strdup(mod_cfg_dir);
+--- a/src/server/output.c
++++ b/src/server/output.c
+@@ -106,6 +106,11 @@
+ 	g_strfreev(outputs);
+ }
+ 
++/* The audio connection of a closed module that may still be in use by the
++ * speak queue; it is closed once another one replaces it.  Protected by the
++ * output layer mutex. */
++static AudioID *orphan_audio_id;
++
+ void output_set_speaking_monitor(TSpeechDMessage * msg, OutputModule * output)
+ {
+ 	/* Set the speaking-monitor so that we know who is speaking */
+@@ -113,7 +118,12 @@
+ 	if (output->audio) {
+ 		if (output->audio == AUDIOID_TOOPEN)
+ 			output_open_audio(output);
+-		module_audio_id = output->audio;
++		if (output->audio)
++			module_audio_id = output->audio;
++	}
++	if (orphan_audio_id && orphan_audio_id != module_audio_id) {
++		spd_audio_close(orphan_audio_id);
++		orphan_audio_id = NULL;
+ 	}
+ 	speaking_uid = msg->settings.uid;
+ 	speaking_gid = msg->settings.reparted;
+@@ -1403,6 +1413,19 @@
+ 		    "ERROR: waitpid() failed when waiting for child (module).");
+ 	}
+ 
++	/* Close the audio connection the server opened for the module, else
++	 * every reload of the configuration leaks one per module that spoke. */
++	if (output->audio && output->audio != AUDIOID_TOOPEN) {
++		if (output->audio == module_audio_id) {
++			if (orphan_audio_id)
++				spd_audio_close(orphan_audio_id);
++			orphan_audio_id = output->audio;
++		} else {
++			spd_audio_close(output->audio);
++		}
++	}
++	output->audio = NULL;
++
+ 	OL_RET(0);
+ }
+ 
+--- a/src/server/speechd.c
++++ b/src/server/speechd.c
+@@ -52,6 +52,7 @@
+ #include "set.h"
+ #include "options.h"
+ #include "server.h"
++#include "symbols.h"
+ 
+ #include <i18n.h>
+ 
+@@ -778,6 +779,8 @@
+ 		configfile->includepath = g_strdup(SpeechdOptions.conf_dir);
+ 		MSG(5, "Config file include path is: %s",
+ 		    configfile->includepath);
++		/* the file lists them again */
++		symbols_preprocessing_clear_files();
+ 		if (dotconf_command_loop(configfile) == 0)
+ 			DIE("Error reading config file\n");
+ 		dotconf_cleanup(configfile);
+--- a/src/server/symbols.c
++++ b/src/server/symbols.c
+@@ -156,6 +156,11 @@
+ 
+ /* List of files to load */
+ static GSList *symbols_files;
++/* symbols_files is filled by the main thread when the configuration is read
++ * (again on SIGHUP) and used by the speak thread; symbols_files_changed tells
++ * the speak thread to drop the caches built from the old list */
++static GMutex symbols_files_lock;
++static gboolean symbols_files_changed;
+ 
+ SymLvl str2SymLvl(const char *str)
+ {
+@@ -744,7 +749,21 @@
+ void symbols_preprocessing_add_file(const char *name)
+ {
+ 	MSG2(5, "symbols", "Will load symbol file %s", name);
++	g_mutex_lock(&symbols_files_lock);
+ 	symbols_files = g_slist_append(symbols_files, g_strdup(name));
++	symbols_files_changed = TRUE;
++	g_mutex_unlock(&symbols_files_lock);
++}
++
++/* Forgets the files, before the configuration is read again: otherwise every
++ * reload adds them once more and each symbol is spoken once per reload */
++void symbols_preprocessing_clear_files(void)
++{
++	g_mutex_lock(&symbols_files_lock);
++	g_slist_free_full(symbols_files, g_free);
++	symbols_files = NULL;
++	symbols_files_changed = TRUE;
++	g_mutex_unlock(&symbols_files_lock);
+ }
+ 
+ /*------------------ Speech symbol compilation & processing -----------------*/
+@@ -1406,8 +1425,22 @@
+ 	}
+ 
+ 	MSG2(5, "symbols", "processing at level %d, supporting level %d", level, support_level);
++	g_mutex_lock(&symbols_files_lock);
++	if (symbols_files_changed) {
++		/* the processors point into the dictionaries: free them first */
++		if (G_processors) {
++			g_hash_table_destroy(G_processors);
++			G_processors = NULL;
++		}
++		if (G_symbols_dicts) {
++			g_hash_table_destroy(G_symbols_dicts);
++			G_symbols_dicts = NULL;
++		}
++		symbols_files_changed = FALSE;
++	}
+ 	processed = process_speech_symbols(locale,
+ 		msg->buf, level, support_level, msg->settings.ssml_mode);
++	g_mutex_unlock(&symbols_files_lock);
+ 	if (processed) {
+ 		MSG2(5, "symbols", "before: |%s|", msg->buf);
+ 		g_free(msg->buf);
+--- a/src/server/symbols.h
++++ b/src/server/symbols.h
+@@ -25,6 +25,7 @@
+ 
+ /* Load symbols from this file */
+ void symbols_preprocessing_add_file(const char *name);
++void symbols_preprocessing_clear_files(void);
+ 
+ /* Converts symbols to words corresponding to a level into a message. */
+ void insert_symbols(TSpeechDMessage *msg, int punct_missing);
