@@ -133,6 +133,18 @@ heavy models, LLM preprocessing of the text, etc. — not part of speech-setting
 F5-TTS (Russian fine-tune "Misha"; short context), OmniVoice (k2-fsa; good cloning,
 stress issues), Qwen3-TTS, CosyVoice3, Higgs v3, FireRedTTS, MOSS, VibeVoice.
 
+- **Haru-4B** (huggingface.co/higurashi-ai/Haru-4B, code github.com/higurashi-ai/Haru;
+  added 2026-11-13 by the user) — strictly not a TTS: a full-duplex speech-to-speech
+  *dialogue* model (listens and speaks at once, 133 ms frames at 7.5 Hz). Qwen3.5-4B text
+  backbone + VibeVoice causal acoustic codec (24 kHz, continuous 64-dim latents) + a 4-layer
+  MLP MeanFlow head, one sampling step; character set by a text card, voice by a 3 s–3 min
+  reference clip. Languages en, es, pt, de, fr, zh, ja, **ru**, ko. Apache-2.0 weights
+  (5.3 B params, 10.5 GB bf16). Needs an NVIDIA GPU with ~12 GB (PyTorch), MLX on macOS,
+  vLLM-Omni plugin; pretrained base "for research", no instruction following. Not usable as a
+  speech-dispatcher module (it answers, it does not read text). Interesting for the far-future
+  voice-assistant / "talk to the desktop" idea, not for speech-settings; a quantised CPU or
+  Vulkan port (ggml) would be needed for laptops like the user's.
+
 - **ebooker** (romadinov.github.io/ebooker, github.com/romadinov/ebooker; added 2026-11-10)
   — EPUB → M4B audiobook pipeline (Python/uv, Apple Silicon or NVIDIA), not an engine but
   a good field report on Russian TTS. Every chunk is re-transcribed with Whisper and checked
