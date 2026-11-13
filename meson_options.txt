@@ -1,0 +1,6 @@
+option('vosk', type: 'feature', value: 'auto', description: 'sd_vosk, Vosk TTS')
+option('kokoro', type: 'feature', value: 'auto', description: 'sd_kokoro, Russian Kokoro')
+option('teratts', type: 'feature', value: 'auto', description: 'sd_teratts, TeraTTSv2')
+option('sherpa', type: 'feature', value: 'auto', description: 'sd_sherpa, sherpa-onnx models')
+option('silero', type: 'feature', value: 'auto', description: 'sd_silero and silero-server (the model is not included)')
+option('espeak_data', type: 'string', value: '', description: 'the system espeak-ng-data directory (default: <espeak-ng prefix>/lib/x86_64-linux-gnu/espeak-ng-data)')
