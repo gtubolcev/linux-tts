@@ -1,0 +1,33 @@
+#!/usr/bin/make -f
+# piper and its private libpiper.so live in /usr/lib/piper-tts, with the
+# espeak-ng data next to the executable, where piper looks for it.
+export DEB_BUILD_MAINT_OPTIONS = hardening=+all
+
+L = debian/tmp/usr/lib/piper-tts
+
+%:
+	dh $@ --buildsystem=cmake --sourcedirectory=libpiper
+
+override_dh_auto_configure:
+	dh_auto_configure -- -DCMAKE_BUILD_TYPE=Release \
+		-DCMAKE_INSTALL_PREFIX=/usr/lib/piper-tts \
+		-DCMAKE_INSTALL_LIBDIR=lib -DCMAKE_INSTALL_BINDIR=bin \
+		-DCMAKE_INSTALL_DATAROOTDIR=share -DCMAKE_INSTALL_INCLUDEDIR=include \
+		-DCMAKE_INSTALL_RPATH='$$ORIGIN'
+
+override_dh_auto_install:
+	dh_auto_install --destdir=debian/tmp
+	mv $(L)/bin/piper_exe $(L)/piper
+	mv $(L)/lib/libpiper.so $(L)/
+	mv $(L)/share/espeak-ng-data $(L)/
+	rm -rf $(L)/bin $(L)/lib $(L)/share $(L)/include
+
+# the tests download a voice
+override_dh_auto_test:
+
+# libpiper.so is private (no soname of its own to export)
+override_dh_makeshlibs:
+	dh_makeshlibs --no-scripts -Xusr/lib/piper-tts
+
+override_dh_shlibdeps:
+	dh_shlibdeps -l$(CURDIR)/$(L)

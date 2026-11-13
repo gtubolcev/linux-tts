@@ -1,0 +1,23 @@
+Source: piper-tts
+Section: sound
+Priority: optional
+Maintainer: Grigory Tuboltsev <gtubolcev@gmail.com>
+Build-Depends: debhelper-compat (= 13), cmake, libonnxruntime-dev,
+ libsonic-dev
+Standards-Version: 4.7.0
+Homepage: https://github.com/OHF-Voice/piper1-gpl
+Rules-Requires-Root: no
+
+Package: piper-tts
+Architecture: amd64
+Depends: ${misc:Depends}, ${shlibs:Depends}
+Recommends: pulseaudio-utils | alsa-utils
+Description: fast local neural text to speech (Piper)
+ Piper (piper1-gpl) synthesizes speech with VITS voices exported to ONNX.
+ Voices: https://huggingface.co/rhasspy/piper-voices
+ .
+ The command is piper-tts (the name piper belongs to another package).
+ Example: echo Hello | piper-tts -m en_US-lessac-high.onnx -f - | paplay
+ .
+ onnxruntime chooses the number of threads; PIPER_NUM_THREADS=1 restores
+ the single thread of upstream.

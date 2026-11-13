@@ -1,0 +1,1 @@
+espeak-ng-212928b.tar.gz https://github.com/espeak-ng/espeak-ng/archive/212928b394a96e8fd2096616bfd54e17845c48f6.tar.gz 1f201cabc73e569a7cb434d40d3b30980f923010f8ecd4d1c4ae94691ac2888a

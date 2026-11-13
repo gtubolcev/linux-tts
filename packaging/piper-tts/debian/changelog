@@ -1,0 +1,8 @@
+piper-tts (1.8.0+deps-1) resolute; urgency=medium
+
+  * Package the v1.8.0 release of piper1-gpl for the linux-tts PPA, built
+    against Ubuntu's onnxruntime; espeak-ng 212928b, which upstream
+    downloads, is in the orig tarball.
+  * Let onnxruntime choose the number of threads (PIPER_NUM_THREADS).
+
+ -- Grigory Tuboltsev <gtubolcev@gmail.com>  Fri, 13 Nov 2026 14:00:00 +0100

@@ -1,3 +1,9 @@
+Description: Let onnxruntime choose the number of threads
+ piper 1.8.0 fixes the intra-op threads at 1. 0 lets onnxruntime use one
+ thread per physical core; PIPER_NUM_THREADS overrides it.
+Author: Grigory Tuboltsev <gtubolcev@gmail.com>
+Forwarded: no
+
 diff --git a/libpiper/src/piper.cpp b/libpiper/src/piper.cpp
 index 56b61b0..c86a239 100644
 --- a/libpiper/src/piper.cpp

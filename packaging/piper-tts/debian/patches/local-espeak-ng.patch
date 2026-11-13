@@ -1,0 +1,21 @@
+Description: Build espeak-ng from the tarball in the orig tarball
+ The build has no network; the tarball is the same commit 212928b.
+Author: Grigory Tuboltsev <gtubolcev@gmail.com>
+Forwarded: not-needed
+
+diff --git a/libpiper/CMakeLists.txt b/libpiper/CMakeLists.txt
+index d43e714..185c0e3 100644
+--- a/libpiper/CMakeLists.txt
++++ b/libpiper/CMakeLists.txt
+@@ -36,8 +36,9 @@ else()
+ endif()
+ 
+ ExternalProject_Add(espeak_ng_external
+-    GIT_REPOSITORY https://github.com/espeak-ng/espeak-ng.git
+-    GIT_TAG 212928b394a96e8fd2096616bfd54e17845c48f6  # 2025-Mar-22
++    # the same commit, from the tarball in the orig tarball (no network)
++    URL ${CMAKE_SOURCE_DIR}/../espeak-ng-212928b.tar.gz
++    URL_HASH SHA256=1f201cabc73e569a7cb434d40d3b30980f923010f8ecd4d1c4ae94691ac2888a
+     PREFIX ${ESPEAKNG_BUILD_DIR}
+     CMAKE_ARGS
+         -DCMAKE_INSTALL_PREFIX=${ESPEAKNG_INSTALL_DIR}
