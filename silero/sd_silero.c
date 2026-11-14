@@ -55,7 +55,7 @@ static gchar *cfg_dir = NULL;
 static gchar *cfg_version = NULL;
 /* SileroVoice "<lang>" "<voice>": the voice of a language, before the voice type */
 static GHashTable *cfg_lang_voice = NULL;
-static int cfg_idle_timeout = 3600;
+static int cfg_idle_timeout = 300;
 static int cfg_threads = 0;
 static gboolean cfg_preload = FALSE;
 static int cfg_load_timeout = 60;
