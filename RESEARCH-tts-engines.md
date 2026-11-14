@@ -413,6 +413,13 @@ Measured (protocol test, busy laptop): "Кафе на углу открылос�
     XTTS base is CPML, so effectively non-commercial and heavy. Not for the PPA.
   - YauhenBichel/belarusian-tts (Apache) — plans a Piper be voice; currently uses
     OmniVoice. Watch it.
+- **German: Thorsten-Voice** (thorsten-voice.de, added 2026-11-14 by the user) — one
+  volunteer (Thorsten Müller) gave his voice since 2019; datasets CC0, free also for
+  commercial use, runs offline. Piper: de_DE-thorsten low / medium / high (63–113 MB) and
+  thorsten_emotional medium (8 styles, 76 MB). sherpa-onnx ships all four as
+  vits-piper-de_DE-thorsten-* (int8 20–35 MB, fp16 35–58 MB) — usable through sd_sherpa
+  as they are. Coqui: de/thorsten tacotron2-DDC, tacotron2-DCA, vits (Apache-2.0). The
+  obvious first German voice for the PPA.
 - **k2-fsa/OmniVoice** — 612M, Qwen3-0.6B base, 600+ languages incl. be, kk, ky, tg, uz,
   tt, ba, hy, ka; zero-shot cloning. About 1 min per 2 s sentence on CPU (per
   belarusian-tts), so not a system voice; at most a source of reference/synthetic data
