@@ -1,0 +1,1 @@
+rm_conffile /etc/speech-dispatcher/modules/sherpa.conf 0.1.0+git20261114~

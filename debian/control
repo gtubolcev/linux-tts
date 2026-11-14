@@ -52,16 +52,56 @@ Description: Speech Dispatcher module for TeraTTSv2 voices
  dictionary of Vosk TTS. The model is loaded into the module once and stays
  loaded. Settings in /etc/speech-dispatcher/modules/teratts.conf.
 
-Package: speech-dispatcher-sherpa
+Package: speech-dispatcher-sherpa-onnx
 Architecture: any
 # libsherpa-onnx-c-api.so has no versioned soname, so no shlibs entry
 Depends: sherpa-onnx (>= 2.0.1), speech-dispatcher (>= 0.12~), ${misc:Depends}, ${shlibs:Depends}
+Recommends: sherpa-onnx-tts-supertonic-3 | sherpa-onnx-tts-pocket
+Suggests: speech-dispatcher-piper-sherpa-onnx
+Breaks: speech-dispatcher-sherpa (<< 0.1.0+git20261114~)
+Replaces: speech-dispatcher-sherpa (<< 0.1.0+git20261114~)
 Description: Speech Dispatcher module for sherpa-onnx voices
- Speaks with the text to speech models of sherpa-onnx through its C API:
- Supertonic, Pocket TTS and VITS models on characters. Models are looked
- up in /usr/share/sherpa-onnx/tts and ~/.local/share/sherpa-onnx/tts; a
- model is loaded into the module once and stays loaded.
- Settings in /etc/speech-dispatcher/modules/sherpa.conf.
+ Speaks with neural voices through sherpa-onnx: Supertonic 3 (31 languages,
+ among them Russian and English), Pocket TTS (English) and VITS models on
+ characters (MMS). Models are looked up in /usr/share/sherpa-onnx/tts and
+ ~/.local/share/sherpa-onnx/tts; the model is loaded with the first message
+ and freed after some minutes without speech.
+ Settings in /etc/speech-dispatcher/modules/sherpa-onnx.conf.
+
+Package: speech-dispatcher-piper-sherpa-onnx
+Architecture: all
+Depends: speech-dispatcher-sherpa-onnx (>= ${source:Version}),
+         piper-espeak-ng-data,
+         piper-voice,
+         ${misc:Depends}
+# the packaged voices, packaging/piper-voices/voices.list
+Recommends: piper-voice-ru-ru-dmitri-medium,
+            piper-voice-ru-ru-denis-medium,
+            piper-voice-en-us-ljspeech-medium,
+            piper-voice-en-us-john-medium,
+            piper-voice-en-gb-alba-medium,
+            piper-voice-de-de-thorsten-medium,
+            piper-voice-de-de-kerstin-low,
+            piper-voice-fr-fr-siwis-medium,
+            piper-voice-fr-fr-gilles-low,
+            piper-voice-es-es-davefx-medium,
+            piper-voice-it-it-paola-medium,
+            piper-voice-pl-pl-gosia-medium,
+            piper-voice-pl-pl-darkman-medium,
+            piper-voice-kk-kz-issai-high
+Description: Speech Dispatcher synthesizer for Piper voices
+ Speaks with Piper neural voices through sherpa-onnx, as the synthesizer
+ "piper-sherpa-onnx" (the module of speech-dispatcher-sherpa-onnx under
+ another name). The voices are the piper-voice-* packages; the other Piper
+ voices can be installed with the speech settings app.
+ Settings in /etc/speech-dispatcher/modules/piper-sherpa-onnx.conf.
+
+Package: speech-dispatcher-sherpa
+Architecture: all
+Section: oldlibs
+Depends: speech-dispatcher-sherpa-onnx, ${misc:Depends}
+Description: transitional package for speech-dispatcher-sherpa-onnx
+ The module was renamed to sd_sherpa-onnx; this package can be removed.
 
 Package: speech-dispatcher-silero
 Architecture: any

@@ -86,12 +86,18 @@ endif
 
 # -------------------------------------------------------------- sherpa
 sherpa = cc.find_library('sherpa-onnx-c-api', has_headers: ['sherpa-onnx/c-api/c-api.h'], required: false)
-if get_option('sherpa').require(sherpa.found(), error_message: 'sd_sherpa needs the sherpa-onnx C API').allowed()
-  executable('sd_sherpa', 'sherpa/sd_sherpa.c',
+# one module, two synthesizers: sd_piper-sherpa-onnx is a link to it and
+# reads piper-sherpa-onnx.conf (the -vulkan-rs variants of sherpa/build-deb.sh
+# need onnxruntime-ep-vulkan, so they are not installed here)
+# (espeak-ng turns the text of Piper voices into phonemes)
+if get_option('sherpa').require(sherpa.found() and espeak.found(),
+    error_message: 'sd_sherpa-onnx needs the sherpa-onnx C API and espeak-ng').allowed()
+  executable('sd_sherpa-onnx', 'sherpa/sd_sherpa.c',
     include_directories: [speechd_inc, shim_inc],
-    dependencies: module_deps + [sherpa],
+    dependencies: module_deps + [sherpa, espeak],
     install: true, install_dir: module_dir)
-  install_data('sherpa/sherpa.conf', install_dir: conf_dir)
+  install_symlink('sd_piper-sherpa-onnx', pointing_to: 'sd_sherpa-onnx', install_dir: module_dir)
+  install_data('sherpa/sherpa-onnx.conf', 'sherpa/piper-sherpa-onnx.conf', install_dir: conf_dir)
 endif
 
 # -------------------------------------------------------------- silero
