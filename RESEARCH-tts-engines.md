@@ -258,6 +258,28 @@ faster) → the user's zonos3.conf now has `Zonos3Threads 4`; the module default
 4. sherpa-say uses nproc threads; Supertonic/Pocket probably also oversubscribe (to try: -t 4,
 fewer Supertonic steps). The numbers depend on the background load.
 
+### All our modules side by side (2026-11-14, 03:00, laptop idle, load ≈ 0.1)
+One Russian sentence (122 chars), one process = model load + synthesis, 4 threads, output
+to a file (own test tools: kokoro-test, teratts-test, vosk-test, sherpa-say with OUT=).
+RHVoice and Piper from the table above (2026-11-11, laptop under load). Script and output
+in XFCE-patches/_tmp/bench2.
+
+| Engine | Audio, s | Wall, s | RTF incl. load | CPU s / s speech | Peak RAM | On disk |
+|---|---|---|---|---|---|---|
+| RHVoice | 11.2 | 0.75 | 0.07 | 0.06 | 27 MB | ~20 MB / voice |
+| Piper ru dmitri medium | 7.7 | 4.9 | 0.64 (loaded system) | 1.9 | 231 MB | 63 MB / voice |
+| TeraTTS v2 (sd_teratts) | 7.6 | 3.0 | **0.39** | 1.0 | 820 MB | 371 MB |
+| Supertonic 3 (sherpa, 5 steps) | 9.5 | 4.4 | 0.47 | 1.6 | 312 MB | ~300 MB |
+| MMS ru (sherpa) | 7.7 | 4.3 | 0.56 | 1.8 | 285 MB | ~150 MB |
+| Kokoro ru (sd_kokoro) | 8.0 | 8.0 | 1.00 | 3.0 | 560 MB | 310 MB / model |
+| Vosk 0.9, no BERT | 8.8 | 10.7 | 1.21 | 4.1 | 390 MB | 889 MB |
+| Vosk 0.9, BERT | 10.4 | 15.2 | 1.47 | 4.5 | 1.28 GB | 889 MB |
+
+Tiers for weak machines: RHVoice (instant, tiny) → Piper / sherpa (MMS, Supertonic; ~0.3 GB,
+about twice real time) → TeraTTS (fastest neural, but 0.8 GB RAM) → Kokoro (real time,
+0.56 GB) → Vosk (slowest and, with BERT, the biggest). The Silero server (PyTorch) is not
+in the table: RTF ≈ 0.10 in docker, its memory not measured yet.
+
 ### ZONOS3 on the Vega 8 through ggml Vulkan (2026-11-11, night)
 Build: `-DGGML_VULKAN=ON` (docker image zonos-vk = zonos-build + libvulkan-dev glslc
 spirv-headers; script _tmp/zonos3/vk/build-vk.sh; binaries
