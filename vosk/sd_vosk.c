@@ -56,8 +56,8 @@ static int cfg_threads = 0;
 static gboolean closing_from_loop;
 static gboolean cfg_bert = TRUE;
 static int cfg_first_chunk = 40;
-static gboolean cfg_preload = TRUE;
-static int cfg_idle_timeout = 0;            /* s; 0 keeps the model */
+static gboolean cfg_preload = FALSE;
+static int cfg_idle_timeout = 300;          /* s; 0 keeps the model */
 static gint64 last_use = 0;                 /* the last command of the server */
 static int debug_on = 0;
 
