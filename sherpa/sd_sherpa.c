@@ -1,5 +1,5 @@
 /*
- * sd_sherpa - speech-dispatcher output module for sherpa-onnx TTS models
+ * sd_sherpa-onnx - speech-dispatcher output module for sherpa-onnx TTS models
  *
  * The models are loaded into the module itself through the sherpa-onnx C API
  * and stay loaded, so only the first message after a (re)start waits for the
@@ -12,8 +12,20 @@
  *                                       supertonic-<lang>-<female|male>-<n>
  *   Pocket TTS (lm_main*.onnx)          English, a voice per reference WAV in
  *                                       test_wavs/ and voices/: pocket-en-<name>
+ *   Piper (tokens.txt + espeak-ng-data,  the language from the name
+ *   as in sherpa-onnx's vits-piper-*)   (vits-piper-ru_RU-irina-medium):
+ *                                       piper-<lang>-<name>, speaker 0
  *   VITS with characters (MMS)          the language from the directory name
  *                                       (mms-ru): one voice, named as the dir
+ *
+ * The module is installed under four names, each a synthesizer of its own
+ * with its configuration: sd_sherpa-onnx (SherpaFamilies "supertonic pocket
+ * vits"), sd_piper-sherpa-onnx (PiperFamilies "piper"), and both again with
+ * "-vulkan-rs" and Provider "vulkan": the models run on the graphics card
+ * through the onnx-vulkan-rs plugin of onnxruntime.  That plugin cannot run
+ * Supertonic and Pocket yet, so they are left out there, and without the
+ * plugin the -vulkan-rs synthesizers do not start.  Options may carry the
+ * prefix "Sherpa" or "Piper".
  *
  * The text is cut into sentences; each one is synthesized and handed to the
  * speech-dispatcher server at once, so the next one is synthesized while the
@@ -38,16 +50,17 @@
 #include <time.h>
 #include <unistd.h>
 
+#include <espeak-ng/speak_lib.h>
 #include <sherpa-onnx/c-api/c-api.h>
 #include <speech-dispatcher/spd_module_main.h>
 
-#define DBG(...) do { if (debug_on) { fprintf (stderr, "sd_sherpa: " __VA_ARGS__); fputc ('\n', stderr); } } while (0)
-#define ERR(...) do { fprintf (stderr, "sd_sherpa: " __VA_ARGS__); fputc ('\n', stderr); } while (0)
+#define DBG(...) do { if (debug_on) { fprintf (stderr, "sd_sherpa-onnx: " __VA_ARGS__); fputc ('\n', stderr); } } while (0)
+#define ERR(...) do { fprintf (stderr, "sd_sherpa-onnx: " __VA_ARGS__); fputc ('\n', stderr); } while (0)
 
-typedef enum { FAMILY_SUPERTONIC, FAMILY_VITS, FAMILY_POCKET } Family;
+typedef enum { FAMILY_SUPERTONIC, FAMILY_PIPER, FAMILY_VITS, FAMILY_POCKET } Family;
 
 /* the order of the families is also the preference among voices of a language */
-static const char *const family_names[] = { "supertonic", "vits", "pocket" };
+static const char *const family_names[] = { "supertonic", "piper", "vits", "pocket" };
 
 static const char *const supertonic_langs[] = {
   "en", "ko", "ja", "ar", "bg", "cs", "da", "de", "el", "es", "et",
@@ -61,6 +74,7 @@ typedef struct
   gchar *dir;
   Family family;
   int speakers;
+  gchar *espeak_voice;  /* Piper: "ru", "en-us" (from the .onnx.json) */
 } Model;
 
 typedef struct
@@ -81,7 +95,13 @@ static int cfg_threads = 0;
 static int cfg_steps = 5;
 static int cfg_first_chunk = 40;
 static gchar *cfg_preload = NULL;          /* a voice or model name */
-static int cfg_idle_timeout = 0;            /* s; 0 keeps the model */
+static int cfg_idle_timeout = 300;          /* s; 0 keeps the model */
+#ifndef VULKAN_EP_LIBRARY
+/* where the patched sherpa-onnx looks for it: next to its libonnxruntime */
+#define VULKAN_EP_LIBRARY "/usr/lib/x86_64-linux-gnu/sherpa-onnx/libonnxruntime_ep_vulkan.so"
+#endif
+static gboolean cfg_vulkan = FALSE;      /* Provider "vulkan" */
+static guint cfg_families = ~0u;          /* Families, a bit per Family */
 static gint64 last_use = 0;                 /* the last command of the server */
 static int debug_on = 0;
 
@@ -123,6 +143,52 @@ unquote (gchar *s)
 
 
 
+/* The module is installed under several names (sherpa-onnx, piper, their
+ * -vulkan-rs variants) and its options carry the prefix of the name the
+ * settings app gives them: "SherpaVoice", "PiperVoice".  Without it: "Voice". */
+static const gchar *
+option_name (const gchar *key)
+{
+  static const char *const prefixes[] = { "Sherpa", "Piper", NULL };
+
+  for (const char *const *p = prefixes; *p != NULL; p++)
+    if (g_ascii_strncasecmp (key, *p, strlen (*p)) == 0 && key[strlen (*p)] != '\0')
+      return key + strlen (*p);
+
+  return key;
+}
+
+/* "supertonic pocket vits": the model families this module lists */
+static guint
+parse_families (const gchar *value)
+{
+  gchar **names = g_strsplit_set (value, " ,\t", -1);
+  guint mask = 0;
+
+  for (gchar **n = names; *n != NULL; n++)
+    for (guint f = 0; f < G_N_ELEMENTS (family_names); f++)
+      if (g_ascii_strcasecmp (*n, family_names[f]) == 0)
+        mask |= 1u << f;
+  g_strfreev (names);
+  if (mask == 0)
+    ERR ("Families: no known family in \"%s\", listing all", value);
+
+  return mask != 0 ? mask : ~0u;
+}
+
+/* Whether models of @family are listed: those of Families, and with the
+ * Vulkan plugin only the VITS graphs (Piper, MMS).  Supertonic uses Pad mode
+ * "edge", which the plugin accepts but fails to run, and an error there ends
+ * the process (sherpa-onnx throws through its C API). */
+static gboolean
+family_wanted (Family family)
+{
+  if (!(cfg_families & (1u << family)))
+    return FALSE;
+
+  return !cfg_vulkan || family == FAMILY_PIPER || family == FAMILY_VITS;
+}
+
 int
 module_config (const char *configfile)
 {
@@ -138,6 +204,7 @@ module_config (const char *configfile)
   for (gchar **l = lines; *l != NULL; l++)
     {
       gchar *line = g_strstrip (*l);
+      const gchar *key;
       gchar *value;
 
       if (*line == '\0' || *line == '#')
@@ -148,23 +215,28 @@ module_config (const char *configfile)
       if (*value != '\0')
         *value++ = '\0';
       value = unquote (value);
+      key = option_name (line);
 
-      if (g_ascii_strcasecmp (line, "SherpaModelsDir") == 0)
+      if (g_ascii_strcasecmp (key, "ModelsDir") == 0)
         g_free (cfg_models_dir), cfg_models_dir = g_strdup (value);
-      else if (g_ascii_strcasecmp (line, "SherpaThreads") == 0)
+      else if (g_ascii_strcasecmp (key, "Threads") == 0)
         cfg_threads = atoi (value);
-      else if (g_ascii_strcasecmp (line, "SherpaSupertonicSteps") == 0)
+      else if (g_ascii_strcasecmp (key, "SupertonicSteps") == 0)
         cfg_steps = atoi (value);
-      else if (g_ascii_strcasecmp (line, "SherpaFirstChunk") == 0)
+      else if (g_ascii_strcasecmp (key, "FirstChunk") == 0)
         cfg_first_chunk = atoi (value);
-      else if (g_ascii_strcasecmp (line, "SherpaIdleTimeout") == 0)
+      else if (g_ascii_strcasecmp (key, "Families") == 0)
+        cfg_families = parse_families (value);
+      else if (g_ascii_strcasecmp (key, "Provider") == 0)
+        cfg_vulkan = g_ascii_strcasecmp (value, "vulkan") == 0;
+      else if (g_ascii_strcasecmp (key, "IdleTimeout") == 0)
         cfg_idle_timeout = atoi (value);
-      else if (g_ascii_strcasecmp (line, "SherpaPreload") == 0)
+      else if (g_ascii_strcasecmp (key, "Preload") == 0)
         {
           g_free (cfg_preload);
           cfg_preload = (*value != '\0' && strcmp (value, "0") != 0) ? g_strdup (value) : NULL;
         }
-      else if (g_ascii_strcasecmp (line, "SherpaVoice") == 0)
+      else if (g_ascii_strcasecmp (key, "Voice") == 0)
         {
           /* value was unquoted as one string: ru" "supertonic-ru-male-1 */
           gchar **parts = g_strsplit_set (value, "\" \t", -1);
@@ -315,6 +387,170 @@ add_pocket_voices (Model *m, const gchar *sub)
 
 
 
+/* "espeak": {"voice": "ru"} from the .onnx.json next to the model; "en-us" etc.
+ * The file is small and flat enough for a regular expression. */
+static gchar *
+piper_espeak_voice (const gchar *onnx)
+{
+  gchar *json = g_strconcat (onnx, ".json", NULL), *text = NULL, *voice = NULL;
+  GMatchInfo *mi = NULL;
+  GRegex *re = g_regex_new ("\"espeak\"\\s*:\\s*\\{[^}]*\"voice\"\\s*:\\s*\"([^\"]+)\"",
+                            0, 0, NULL);
+
+  if (g_file_get_contents (json, &text, NULL, NULL)
+      && g_regex_match (re, text, 0, &mi))
+    voice = g_match_info_fetch (mi, 1);
+  g_match_info_free (mi);
+  g_regex_unref (re);
+  g_free (text);
+  g_free (json);
+  return voice;
+}
+
+/* "phoneme_type": "text" voices (ukrainian_tts) are fed letters, not espeak-ng
+ * phonemes; sd_sherpa does not do that yet, so they are left out. */
+static gboolean
+piper_uses_text (const gchar *onnx)
+{
+  gchar *json = g_strconcat (onnx, ".json", NULL), *text = NULL;
+  gboolean found = FALSE;
+
+  if (g_file_get_contents (json, &text, NULL, NULL))
+    found = g_regex_match_simple ("\"phoneme_type\"\\s*:\\s*\"text\"", text, 0, 0);
+  g_free (text);
+  g_free (json);
+  return found;
+}
+
+/* espeak-ng clause terminators (its translate.h, not installed); the same
+ * values piper-phonemize compares with */
+#define CLAUSE_TYPE_SENTENCE 0x00080000
+#define CLAUSE_TYPE_CLAUSE   0x00040000
+#define CLAUSE_PERIOD        (40 | 0x0000 | CLAUSE_TYPE_SENTENCE)
+#define CLAUSE_QUESTION      (40 | 0x2000 | CLAUSE_TYPE_SENTENCE)
+#define CLAUSE_EXCLAMATION   (45 | 0x3000 | CLAUSE_TYPE_SENTENCE)
+#define CLAUSE_COMMA         (20 | 0x1000 | CLAUSE_TYPE_CLAUSE)
+#define CLAUSE_COLON         (30 | 0x0000 | CLAUSE_TYPE_CLAUSE)
+#define CLAUSE_SEMICOLON     (30 | 0x1000 | CLAUSE_TYPE_CLAUSE)
+
+static gchar *espeak_voice_now = NULL;  /* the voice espeak-ng is set to */
+
+/* Text -> IPA phonemes the way Piper voices were trained (piper-phonemize):
+ * espeak-ng clause by clause, the punctuation put back from the clause
+ * terminator, language switch marks such as "(en)" removed. sherpa-onnx >= 2.0
+ * does not phonemize Piper voices itself. Appends the codepoints of every
+ * sentence to cps and its length to lens; FALSE if espeak-ng is unusable. */
+static gboolean
+piper_phonemize (const Model *m, const gchar *text, GArray *cps, GArray *lens)
+{
+  static gboolean ready = FALSE;
+  static GRegex *flags = NULL;
+  const void *ptr = text;
+  GString *sentence = g_string_new (NULL);
+
+  if (!ready)
+    {
+      /* the espeak-ng-data shipped with the voice: the one it was trained on */
+      if (espeak_Initialize (AUDIO_OUTPUT_SYNCHRONOUS, 0, m->dir, 0) < 0)
+        {
+          ERR ("espeak-ng: cannot load %s/espeak-ng-data", m->dir);
+          g_string_free (sentence, TRUE);
+          return FALSE;
+        }
+      flags = g_regex_new ("\\([^)]+\\)", 0, 0, NULL);
+      ready = TRUE;
+    }
+  if (g_strcmp0 (espeak_voice_now, m->espeak_voice) != 0)
+    {
+      if (espeak_SetVoiceByName (m->espeak_voice != NULL ? m->espeak_voice : "en-us")
+          != EE_OK)
+        {
+          ERR ("espeak-ng: no voice %s", m->espeak_voice);
+          g_string_free (sentence, TRUE);
+          return FALSE;
+        }
+      g_free (espeak_voice_now);
+      espeak_voice_now = g_strdup (m->espeak_voice);
+    }
+
+  while (ptr != NULL)
+    {
+      int terminator = 0, punct;
+      const char *ph = espeak_TextToPhonemesWithTerminator (&ptr, espeakCHARS_UTF8,
+                                                            espeakPHONEMES_IPA,
+                                                            &terminator);
+      if (ph != NULL)
+        {
+          gchar *clean = g_regex_replace_literal (flags, ph, -1, 0, "", 0, NULL);
+          g_string_append (sentence, clean);
+          g_free (clean);
+        }
+      punct = terminator & 0x000FFFFF;
+      if (punct == CLAUSE_PERIOD)
+        g_string_append_c (sentence, '.');
+      else if (punct == CLAUSE_QUESTION)
+        g_string_append_c (sentence, '?');
+      else if (punct == CLAUSE_EXCLAMATION)
+        g_string_append_c (sentence, '!');
+      else if (punct == CLAUSE_COMMA)
+        g_string_append (sentence, ", ");
+      else if (punct == CLAUSE_COLON)
+        g_string_append (sentence, ": ");
+      else if (punct == CLAUSE_SEMICOLON)
+        g_string_append (sentence, "; ");
+
+      if ((terminator & CLAUSE_TYPE_SENTENCE) == CLAUSE_TYPE_SENTENCE || ptr == NULL)
+        {
+          glong n = 0;
+          gunichar *u = g_utf8_to_ucs4_fast (sentence->str, -1, &n);
+          if (n > 0)
+            {
+              gint32 len = (gint32) n;
+              for (glong i = 0; i < n; i++)
+                {
+                  gint32 c = (gint32) u[i];
+                  g_array_append_val (cps, c);
+                }
+              g_array_append_val (lens, len);
+            }
+          g_free (u);
+          g_string_truncate (sentence, 0);
+        }
+    }
+  g_string_free (sentence, TRUE);
+  return lens->len > 0;
+}
+
+/* vits-piper-ru_RU-irina-medium -> "ru\\0piper-ru-irina-medium" (one block,
+ * g_free), NULL if the name has no <lang>_<REGION> part */
+static gchar *
+piper_voice_name (const gchar *name)
+{
+  gchar **parts = g_strsplit (name, "-", -1);
+  gchar *out = NULL;
+
+  for (guint i = 0; parts[i] != NULL; i++)
+    {
+      const gchar *p = parts[i], *us = strchr (p, '_');
+      gsize n = us != NULL ? (gsize) (us - p) : 0;
+      gchar *lang, *rest;
+
+      if (n < 2 || n > 3 || strlen (us + 1) != 2
+          || !g_ascii_isupper (us[1]) || !g_ascii_isupper (us[2]))
+        continue;
+      lang = g_ascii_strdown (p, n);
+      rest = parts[i + 1] != NULL ? g_strjoinv ("-", parts + i + 1) : g_strdup ("1");
+      out = g_strdup_printf ("%s%cpiper-%s-%s", lang, 0, lang, rest);
+      g_free (lang);
+      g_free (rest);
+      break;
+    }
+  g_strfreev (parts);
+  return out;
+}
+
+
+
 static void
 add_model (const gchar *parent, const gchar *name)
 {
@@ -337,6 +573,8 @@ add_model (const gchar *parent, const gchar *name)
   if (has_file (dir, "tts.json") && has_file (dir, "voice.bin"))
     {
       m->family = FAMILY_SUPERTONIC;
+      if (!family_wanted (m->family))
+        goto skip;
       m->speakers = supertonic_speakers (dir);
       if (m->speakers == 0)
         goto skip;
@@ -364,8 +602,31 @@ add_model (const gchar *parent, const gchar *name)
     {
       g_free (f);
       m->family = FAMILY_POCKET;
+      if (!family_wanted (m->family))
+        goto skip;
       add_pocket_voices (m, "test_wavs");
       add_pocket_voices (m, "voices");
+    }
+  else if (has_file (dir, "tokens.txt") && has_file (dir, "espeak-ng-data")
+           && !has_file (dir, "voices.bin") && (f = piper_voice_name (name)) != NULL)
+    {
+      gchar *onnx = find_file (dir, "", ".onnx");
+      gboolean text = onnx != NULL && piper_uses_text (onnx);
+
+      if (text && family_wanted (FAMILY_PIPER))
+        ERR ("%s: phoneme_type \"text\" is not supported", name);
+      if (onnx == NULL || text || !family_wanted (FAMILY_PIPER))
+        {
+          g_free (onnx);
+          g_free (f);
+          goto skip;
+        }
+      m->espeak_voice = piper_espeak_voice (onnx);
+      g_free (onnx);
+      m->family = FAMILY_PIPER;
+      /* f is "<lang>\0<voice name>" */
+      voice_new (m, f + strlen (f) + 1, f, NULL, 0);
+      g_free (f);
     }
   else if (has_file (dir, "tokens.txt") && !has_file (dir, "voices.bin")
            && !has_file (dir, "espeak-ng-data") && !has_file (dir, "lexicon.txt")
@@ -374,13 +635,14 @@ add_model (const gchar *parent, const gchar *name)
       /* a VITS model on characters, like MMS: the language from the name */
       const gchar *dash = strrchr (name, '-');
       g_free (f);
-      if (dash == NULL || strlen (dash + 1) < 2 || strlen (dash + 1) > 3)
+      if (dash == NULL || strlen (dash + 1) < 2 || strlen (dash + 1) > 3
+          || !family_wanted (FAMILY_VITS))
         goto skip;
       m->family = FAMILY_VITS;
       voice_new (m, name, dash + 1, NULL, 0);
     }
   else
-    goto skip;   /* Kitten, Kokoro, Piper need a phonemizer: later */
+    goto skip;   /* Kitten, Kokoro: later */
 
   g_ptr_array_add (models, m);
   return;
@@ -389,6 +651,7 @@ skip:
   DBG ("skipping %s", dir);
   g_free (m->name);
   g_free (m->dir);
+  g_free (m->espeak_voice);
   g_free (m);
 }
 
@@ -495,7 +758,7 @@ load_model (Model *m)
 
   memset (&c, 0, sizeof c);
   c.model.num_threads = wanted_threads ();
-  c.model.provider = "cpu";
+  c.model.provider = cfg_vulkan ? "vulkan" : "cpu";
   c.model.debug = debug_on > 1;
   c.max_num_sentences = 1;
   c.silence_scale = 0.2f;
@@ -519,6 +782,13 @@ load_model (Model *m)
       c.model.pocket.vocab_json = PATH_ ("vocab.json");
       c.model.pocket.token_scores_json = PATH_ ("token_scores.json");
       c.model.pocket.voice_embedding_cache_capacity = 8;
+      break;
+    case FAMILY_PIPER:
+      c.model.vits.model = FILE_ ("", ".onnx");
+      c.model.vits.tokens = PATH_ ("tokens.txt");
+      c.model.vits.noise_scale = 0.667f;
+      c.model.vits.noise_scale_w = 0.8f;
+      c.model.vits.length_scale = 1.0f;
       break;
     case FAMILY_VITS:
       c.model.vits.model = FILE_ ("", ".onnx");
@@ -558,8 +828,8 @@ load_model (Model *m)
       return FALSE;
     }
   loaded_model = m;
-  DBG ("loaded %s (%s, %d threads) in %.1f s", m->name, family_names[m->family],
-       c.model.num_threads, (g_get_monotonic_time () - t0) / 1e6);
+  DBG ("loaded %s (%s, %s, %d threads) in %.1f s", m->name, family_names[m->family],
+       c.model.provider, c.model.num_threads, (g_get_monotonic_time () - t0) / 1e6);
   return TRUE;
 }
 
@@ -568,6 +838,14 @@ load_model (Model *m)
 int
 module_init (char **msg)
 {
+  /* without the plugin sherpa-onnx would quietly use the CPU; this module
+   * exists for the graphics card, so it stays out of the list */
+  if (cfg_vulkan && getenv ("SHERPA_ONNX_VULKAN_EP") == NULL
+      && !g_file_test (VULKAN_EP_LIBRARY, G_FILE_TEST_EXISTS))
+    {
+      *msg = g_strdup ("the Vulkan plugin " VULKAN_EP_LIBRARY " is not installed");
+      return -1;
+    }
   load_voices ();
   if (voices->len == 0)
     {
@@ -885,6 +1163,7 @@ speak_sentence (const gchar *text, Voice *v)
   SherpaOnnxGenerationConfig g;
   const SherpaOnnxGeneratedAudio *audio;
   gchar *extra = NULL, *lowered = NULL;
+  GArray *cps = NULL, *lens = NULL;
   /* rate -100..100 -> half .. double speed */
   float speed = (float) pow (2.0, CLAMP (set_rate, -100, 100) / 100.0);
   gint64 t0 = g_get_monotonic_time ();
@@ -914,6 +1193,20 @@ speak_sentence (const gchar *text, Voice *v)
       g.reference_audio_len = v->ref->num_samples;
       g.reference_sample_rate = v->ref->sample_rate;
       break;
+    case FAMILY_PIPER:
+      g.speed = speed;
+      cps = g_array_new (FALSE, FALSE, sizeof (gint32));
+      lens = g_array_new (FALSE, FALSE, sizeof (gint32));
+      if (!piper_phonemize (v->model, text, cps, lens))
+        {
+          g_array_free (cps, TRUE);
+          g_array_free (lens, TRUE);
+          return;
+        }
+      g.phoneme_codepoints = (const int32_t *) cps->data;
+      g.phoneme_codepoints_lens = (const int32_t *) lens->data;
+      g.phoneme_codepoints_num_sentences = (int32_t) lens->len;
+      break;
     case FAMILY_VITS:
       g.speed = speed;
       /* MMS knows only lower case */
@@ -934,6 +1227,10 @@ speak_sentence (const gchar *text, Voice *v)
     ERR ("synthesis failed: %s", text);
   g_free (extra);
   g_free (lowered);
+  if (cps != NULL)
+    g_array_free (cps, TRUE);
+  if (lens != NULL)
+    g_array_free (lens, TRUE);
 }
 
 

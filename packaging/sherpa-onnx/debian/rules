@@ -27,8 +27,17 @@ override_dh_auto_install:
 	  && mv usr/lib/libsherpa-onnx-*.so $(LIBDIR)/
 	sed -e 's|@LIBDIR@|$(LIBDIR)|' -e 's|@VERSION@|$(DEB_VERSION_UPSTREAM)|' \
 	  debian/sherpa-onnx.pc.in > debian/tmp/$(LIBDIR)/pkgconfig/sherpa-onnx.pc
+ifeq ($(SHERPA_ONNXRUNTIME_LIB_DIR),)
 	patchelf --remove-rpath debian/tmp/usr/bin/* debian/tmp/$(LIBDIR)/*.so
+else
+	# built against the private onnxruntime of libonnxruntime-sherpa (newer
+	# than the distribution's, for the Vulkan plugin)
+	patchelf --set-rpath $(SHERPA_ONNXRUNTIME_LIB_DIR) debian/tmp/usr/bin/* debian/tmp/$(LIBDIR)/*.so
+endif
 	install -m755 debian/sherpa-say debian/tmp/usr/bin/
+
+override_dh_shlibdeps:
+	dh_shlibdeps $(if $(SHERPA_ONNXRUNTIME_LIB_DIR),-l$(SHERPA_ONNXRUNTIME_LIB_DIR))
 
 # "make check" of sherpa-onnx is clang-tidy, not tests
 override_dh_auto_test:
