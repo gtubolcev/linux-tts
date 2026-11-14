@@ -7,15 +7,25 @@ pipeline) module.
 
 | Module | Engine | Languages |
 |---|---|---|
-| `sherpa/` — `sd_sherpa` | [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx): Supertonic 3, Pocket TTS, MMS | many (Supertonic), en (Pocket), ru (MMS) |
+| `sherpa/` — `sd_sherpa-onnx` | [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx): Supertonic 3, Pocket TTS, MMS | many (Supertonic), en (Pocket), ru (MMS) |
+| `sherpa/` — `sd_piper-sherpa-onnx` | [Piper](https://github.com/OHF-Voice/piper1-gpl) voices on sherpa-onnx; voice packages in `packaging/piper-voices/`, the others through the downloader of xfce4-speech-settings | 40+ |
 | `vosk/` — `sd_vosk` | [Vosk TTS](https://github.com/alphacep/vosk-tts) 0.9-multi, a C port of `vosk_tts` | ru |
 | `kokoro/` — `sd_kokoro` | Russian Kokoro ([zaakirio/kokoro-ru](https://huggingface.co/zaakirio/kokoro-ru)) with a C port of its G2P | ru |
-| `zonos3/` — `sd_zonos3` | [ZONOS3-Mini](https://github.com/Zyphra/ZONOS3-Mini) through its server, Vulkan GPU with CPU fallback | en, ru, … |
+| `teratts/` — `sd_teratts` | [TeraTTS](https://huggingface.co/TeraTTS) (OpenRAIL-M) with a stress dictionary | ru, en |
 | `silero/` — `sd_silero` | [Silero](https://github.com/snakers4/silero-models) v5_6_ru through `silero-server` on the ONNX port [silero-tts-onnx](https://github.com/some1-in-here/silero-tts-onnx); the model (CC BY-NC-SA, non-commercial) is installed separately into `~/.local/share/silero-tts/` | ru |
+
+`sd_sherpa-onnx-vulkan-rs` and `sd_piper-sherpa-onnx-vulkan-rs` are the same modules on the graphics
+card through Vulkan ([onnx-vulkan-rs](https://github.com/0xshawn/onnx-vulkan-rs)), with
+only the models it can run (Piper, MMS).
+
+`extra/` holds modules that are not packaged; they can be built by hand. `extra/zonos3/`
+(`sd_zonos3`, [ZONOS3-Mini](https://github.com/Zyphra/ZONOS3-Mini) through its server) is
+there until its model stops inventing words in about a quarter of the phrases.
 
 Every directory has `build.sh` (in docker) and `build-deb.sh`. The models are packaged
 separately; see each `build-deb.sh`. Measurements and notes on the engines:
-[RESEARCH-tts-engines.md](RESEARCH-tts-engines.md).
+[RESEARCH-tts-engines.md](RESEARCH-tts-engines.md). How the modules, sherpa-onnx, ONNX Runtime,
+ggml and the graphics card fit together: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 A settings dialog for Xfce: [xfce4-speech-settings](https://github.com/gtubolcev/xfce4-speech-settings).
 
