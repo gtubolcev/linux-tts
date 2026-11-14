@@ -49,6 +49,16 @@ local, CPU, low latency, stream/interrupt, Russian + English.
 - **Pocket TTS** (Kyutai, ~100M) — faster than real time on CPU, voice cloning from a short
   sample; **xVibePocketTTS** (GenVoice, 2026-09) = Russian fine-tune with RuAccent, streaming.
   Shmyrev: of the small ones only Pocket is really real-time.
+- **StyleTTS 2** (github.com/yl4579/StyleTTS2, 2023, ~6.4k stars, last push 2024-08;
+  added 2026-11-14 by the user) — the architecture and training recipe that Kokoro and
+  KittenTTS are built on: style diffusion + adversarial training with WavLM, duration and
+  F0 predictors, iSTFTNet/HiFi-GAN decoder; PL-BERT text encoder (English; a multilingual
+  PL-BERT for 14 languages exists). Code MIT, but the phonemizer it uses at inference is
+  GPL (espeak-ng / phonemizer). Pretrained LJSpeech (1 voice) and LibriTTS (multi-speaker,
+  zero-shot cloning) — English only, with a condition: synthesized speech of voices without
+  the speaker's permission must be announced as synthetic. Not something to ship as is;
+  useful as the recipe for training our own light voices (uk, be, ru) — Kokoro-ru was made
+  this way. Runtime for us: export to the Kokoro graph, run by sd_kokoro.
 - **Kokoro 82M** — great English quality; Russian only experimental (kokoro-ruslan).
 - **Kokoro, Russian** (checked 2026-11-11): huggingface.co/zaakirio/kokoro-ru — Kokoro-82M
   trained for Russian (StyleTTS2 / kikiri-tts recipe), voices sveta + masha (one checkpoint)
