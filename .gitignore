@@ -4,7 +4,7 @@ sd_vosk
 vosk-test
 bench
 sd_sherpa
-sd_zonos3
+extra/zonos3/sd_zonos3
 deb/
 *.deb
 out/
