@@ -92,7 +92,14 @@ sherpa = cc.find_library('sherpa-onnx-c-api', has_headers: ['sherpa-onnx/c-api/c
 # (espeak-ng turns the text of Piper voices into phonemes)
 if get_option('sherpa').require(sherpa.found() and espeak.found(),
     error_message: 'sd_sherpa-onnx needs the sherpa-onnx C API and espeak-ng').allowed()
+  # espeak-ng < 1.52 (Ubuntu 24.04) has no espeak_TextToPhonemesWithTerminator
+  sherpa_args = []
+  if cc.has_function('espeak_TextToPhonemesWithTerminator', dependencies: espeak,
+                     prefix: '#include <espeak-ng/speak_lib.h>')
+    sherpa_args += '-DHAVE_ESPEAK_TERMINATOR'
+  endif
   executable('sd_sherpa-onnx', 'sherpa/sd_sherpa.c',
+    c_args: sherpa_args,
     include_directories: [speechd_inc, shim_inc],
     dependencies: module_deps + [sherpa, espeak],
     install: true, install_dir: module_dir)

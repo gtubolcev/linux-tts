@@ -435,6 +435,32 @@ piper_uses_text (const gchar *onnx)
 
 static gchar *espeak_voice_now = NULL;  /* the voice espeak-ng is set to */
 
+#ifndef HAVE_ESPEAK_TERMINATOR
+/* Older espeak-ng does not report how a clause ended: guess it from the
+ * last punctuation mark of the text it consumed, from start to end (NULL
+ * when it read the whole text). */
+static int
+clause_terminator (const char *start, const char *end)
+{
+  const char *p = end != NULL ? end : start + strlen (start);
+
+  while (p > start && g_ascii_isspace (p[-1]))
+    p--;
+  if (p == start)
+    return 0;
+  switch (p[-1])
+    {
+    case '.': return CLAUSE_PERIOD;
+    case '?': return CLAUSE_QUESTION;
+    case '!': return CLAUSE_EXCLAMATION;
+    case ',': return CLAUSE_COMMA;
+    case ':': return CLAUSE_COLON;
+    case ';': return CLAUSE_SEMICOLON;
+    default:  return 0;
+    }
+}
+#endif
+
 /* Text -> IPA phonemes the way Piper voices were trained (piper-phonemize):
  * espeak-ng clause by clause, the punctuation put back from the clause
  * terminator, language switch marks such as "(en)" removed. sherpa-onnx >= 2.0
@@ -476,9 +502,16 @@ piper_phonemize (const Model *m, const gchar *text, GArray *cps, GArray *lens)
   while (ptr != NULL)
     {
       int terminator = 0, punct;
+#ifdef HAVE_ESPEAK_TERMINATOR
       const char *ph = espeak_TextToPhonemesWithTerminator (&ptr, espeakCHARS_UTF8,
                                                             espeakPHONEMES_IPA,
                                                             &terminator);
+#else
+      const char *start = ptr;
+      const char *ph = espeak_TextToPhonemes (&ptr, espeakCHARS_UTF8,
+                                              espeakPHONEMES_IPA);
+      terminator = clause_terminator (start, ptr);
+#endif
       if (ph != NULL)
         {
           gchar *clean = g_regex_replace_literal (flags, ph, -1, 0, "", 0, NULL);
