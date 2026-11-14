@@ -2,6 +2,10 @@
 
 Source: Telegram group «Распознавание и синтез речи» (t.me/speech_recognition_ru,
 N. Shmyrev / alphacep), messages 2024–2026-11, plus the local system state.
+
+Knowledge sources to follow (field news, new models, the industry in general):
+- t.me/speech_recognition_ru — the group above, practical experience, Russian.
+- t.me/teraspace_news — news of the field (added by the user 2026-11-14).
 Focus: engines usable as a **system** voice (screen reader, notifications, "read selection"):
 local, CPU, low latency, stream/interrupt, Russian + English.
 
@@ -137,11 +141,29 @@ local, CPU, low latency, stream/interrupt, Russian + English.
   phrase incl. playback. Slowness on the loaded laptop: synthesis RTF ≈ 1.2–2 (see the table
   below), so long first sentences wait; streaming within a sentence is the next step.
 
+### ONNX or ggml (2026-11-14)
+N. Shmyrev (privately, to the user): ONNX gives nothing, write everything in the ".cpp"
+way, on ggml. Decision: ONNX modules stay, onnx-vulkan-rs frozen, the GPU path goes
+through ggml with a pilot on kokoro.cpp (xfce4-speech-settings PLAN.md). Facts: Ubuntu 26.04
+has libggml0 0.9.11 with separate backend packages (vulkan, hip, blas); ggml Vulkan
+already worked here for ZONOS3 (below). Which ggml TTS projects Shmyrev means: asked,
+waiting.
+
 ### Heavy (GPU, audiobooks / dubbing) — not for a system voice, maybe "read a file" later
 (User, 2026-11-12: an audiobook GUI is a separate, far-future project with its own GUI,
 heavy models, LLM preprocessing of the text, etc. — not part of speech-settings.)
+(User, 2026-11-14: heavy voice LLM / omni models are for people with an RTX 4090 and the
+like; they need `sd_` modules too to work under Linux, but that work is outside this
+project. Maybe later, as a trial, one module for one large model that prepares the text
+itself: homographs, emotions, voice cloning and so on. Plan item: xfce4-speech-settings
+PLAN.md, "Later".)
 F5-TTS (Russian fine-tune "Misha"; short context), OmniVoice (k2-fsa; good cloning,
 stress issues), Qwen3-TTS, CosyVoice3, Higgs v3, FireRedTTS, MOSS, VibeVoice.
+
+- **DMOSpeech 2** (github.com/yl4579/DMOSpeech2, paper arXiv 2507.14988; by the StyleTTS
+  author; seen in t.me/teraspace_news, 2026-11-14) — F5-TTS distilled with metric
+  optimization: about 2× faster than F5-TTS, better WER and stability; zero-shot cloning.
+  Still a diffusion/flow model on a GPU, heavy class; check the licence and Russian.
 
 - **Haru-4B** (huggingface.co/higurashi-ai/Haru-4B, code github.com/higurashi-ai/Haru;
   added 2026-11-13 by the user) — strictly not a TTS: a full-duplex speech-to-speech
