@@ -408,6 +408,22 @@ Measured (protocol test, busy laptop): "Кафе на углу открылос�
   Belarusian: be/common-voice/glow-tts (CC-BY-SA 4.0). Serbian: sr/custom/vits (idiap,
   CC-BY-4.0). VITS (mostly BSD-3, Common Voice data) also for bg, cs, sk, pl, lt, lv, et,
   hr, sl, ro, hu, fi, el, ga, mt.
+- **Coqui, the rest of it** (idiap/coqui-ai-TTS, MPL-2.0, maintained: v0.28.0 2026-10,
+  pushes daily):
+  - **Meta MMS** (fairseq VITS, ~1100 languages incl. ru, uk, be, kk, tt, ba, …; not in
+    .models.json, loaded as tts_models/<iso3>/fairseq/vits) — weights CC-BY-NC 4.0, so
+    not for the PPA; quality is plain (Bible readings). At most a local/test option.
+  - English: en/ljspeech/vits (Apache-2.0) and en/vctk/vits (109 speakers, Apache-2.0;
+    VCTK data CC-BY 4.0) — sherpa-onnx ships both (vits-ljs, vits-vctk); Kokoro and Piper
+    are better, so nothing to add.
+  - Not free: your_tts and en/vctk/fast_pitch (CC BY-NC-ND), XTTS (CPML), jenny (custom).
+  - Voice conversion: FreeVC24, kNN-VC, OpenVoice v1/v2 (all MIT) — turn one voice into
+    another from a reference clip. Could give a new uk/be voice more timbres (consent
+    needed for the reference); not a runtime piece.
+  - **Tools for our own voices:** training recipes (VITS, Glow-TTS, …) and ONNX export,
+    but the export works only for VITS. alex73's Belarusian model is a Coqui Glow-TTS
+    checkpoint, so it loads in this library, but its ONNX export is ours to write
+    (or retrain it as VITS on the same data with the Coqui recipe → ONNX → sd_sherpa).
 - **sherpa-onnx** already ships 25 of the Coqui VITS models as ONNX (vits-coqui-*-cv /
   css10 / mai, incl. uk-mai, not be) — usable through sd_sherpa as they are.
 - **Piper** (182 voices, 58 languages): uk_UA lada x_low, ukrainian_tts medium (3
