@@ -390,6 +390,41 @@ Measured (protocol test, busy laptop): "Кафе на углу открылос�
 1.3 s, first audio 2.2 s after SPEAK including the model load; "Привет!" 0.9 s.
 
 
+## Ukrainian, Belarusian and other languages (survey 2026-11-14)
+(User: "украинский и белорусский интересны"; light VITS-class models wanted.)
+
+- **Coqui model list** (coqui-ai and the idiap fork): no Russian model except XTTS-v2
+  (CPML = non-commercial). Ukrainian: uk/mai/vits (BSD-3), uk/mai/glow-tts (MIT).
+  Belarusian: be/common-voice/glow-tts (CC-BY-SA 4.0). Serbian: sr/custom/vits (idiap,
+  CC-BY-4.0). VITS (mostly BSD-3, Common Voice data) also for bg, cs, sk, pl, lt, lv, et,
+  hr, sl, ro, hu, fi, el, ga, mt.
+- **sherpa-onnx** already ships 25 of the Coqui VITS models as ONNX (vits-coqui-*-cv /
+  css10 / mai, incl. uk-mai, not be) — usable through sd_sherpa as they are.
+- **Piper** (182 voices, 58 languages): uk_UA lada x_low, ukrainian_tts medium (3
+  speakers), mykyta / oleksa / tetiana high; also kk, ka, hy, sr, pl, cs, sk. No be.
+  Piper voices run in sherpa-onnx too (vits-piper-*).
+- **Belarusian:**
+  - alex73/BelarusianTTSviaCoquiTTS — Glow-TTS + HiFi-GAN checkpoints (.pth), Apache-2.0,
+    2026-04; the training data is not stated (ask the author). Needs an ONNX export and a
+    small runner: Glow-TTS is not a sherpa family (acoustic model + vocoder, like Matcha).
+    The most promising light be voice.
+  - Coqui be/common-voice/glow-tts — CC-BY-SA 4.0, Common Voice quality (noisy speakers).
+  - archivartaunik/Belarusian_TTS_V2_Final — an XTTS-v2 fine-tune; tagged Apache, but the
+    XTTS base is CPML, so effectively non-commercial and heavy. Not for the PPA.
+  - YauhenBichel/belarusian-tts (Apache) — plans a Piper be voice; currently uses
+    OmniVoice. Watch it.
+- **k2-fsa/OmniVoice** — 612M, Qwen3-0.6B base, 600+ languages incl. be, kk, ky, tg, uz,
+  tt, ba, hy, ka; zero-shot cloning. About 1 min per 2 s sentence on CPU (per
+  belarusian-tts), so not a system voice; at most a source of reference/synthetic data
+  for training a light voice.
+- **Looked at, not suitable: loudreader/loudr-1** (loudkit; Apache-2.0; a Chatterbox
+  derivative; 28 voices in en es de pt fr it pl nl sv da; cloning). No ru/uk/be; 747 MB
+  checkpoint, 2.6 GB for ONNX; autoregressive, so slow on CPU. Kokoro and Piper cover the
+  same languages much lighter.
+
+Next steps (also in xfce4-speech-settings/PLAN.md): Ukrainian through Piper / sherpa
+(no new code); ask alex73 about the data, then export the be model to ONNX.
+
 ## To do: wider survey (from the user, 2026-11-12)
 - Go through GitHub's "tts" repositories sorted by stars
   (https://github.com/search?q=tts&type=repositories&s=stars&o=desc), page by page:
