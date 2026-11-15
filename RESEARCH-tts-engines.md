@@ -209,6 +209,16 @@ Why interesting: answers the "every model needs its own ggml port" cost of the g
 To measure: kokoro and qwen3_tts ru, CPU vs Vulkan (GTX 1060, Vega 8, HD 620), RTF and
 peak RSS, quantised vs f16.
 
+### kokoro-ruslan (checked 2026-11-15)
+github.com/igorshmukler/kokoro-ruslan: a Russian training pipeline (PyTorch, MPS-first)
+on the RUSLAN single-speaker corpus. Despite the name it is not Kokoro-82M (StyleTTS2 +
+iSTFTNet) but its own FastSpeech2-like transformer (mel, duration, pitch, energy, stop
+token) with a HiFi-GAN vocoder, so kokoro runtimes (kokoro.cpp, audio.cpp kokoro_tts,
+sherpa-onnx) cannot load it. No released weights (empty models/ and vocoder_models/, none
+on HF), no LICENSE file, training still unstable per its release notes (v0.0.35,
+2026-04). The RUSLAN corpus licence must be checked before any use. Verdict: not usable
+now; watch for released weights.
+
 ## Runtimes worth building on
 - **sherpa-onnx** (k2-fsa, Apache-2.0, C/C++ API, CPU) — one runtime for many TTS model
   families (VITS/Piper, Matcha, Kokoro, Kitten, …) and for STT (Vosk, GigaAM v3, Whisper,
