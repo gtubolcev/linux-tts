@@ -309,8 +309,17 @@ Measured 2026-11-15, same machine and sentence as the audio.cpp table:
 
 Piper's 5 s are dominated by start-up (most likely loading the 813k-entry dictionary,
 paid once in a resident speechd module); the per-utterance synthesis is not printed.
-F5-ru not run yet: needs a reference voice we have the rights to clone (the irina
-dataset licence is "Unknown").
+F5-ru (Misha24-10 F5TTS_v1_Base_v2, q8_0, 32 ODE steps, cfg 2) with a CC0 reference:
+Common Voice 21 ru clip common_voice_ru_27302223 (7.0 s, from the CC0 mirror
+Sh1man/common_voice_21_ru), "Болгария также с глубоким удовлетворением отмечает
+проведение совещания высокого уровня по ядерной безопасности."
+- CPU: 761 s wall for 5.1 s of audio (RTF ≈ 150), 1.1 GB RSS, only ~2.5 cores busy; the
+  text was split into two chunks, each re-running the 7 s reference. Even Vocos takes
+  3.5 s for 3 s of audio: the port has hand-written CPU convolutions, and the graph
+  compute ignores `n_threads`.
+- Vulkan: hung at 0 % GPU after the first chunk started (killed after 25 min).
+- Verdict: CrispASR's F5 port is not usable yet (PyTorch F5 on CPU is roughly RTF 1–3).
+  Listening file: bench/cpu-f5-ru-cv-1.wav.
 Stress comparison by ear (to do): bench/stress-crisp-dict.wav (dictionary G2P) vs
 bench/stress-audiocpp-espeak.wav (espeak-ng), text "Мы пили молоко и ели творог. Все
 пришли, всё готово. В две тысячи двадцать шестом году."
