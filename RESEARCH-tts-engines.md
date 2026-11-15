@@ -190,6 +190,25 @@ stress issues), Qwen3-TTS, CosyVoice3, Higgs v3, FireRedTTS, MOSS, VibeVoice.
   → ordinals in the right case, all-caps abbreviations spelt out; measured pause lengths per
   punctuation mark (comma ≈ 0, "…" ≈ 0.45 s, ";" ≈ 0.55 s, "." ≈ 0.7 s).
 
+### audio.cpp (2026-11-15)
+github.com/0xShug0/audio.cpp (ShugoAI LLC, Apache-2.0, v0.9.5 of 2026-11-14): one C++
+inference engine on ggml for many audio models, with a C API (`-DAUDIOCPP_BUILD_C_API=ON`
+→ libaudiocpp.so, include/audiocpp.h: opaque handles, ABI version, sessions, streaming).
+Backends CPU / Vulkan / CUDA (upstream also ships prebuilt Ubuntu lib archives; we build
+from source). Vendors external/{ggml, sentencepiece, cJSON, cpp-httplib, libyaml,
+llama_tokenizer, lz4, utf8proc} — fine for our PPA in a private dir (user: own versions
+are OK if they never break distro packages).
+Models with free licences that matter to us:
+- TTS: kokoro (Apache-2.0), qwen3_tts (ru, Apache-2.0), voxcpm2 (ru, Apache-2.0),
+  cosyvoice3 (ru, Apache-2.0), confucius4_tts (ru, Apache-2.0), pocket_tts (CC-BY-4.0),
+  supertonic (OpenRAIL-M);
+- ASR: gigaam_asr (ru, MIT); VAD: silero_vad (MIT).
+Non-commercial, not for the PPA: omnivoice, outetts, xtts_v2, index_tts2, kitten_tts2.
+Why interesting: answers the "every model needs its own ggml port" cost of the ggml path
+(above) — many ports behind one API, so one speechd module could serve several families.
+To measure: kokoro and qwen3_tts ru, CPU vs Vulkan (GTX 1060, Vega 8, HD 620), RTF and
+peak RSS, quantised vs f16.
+
 ## Runtimes worth building on
 - **sherpa-onnx** (k2-fsa, Apache-2.0, C/C++ API, CPU) — one runtime for many TTS model
   families (VITS/Piper, Matcha, Kokoro, Kitten, …) and for STT (Vosk, GigaAM v3, Whisper,
@@ -213,7 +232,8 @@ stress issues), Qwen3-TTS, CosyVoice3, Higgs v3, FireRedTTS, MOSS, VibeVoice.
   synthesis time, ort 1.14 vs 1.23). sherpa-onnx CLI also defaults to 1 thread: MMS ru RTF
   1.16 → 0.49 with 4 threads; Supertonic 3 ru RTF 0.70 (8 threads), Pocket en 0.97 (1 thread).
   **Decision (user, 2026-11-10): build against Ubuntu's libonnxruntime1.23, no upstream
-  onnxruntime copy.** (Upstream could only live in a private dir with RPATH: same file name
+  onnxruntime copy.** *(Revised 2026-11-15: "Мы можем собирать самую свежую версию, просто ставить её
+  независимо" — an own newest onnxruntime in a private dir is allowed.)* (Upstream could only live in a private dir with RPATH: same file name
   libonnxruntime.so.1.23.2, but SONAME .so.1 vs .so.1.23 and no VERS_1.23 symbol versions.)
 - (2026-11-11) Interim speechd modules through sd_generic + sherpa-say (load per phrase,
   ~6–7 s per short phrase): `supertonic-generic` (31 languages × 10 speakers,
