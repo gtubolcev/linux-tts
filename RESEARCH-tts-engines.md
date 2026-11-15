@@ -206,8 +206,50 @@ Models with free licences that matter to us:
 Non-commercial, not for the PPA: omnivoice, outetts, xtts_v2, index_tts2, kitten_tts2.
 Why interesting: answers the "every model needs its own ggml port" cost of the ggml path
 (above) — many ports behind one API, so one speechd module could serve several families.
-To measure: kokoro and qwen3_tts ru, CPU vs Vulkan (GTX 1060, Vega 8, HD 620), RTF and
-peak RSS, quantised vs f16.
+Also has `piper_tts` (native ggml VITS, espeak-ng phonemes, no onnxruntime; upstream
+ships only en_US-lessac, other voices convert from the official .onnx with
+tests/piper_tts/convert_piper_onnx.py + audiocpp_gguf — ru_RU-irina-medium converted
+fine) and `chatterbox` / `chatterbox_turbo` (MIT).
+
+Measured 2026-11-15 on mikhail (i5-8600K, 6 threads; GTX 1060 6 GB via Vulkan, no
+fp16/matrix cores), v0.9.5, q8_0 unless noted, same Russian sentence, two runs each
+(spread <0.3 s). Wall time includes model load; RTF = wall / audio length.
+
+| Model | Backend | Wall | Audio | RTF | Peak RSS |
+|---|---|---|---|---|---|
+| kokoro-82M (en) | CPU | 4.1 s | 8.3 s | 0.50 | 1.5 GB |
+| kokoro-82M (en) | Vulkan | 5.7 s | 8.3 s | 0.69 | 0.5 GB |
+| qwen3_tts 1.7B CustomVoice (ru) | CPU | 14.2 s | 6.3 s | 2.25 | 3.8 GB |
+| qwen3_tts 1.7B CustomVoice (ru) | Vulkan | 11.6 s | 9.5 s | 1.22 | 1.6 GB |
+| piper ru irina medium (orig) | CPU | 0.82 s | 8.1 s | ~0.1 | 480 MB |
+| piper ru irina medium (orig) | Vulkan | 0.34 s (3.1 s 1st run: shader cache) | 8.1 s | ~0.04 | 250 MB |
+| piper ru irina via piper-tts/ORT (reference) | CPU | 0.8 s (synth alone 0.21 s) | 7.3 s | 0.03 synth | 245 MB |
+| cosyvoice3 0.5B (clone of the irina sample) | CPU | 32 s | 5.5 s | 5.8 | 2.8 GB |
+| cosyvoice3 0.5B | Vulkan | 14.7 s | 7.8 s | 1.9 | 1.4 GB |
+| omnivoice (voice design) | CPU | 41.7 s | 7.0 s | 5.9 | 1.8 GB |
+| omnivoice | Vulkan | 15.9 s | **0 s — empty WAV, no error** (upstream bug to report) | — | 1.0 GB |
+
+Notes:
+- Small models (kokoro) gain nothing from Vulkan on a 1060; the large ones gain ~2×
+  but stay above real time. Piper on Vulkan is the one real win: same voices, same
+  espeak-ng phonemes, no onnxruntime. On CPU Piper stays on ONNX (sherpa-onnx), as decided.
+- qwen3 on Vulkan produced 9.5 s of audio vs 6.3 s on CPU for the same text and seed —
+  check for trailing silence / hallucination by ear.
+- Upstream piper_tts doc: on Mali GPUs (RK3588) Vulkan duration flows are
+  non-deterministic and can abort with "non-finite duration". Mali is phones/SBCs, not
+  our target; there a fallback to ONNX / onnx-vulkan-rs can come later (user, 2026-11-15).
+- omnivoice: 600+ languages (incl. be, kk, ky, tt, ba, cv, sah, uz, tg, hy, ka, os, ab),
+  but weights are CC-BY-NC (Emilia data) — NC download only. `--instruct` accepts only a
+  fixed vocabulary (male/female, child/middle-aged/elderly, low/moderate/high pitch).
+- cosyvoice3: Apache-2.0, ru, but clone-only: needs a reference WAV + transcript (a
+  sample is needed; the test used the irina Piper sample, whose dataset licence is
+  "Unknown" — use a clearly licensed reference next time). Too slow for screen reading.
+- outetts (Llama-OuteTTS-1.0-1B, 23 langs incl. ru/uk/be/ka/lt/lv): CC-BY-NC-SA; the q8
+  GGUF also needs a DAC companion that only the deprecated installer converts (PyTorch).
+  Not run.
+
+Verdict: a speechd module on audio.cpp could cover (1) Piper on GPU and (2) a heavy tier
+(qwen3_tts, cosyvoice3, chatterbox) for GPUs above a 1060.
 
 ### kokoro-ruslan (checked 2026-11-15)
 github.com/igorshmukler/kokoro-ruslan: a Russian training pipeline (PyTorch, MPS-first)
@@ -218,6 +260,60 @@ sherpa-onnx) cannot load it. No released weights (empty models/ and vocoder_mode
 on HF), no LICENSE file, training still unstable per its release notes (v0.0.35,
 2026-04). The RUSLAN corpus licence must be checked before any use. Verdict: not usable
 now; watch for released weights.
+
+### Other ggml TTS ports (checked 2026-11-15)
+- PABannier/bark.cpp (MIT): Suno Bark on ggml; last commit 2024-11. Bark is slow and
+  hallucinates — not a system voice.
+- maxilevi/vits.cpp (GPL-3): undergraduate ggml port of VITS, last commit 2024-08. The
+  author's write-up (maxilevi.com/blog/vits) finds the HiFi-GAN decoder convolutions
+  dominate CPU time and fixes them with im2col; no end-to-end RTF, no comparison with ORT.
+  Superseded by audio.cpp piper_tts.
+- seanghay/vits.cpp: not ggml — a tiny VITS example on ONNX Runtime, no licence,
+  abandoned 2023. Nothing sherpa-onnx doesn't do.
+- NVIDIA ACE Chatterbox (NVIGI plugin): Chatterbox Turbo (en) / Multilingual (23 langs
+  incl. ru, ≥3.5 GB VRAM) on ggml with CUDA/Vulkan/D3D12, but a Windows game SDK. Use
+  Chatterbox through audio.cpp or CrispASR instead.
+- Misha24-10/F5-TTS_RUSSIAN: F5-TTS v1 fine-tunes for Russian (an accent_tune variant
+  for stress marks), CC-BY-NC-4.0, clone-only.
+
+### CrispASR (2026-11-15)
+github.com/CrispStrobe/CrispASR (MIT, very active): whisper.cpp fork grown into one ggml
+binary with 145 backends (69 TTS), CLI + HTTP server + C-ABI. Relevant:
+- piper with a built-in Russian G2P: an 812,953-word IPA dictionary with resolved stress
+  (bene-ges/ru_g2p_ipa_bert_large, CC-BY-4.0, cstr/g2p-dicts `ru_g2p_ipa.tsv`) + rules for
+  palatalisation, voicing assimilation, final devoicing and vowel reduction. Honours `ё`
+  and U+0301 stress marks. 17,359 heteronyms (за́мок/замо́к, все/всё) are deliberately left
+  out of the dictionary — they need a sentence-aware model. Useful for our "Russian text
+  preparation" item.
+- chatterbox (multilingual V3 T3, 23 langs, MIT), cosyvoice3, qwen3-tts, voxcpm2 (30 langs,
+  Apache-2.0), supertonic-3 (31 langs, OpenRAIL-M), f5-tts (en/zh tokeniser; a Russian
+  fine-tune would need conversion).
+- Prebuilt Vulkan tarballs exist; we build from source.
+
+Build notes (commit 9ddae4590, ubuntu:26.04 docker on mikhail): `-DGGML_VULKAN=ON
+-DGGML_BACKEND_DL=ON -DBUILD_SHARED_LIBS=ON -DGGML_NATIVE=OFF -DGGML_CPU_ALL_VARIANTS=ON`
+(BACKEND_DL refuses GGML_NATIVE); the full `all` target fails linking some tests, so build
+only `--target crispasr-cli`. Piper voices convert with models/convert-piper-to-gguf.py
+(numpy + onnx only; ru irina → 30 MB f16). The F5 converter needs torch (CPU wheel);
+the Misha24-10 Russian F5 vocab has the same 2545 entries as upstream, so it converts.
+Cloning backends refuse to run without `--i-have-rights` (consent attestation).
+
+Measured 2026-11-15, same machine and sentence as the audio.cpp table:
+
+| Model | Backend | Wall | Audio | RTF | Peak RSS |
+|---|---|---|---|---|---|
+| piper ru irina (dict G2P) | CPU | 5.1 s | 7.6 s | 0.66 | 360 MB |
+| piper ru irina (dict G2P) | Vulkan | 5.0 s | 7.6 s | 0.66 | 360 MB |
+| chatterbox multilingual V3 q8 (ru, built-in voice) | CPU | 22 s (111 s 1st run incl. download) | 7.3 s | 3.0 | 1.4 GB |
+| chatterbox multilingual V3 q8 | Vulkan | 9.4 s (12.8 s 1st) | 7.2 s | 1.3 | 0.8 GB |
+
+Piper's 5 s are dominated by start-up (most likely loading the 813k-entry dictionary,
+paid once in a resident speechd module); the per-utterance synthesis is not printed.
+F5-ru not run yet: needs a reference voice we have the rights to clone (the irina
+dataset licence is "Unknown").
+Stress comparison by ear (to do): bench/stress-crisp-dict.wav (dictionary G2P) vs
+bench/stress-audiocpp-espeak.wav (espeak-ng), text "Мы пили молоко и ели творог. Все
+пришли, всё готово. В две тысячи двадцать шестом году."
 
 ## Runtimes worth building on
 - **sherpa-onnx** (k2-fsa, Apache-2.0, C/C++ API, CPU) — one runtime for many TTS model
