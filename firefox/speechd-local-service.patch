@@ -1,0 +1,12 @@
+diff -ru a/dom/media/webspeech/synth/speechd/SpeechDispatcherService.cpp b/dom/media/webspeech/synth/speechd/SpeechDispatcherService.cpp
+--- a/dom/media/webspeech/synth/speechd/SpeechDispatcherService.cpp
++++ b/dom/media/webspeech/synth/speechd/SpeechDispatcherService.cpp
+@@ -428,7 +428,7 @@
+     // access to this service.
+     DebugOnly<nsresult> rv =
+         registry->AddVoice(this, entry.GetKey(), voice->mName, voice->mLanguage,
+-                           voice->mName.EqualsLiteral("default"), true);
++                           /* aLocalService */ true, /* aQueuesUtterances */ true);
+ 
+     NS_WARNING_ASSERTION(NS_SUCCEEDED(rv), "Failed to add voice");
+   }

@@ -48,3 +48,14 @@ voices are variants), the localService fix.
 > per language, marked default, which sends only the language on a separate
 > connection; explicitly chosen voices are unchanged. Only libspeechd calls
 > present since 0.8.2 are used.
+
+## Draft comment for bug 1840267 (speechd-local-service.patch)
+
+> The speechd backend passes `voice->mName.EqualsLiteral("default")` as
+> aLocalService, so every Speech Dispatcher voice reports
+> `localService == false`, although Speech Dispatcher synthesizes on the
+> local machine. The attached one-line patch passes true.
+
+Both patches were written with an AI assistant and are not compiled; the
+comments say so. Apply the local-service one first: the default-voice patch
+touches the line next to it.
