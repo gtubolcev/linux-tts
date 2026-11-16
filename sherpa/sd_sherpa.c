@@ -14,7 +14,10 @@
  *                                       test_wavs/ and voices/: pocket-en-<name>
  *   Piper (tokens.txt + espeak-ng-data,  the language from the name
  *   as in sherpa-onnx's vits-piper-*)   (vits-piper-ru_RU-irina-medium):
- *                                       piper-<lang>-<name>, speaker 0
+ *                                       piper-<lang>-<name>; with up to 16
+ *                                       named speakers piper-<lang>-<name>-<speaker>,
+ *                                       else speaker 0. espeak-ng phonemes, or
+ *                                       letters for "phoneme_type": "text"
  *   VITS with characters (MMS)          the language from the directory name
  *                                       (mms-ru): one voice, named as the dir
  *
@@ -75,6 +78,7 @@ typedef struct
   Family family;
   int speakers;
   gchar *espeak_voice;  /* Piper: "ru", "en-us" (from the .onnx.json) */
+  gboolean letters;     /* Piper "phoneme_type": "text": fed letters, not phonemes */
 } Model;
 
 typedef struct
@@ -431,18 +435,103 @@ piper_espeak_voice (const gchar *onnx)
 }
 
 /* "phoneme_type": "text" voices (ukrainian_tts) are fed letters, not espeak-ng
- * phonemes; sd_sherpa does not do that yet, so they are left out. */
+ * phonemes */
 static gboolean
-piper_uses_text (const gchar *onnx)
+piper_uses_text (const gchar *json)
 {
-  gchar *json = g_strconcat (onnx, ".json", NULL), *text = NULL;
-  gboolean found = FALSE;
+  return g_regex_match_simple ("\"phoneme_type\"\\s*:\\s*\"text\"", json, 0, 0);
+}
 
-  if (g_file_get_contents (json, &text, NULL, NULL))
-    found = g_regex_match_simple ("\"phoneme_type\"\\s*:\\s*\"text\"", text, 0, 0);
-  g_free (text);
-  g_free (json);
-  return found;
+/* more named speakers than this (libritts: 904, vctk: 109) give one voice only */
+#define PIPER_MAX_SPEAKERS 16
+
+/* "speaker_id_map": {"lada": 0, "mykyta": 1} -> one voice per speaker,
+ * <base>-<speaker>; FALSE if the voice has a single (or too many) speakers */
+static gboolean
+piper_add_speakers (Model *m, const gchar *json, const gchar *base, const gchar *lang)
+{
+  GRegex *block = g_regex_new ("\"speaker_id_map\"\\s*:\\s*\\{([^}]*)\\}", 0, 0, NULL);
+  GRegex *entry = g_regex_new ("\"([^\"]+)\"\\s*:\\s*([0-9]+)", 0, 0, NULL);
+  GMatchInfo *mi = NULL, *ei = NULL;
+  gchar *map = NULL;
+  int n = 0;
+
+  if (g_regex_match (block, json, 0, &mi))
+    map = g_match_info_fetch (mi, 1);
+  g_match_info_free (mi);
+  if (map != NULL)
+    {
+      for (g_regex_match (entry, map, 0, &ei); g_match_info_matches (ei);
+           g_match_info_next (ei, NULL))
+        n++;
+      g_match_info_free (ei);
+    }
+  if (n < 2 || n > PIPER_MAX_SPEAKERS)
+    n = 0;
+  else
+    {
+      for (g_regex_match (entry, map, 0, &ei); g_match_info_matches (ei);
+           g_match_info_next (ei, NULL))
+        {
+          gchar *speaker = g_match_info_fetch (ei, 1), *sid = g_match_info_fetch (ei, 2);
+          gchar *name = g_strdup_printf ("%s-%s", base, speaker);
+
+          g_strcanon (name + strlen (base) + 1,
+                      "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_", '_');
+          voice_new (m, name, lang, NULL, atoi (sid));
+          g_free (name);
+          g_free (speaker);
+          g_free (sid);
+        }
+      g_match_info_free (ei);
+    }
+  g_free (map);
+  g_regex_unref (entry);
+  g_regex_unref (block);
+  return n > 0;
+}
+
+/* Text -> letters for "phoneme_type": "text" voices, as Piper does it: lower
+ * case, decomposed (NFD: й -> и + U+0306, the way the voice was trained),
+ * one sentence per ".", "?" or "!". Characters the voice does not know are
+ * left to sherpa-onnx, which skips them. */
+static gboolean
+piper_letters (const gchar *text, GArray *cps, GArray *lens)
+{
+  gchar *low = g_utf8_strdown (text, -1);
+  gchar *nfd = g_utf8_normalize (low, -1, G_NORMALIZE_NFD);
+  gint32 len = 0;
+
+  g_free (low);
+  if (nfd == NULL)
+    return FALSE;
+  for (const gchar *p = nfd; *p != '\0'; p = g_utf8_next_char (p))
+    {
+      gunichar c = g_utf8_get_char (p);
+      gint32 cp = (gint32) (g_unichar_isspace (c) ? ' ' : c);
+
+      /* the typographic apostrophes (комп’ютер) as the ASCII one */
+      if (c == 0x2019 || c == 0x02BC || c == 0x2018)
+        cp = '\'';
+
+      if (cp == ' ' && (len == 0 || g_array_index (cps, gint32, cps->len - 1) == ' '))
+        continue;
+      g_array_append_val (cps, cp);
+      len++;
+      if (c == '.' || c == '?' || c == '!')
+        {
+          const gchar *next = g_utf8_next_char (p);
+          if (*next == '\0' || g_unichar_isspace (g_utf8_get_char (next)))
+            {
+              g_array_append_val (lens, len);
+              len = 0;
+            }
+        }
+    }
+  if (len > 0)
+    g_array_append_val (lens, len);
+  g_free (nfd);
+  return lens->len > 0;
 }
 
 /* espeak-ng clause terminators (its translate.h, not installed); the same
@@ -666,22 +755,26 @@ add_model (const gchar *parent, const gchar *name)
   else if (has_file (dir, "tokens.txt") && has_file (dir, "espeak-ng-data")
            && !has_file (dir, "voices.bin") && (f = piper_voice_name (name)) != NULL)
     {
-      gchar *onnx = find_file (dir, "", ".onnx");
-      gboolean text = onnx != NULL && piper_uses_text (onnx);
+      gchar *onnx = find_file (dir, "", ".onnx"), *json = NULL, *path;
 
-      if (text && family_wanted (FAMILY_PIPER))
-        ERR ("%s: phoneme_type \"text\" is not supported", name);
-      if (onnx == NULL || text || !family_wanted (FAMILY_PIPER))
+      if (onnx == NULL || !family_wanted (FAMILY_PIPER))
         {
           g_free (onnx);
           g_free (f);
           goto skip;
         }
+      path = g_strconcat (onnx, ".json", NULL);
+      if (!g_file_get_contents (path, &json, NULL, NULL))
+        json = g_strdup ("");
+      g_free (path);
       m->espeak_voice = piper_espeak_voice (onnx);
+      m->letters = piper_uses_text (json);
       g_free (onnx);
       m->family = FAMILY_PIPER;
       /* f is "<lang>\0<voice name>" */
-      voice_new (m, f + strlen (f) + 1, f, NULL, 0);
+      if (!piper_add_speakers (m, json, f + strlen (f) + 1, f))
+        voice_new (m, f + strlen (f) + 1, f, NULL, 0);
+      g_free (json);
       g_free (f);
     }
   else if (has_file (dir, "tokens.txt") && !has_file (dir, "voices.bin")
@@ -1308,7 +1401,8 @@ speak_sentence (const gchar *text, Voice *v)
       g.speed = speed;
       cps = g_array_new (FALSE, FALSE, sizeof (gint32));
       lens = g_array_new (FALSE, FALSE, sizeof (gint32));
-      if (!piper_phonemize (v->model, text, cps, lens))
+      if (v->model->letters ? !piper_letters (text, cps, lens)
+                            : !piper_phonemize (v->model, text, cps, lens))
         {
           g_array_free (cps, TRUE);
           g_array_free (lens, TRUE);
