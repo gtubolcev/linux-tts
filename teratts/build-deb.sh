@@ -9,7 +9,7 @@ umask 022
 HERE=$(cd "$(dirname "$0")" && pwd)
 MODEL=${MODEL:-/home/grigory/Storage/Claude/tts-models/TeraTTSv2}
 OUT=${OUT:-/home/grigory/Storage/Claude/teratts-deb}
-VER=0.1-2~local
+VER=0.1-3~local
 MVER=2.0-1~local
 rm -rf "$OUT/root"; mkdir -p "$OUT/root"
 
