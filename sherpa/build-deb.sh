@@ -11,7 +11,7 @@
 set -e
 umask 022
 HERE=$(cd "$(dirname "$0")" && pwd)
-VER=0.1-7~local
+VER=0.1-8~local
 VOICES=$HERE/../packaging/piper-voices/voices.list
 MOD=usr/lib/speech-dispatcher-modules
 CONF=etc/speech-dispatcher/modules
