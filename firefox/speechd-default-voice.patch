@@ -1,0 +1,289 @@
+diff -ru a/dom/media/webspeech/synth/speechd/SpeechDispatcherService.cpp b/dom/media/webspeech/synth/speechd/SpeechDispatcherService.cpp
+--- a/dom/media/webspeech/synth/speechd/SpeechDispatcherService.cpp
++++ b/dom/media/webspeech/synth/speechd/SpeechDispatcherService.cpp
+@@ -5,6 +5,7 @@
+ #include "SpeechDispatcherService.h"
+ 
+ #include <math.h>
++#include <stdlib.h>
+ 
+ #include "mozilla/ClearOnShutdown.h"
+ #include "mozilla/Preferences.h"
+@@ -21,6 +22,9 @@
+ #include "prlink.h"
+ 
+ #define URI_PREFIX "urn:moz-tts:speechd:"
++// Voices that leave the choice of module and voice to Speech Dispatcher:
++// URI_PREFIX DEFAULT_VOICE "?" language
++#define DEFAULT_VOICE "*default*"
+ 
+ #define MAX_RATE static_cast<float>(2.5)
+ #define MIN_RATE static_cast<float>(0.5)
+@@ -90,7 +94,13 @@
+   FUNC(spd_set_voice_rate, int, (SPDConnection*, int))              \
+   FUNC(spd_set_voice_pitch, int, (SPDConnection*, int))             \
+   FUNC(spd_set_synthesis_voice, int, (SPDConnection*, const char*)) \
+-  FUNC(spd_set_notification_on, int, (SPDConnection*, SPDNotification))
++  FUNC(spd_set_notification_on, int, (SPDConnection*, SPDNotification)) \
++  FUNC(spd_set_language, int, (SPDConnection*, const char*))        \
++  FUNC(spd_set_output_module, int, (SPDConnection*, const char*))   \
++  FUNC(spd_get_output_module, char*, (SPDConnection*))               \
++  FUNC(spd_list_modules, char**, (SPDConnection*))                  \
++  FUNC(free_spd_modules, void, (char**))                            \
++  FUNC(free_spd_voices, void, (SPDVoice**))
+ 
+ #define FUNC(name, type, params)      \
+   typedef type(*_##name##_fn) params; \
+@@ -110,6 +120,12 @@
+ #define spd_set_voice_pitch _spd_set_voice_pitch
+ #define spd_set_synthesis_voice _spd_set_synthesis_voice
+ #define spd_set_notification_on _spd_set_notification_on
++#define spd_set_language _spd_set_language
++#define spd_set_output_module _spd_set_output_module
++#define spd_get_output_module _spd_get_output_module
++#define spd_list_modules _spd_list_modules
++#define free_spd_modules _free_spd_modules
++#define free_spd_voices _free_spd_voices
+ 
+ static PRLibrary* speechdLib = nullptr;
+ 
+@@ -125,8 +141,9 @@
+ 
+ class SpeechDispatcherVoice {
+  public:
+-  SpeechDispatcherVoice(const nsAString& aName, const nsAString& aLanguage)
+-      : mName(aName), mLanguage(aLanguage) {}
++  SpeechDispatcherVoice(const nsAString& aName, const nsAString& aLanguage,
++                        bool aIsDefault = false)
++      : mName(aName), mLanguage(aLanguage), mIsDefault(aIsDefault) {}
+ 
+   NS_INLINE_DECL_THREADSAFE_REFCOUNTING(SpeechDispatcherVoice)
+ 
+@@ -136,6 +153,11 @@
+   // Voice language, in BCP-47 syntax
+   nsString mLanguage;
+ 
++  // Speech Dispatcher picks the module and the voice for mLanguage from its
++  // configuration (DefaultModule, LanguageDefaultModule, the module's voice
++  // for the language); mName is only shown to the user.
++  bool mIsDefault;
++
+  private:
+   ~SpeechDispatcherVoice() = default;
+ };
+@@ -143,8 +165,9 @@
+ class SpeechDispatcherCallback final : public nsISpeechTaskCallback {
+  public:
+   SpeechDispatcherCallback(nsISpeechTask* aTask,
+-                           SpeechDispatcherService* aService)
+-      : mTask(aTask), mService(aService) {}
++                           SpeechDispatcherService* aService,
++                           SPDConnection* aClient)
++      : mTask(aTask), mService(aService), mClient(aClient) {}
+ 
+   NS_DECL_CYCLE_COLLECTING_ISUPPORTS_FINAL
+   NS_DECL_CYCLE_COLLECTION_CLASS_AMBIGUOUS(SpeechDispatcherCallback,
+@@ -164,6 +187,9 @@
+   // destroyed before this runnable.
+   RefPtr<SpeechDispatcherService> mService;
+ 
++  // The connection that speaks this utterance, owned by mService.
++  SPDConnection* mClient;
++
+   TimeStamp mStartTime;
+ };
+ 
+@@ -199,7 +225,7 @@
+ 
+ NS_IMETHODIMP
+ SpeechDispatcherCallback::OnCancel() {
+-  if (spd_cancel(mService->mSpeechdClient) < 0) {
++  if (spd_cancel(mClient) < 0) {
+     return NS_ERROR_FAILURE;
+   }
+ 
+@@ -211,8 +237,7 @@
+   // XXX: This currently does not change the volume mid-utterance, but it
+   // doesn't do anything bad either. So we could put this here with the hopes
+   // that speechd supports this in the future.
+-  if (spd_set_volume(mService->mSpeechdClient,
+-                     static_cast<int>(aVolume * 100)) < 0) {
++  if (spd_set_volume(mClient, static_cast<int>(aVolume * 100)) < 0) {
+     return NS_ERROR_FAILURE;
+   }
+ 
+@@ -282,7 +307,9 @@
+ NS_IMPL_RELEASE(SpeechDispatcherService)
+ 
+ SpeechDispatcherService::SpeechDispatcherService()
+-    : mInitialized(false), mSpeechdClient(nullptr) {}
++    : mInitialized(false),
++      mSpeechdClient(nullptr),
++      mSpeechdDefaultClient(nullptr) {}
+ 
+ void SpeechDispatcherService::Init() {
+   if (!StaticPrefs::media_webspeech_synth_enabled() ||
+@@ -311,6 +338,10 @@
+   if (mSpeechdClient) {
+     spd_close(mSpeechdClient);
+   }
++
++  if (mSpeechdDefaultClient) {
++    spd_close(mSpeechdDefaultClient);
++  }
+ }
+ 
+ void SpeechDispatcherService::Setup() {
+@@ -371,6 +402,54 @@
+   spd_set_notification_on(mSpeechdClient, SPD_END);
+   spd_set_notification_on(mSpeechdClient, SPD_CANCEL);
+ 
++  // A second connection for the default voices: it never sets a voice, so
++  // Speech Dispatcher chooses one from its configuration.
++  mSpeechdDefaultClient =
++      spd_open("firefox", "web speech api default", "who", SPD_MODE_THREADED);
++  if (mSpeechdDefaultClient) {
++    mSpeechdDefaultClient->callback_begin = speechd_cb;
++    mSpeechdDefaultClient->callback_end = speechd_cb;
++    mSpeechdDefaultClient->callback_cancel = speechd_cb;
++    mSpeechdDefaultClient->callback_pause = speechd_cb;
++    mSpeechdDefaultClient->callback_resume = speechd_cb;
++
++    spd_set_notification_on(mSpeechdDefaultClient, SPD_BEGIN);
++    spd_set_notification_on(mSpeechdDefaultClient, SPD_END);
++    spd_set_notification_on(mSpeechdDefaultClient, SPD_CANCEL);
++
++    // DefaultModule of the configuration; restored before each utterance,
++    // since a language without LanguageDefaultModule keeps the module that
++    // the previous language switched to.
++    if (char* module = spd_get_output_module(mSpeechdDefaultClient)) {
++      mDefaultModule.Assign(module);
++      free(module);
++    }
++
++    // One default voice for each language that some module speaks.
++    if (char** modules = spd_list_modules(mSpeechdDefaultClient)) {
++      for (int i = 0; modules[i]; i++) {
++        if (spd_set_output_module(mSpeechdDefaultClient, modules[i]) == 0) {
++          if (SPDVoice** voices =
++                  spd_list_synthesis_voices(mSpeechdDefaultClient)) {
++            for (int j = 0; voices[j]; j++) {
++              nsAutoString lang(NS_ConvertUTF8toUTF16(voices[j]->language));
++              nsAutoString uri;
++              uri.AssignLiteral(URI_PREFIX DEFAULT_VOICE "?");
++              uri.Append(lang);
++              if (!mVoices.Contains(uri)) {
++                mVoices.InsertOrUpdate(
++                    uri, MakeRefPtr<SpeechDispatcherVoice>(
++                             u"Speech Dispatcher"_ns, lang, true));
++              }
++            }
++            free_spd_voices(voices);
++          }
++        }
++      }
++      free_spd_modules(modules);
++    }
++  }
++
+   if (list != nullptr) {
+     for (int i = 0; list[i]; i++) {
+       nsAutoString uri;
+@@ -431,6 +510,12 @@
+                            voice->mName.EqualsLiteral("default"), true);
+ 
+     NS_WARNING_ASSERTION(NS_SUCCEEDED(rv), "Failed to add voice");
++
++    // An utterance without a voice gets the one Speech Dispatcher would use.
++    if (voice->mIsDefault) {
++      rv = registry->SetDefaultVoice(entry.GetKey(), true);
++      NS_WARNING_ASSERTION(NS_SUCCEEDED(rv), "Failed to set default voice");
++    }
+   }
+ 
+   mInitThread->Shutdown();
+@@ -460,9 +545,6 @@
+     return NS_ERROR_NOT_AVAILABLE;
+   }
+ 
+-  RefPtr<SpeechDispatcherCallback> callback =
+-      new SpeechDispatcherCallback(aTask, this);
+-
+   bool found = false;
+   SpeechDispatcherVoice* voice = mVoices.GetWeak(aUri, &found);
+ 
+@@ -470,11 +552,24 @@
+     return NS_ERROR_NOT_AVAILABLE;
+   }
+ 
+-  spd_set_synthesis_voice(mSpeechdClient,
+-                          NS_ConvertUTF16toUTF8(voice->mName).get());
++  SPDConnection* client = mSpeechdClient;
++
++  if (voice->mIsDefault) {
++    client = mSpeechdDefaultClient;
++    if (!mDefaultModule.IsEmpty()) {
++      spd_set_output_module(client, mDefaultModule.get());
++    }
++    // May switch to the LanguageDefaultModule of the language.
++    spd_set_language(client, NS_ConvertUTF16toUTF8(voice->mLanguage).get());
++  } else {
++    spd_set_synthesis_voice(client, NS_ConvertUTF16toUTF8(voice->mName).get());
++  }
++
++  RefPtr<SpeechDispatcherCallback> callback =
++      new SpeechDispatcherCallback(aTask, this, client);
+ 
+   // We provide a volume of 0.0 to 1.0, speech-dispatcher expects 0 - 100.
+-  spd_set_volume(mSpeechdClient, static_cast<int>(aVolume * 100));
++  spd_set_volume(client, static_cast<int>(aVolume * 100));
+ 
+   // aRate is a value of 0.1 (0.1x) to 10 (10x) with 1 (1x) being normal rate.
+   // speechd expects -100 to 100 with 0 being normal rate.
+@@ -487,11 +582,11 @@
+     rate = log10(std::max(aRate, MIN_RATE)) / log10(MIN_RATE) * -100;
+   }
+ 
+-  spd_set_voice_rate(mSpeechdClient, static_cast<int>(rate));
++  spd_set_voice_rate(client, static_cast<int>(rate));
+ 
+   // We provide a pitch of 0 to 2 with 1 being the default.
+   // speech-dispatcher expects -100 to 100 with 0 being default.
+-  spd_set_voice_pitch(mSpeechdClient, static_cast<int>((aPitch - 1) * 100));
++  spd_set_voice_pitch(client, static_cast<int>((aPitch - 1) * 100));
+ 
+   nsresult rv = aTask->Setup(callback);
+ 
+@@ -500,7 +595,7 @@
+   }
+ 
+   if (aText.Length()) {
+-    int msg_id = spd_say(mSpeechdClient, SPD_MESSAGE,
++    int msg_id = spd_say(client, SPD_MESSAGE,
+                          NS_ConvertUTF16toUTF8(aText).get());
+ 
+     if (msg_id < 0) {
+diff -ru a/dom/media/webspeech/synth/speechd/SpeechDispatcherService.h b/dom/media/webspeech/synth/speechd/SpeechDispatcherService.h
+--- a/dom/media/webspeech/synth/speechd/SpeechDispatcherService.h
++++ b/dom/media/webspeech/synth/speechd/SpeechDispatcherService.h
+@@ -10,6 +10,7 @@
+ #include "nsISpeechService.h"
+ #include "nsIThread.h"
+ #include "nsRefPtrHashtable.h"
++#include "nsString.h"
+ #include "nsTArray.h"
+ 
+ struct SPDConnection;
+@@ -53,6 +54,12 @@
+ 
+   SPDConnection* mSpeechdClient;
+ 
++  // Speaks the default voices; see SpeechDispatcherVoice::mIsDefault.
++  SPDConnection* mSpeechdDefaultClient;
++
++  // The DefaultModule of Speech Dispatcher.
++  nsCString mDefaultModule;
++
+   nsRefPtrHashtable<nsUint32HashKey, SpeechDispatcherCallback> mCallbacks;
+ 
+   nsCOMPtr<nsIThread> mInitThread;
