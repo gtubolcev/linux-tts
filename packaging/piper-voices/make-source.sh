@@ -95,7 +95,7 @@ chmod 755 "$D/rules"
 cat > "$D/changelog" <<X
 piper-voices ($VERSION~$DIST) $DIST; urgency=medium
 
-  * Piper voices with free licences for sd_piper-sherpa-onnx.
+  * Piper voices with free licences for sd_sherpa-onnx.
 
  -- $MAINT  $(date -R)
 X
@@ -127,9 +127,9 @@ Package: $(pkg_name "$KEY")
 Architecture: all
 Depends: piper-espeak-ng-data (= \${source:Version}), \${misc:Depends}
 Provides: piper-voice
-Enhances: speech-dispatcher-piper-sherpa-onnx
+Enhances: speech-dispatcher-sherpa-onnx
 Description: Piper voice "$NAME" ($LANG_, $QUALITY quality)
- A neural voice for the speech-dispatcher synthesizer piper-sherpa-onnx,
+ A neural voice for the speech-dispatcher synthesizer sherpa-onnx,
  in the sherpa-onnx form of the Piper voice $KEY.
 X
   done

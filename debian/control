@@ -62,10 +62,12 @@ Breaks: speech-dispatcher-sherpa (<< 0.1.0+git20261114~)
 Replaces: speech-dispatcher-sherpa (<< 0.1.0+git20261114~)
 Description: Speech Dispatcher module for sherpa-onnx voices
  Speaks with neural voices through sherpa-onnx: Supertonic 3 (31 languages,
- among them Russian and English), Pocket TTS (English) and VITS models on
- characters (MMS). Models are looked up in /usr/share/sherpa-onnx/tts and
+ among them Russian and English), Piper voices (speech-dispatcher-piper-
+ sherpa-onnx brings the packaged ones), Pocket TTS (English) and VITS models
+ on characters (MMS). Models are looked up in /usr/share/sherpa-onnx/tts and
  ~/.local/share/sherpa-onnx/tts; the model is loaded with the first message
- and freed after some minutes without speech.
+ and freed after some minutes without speech; two models stay loaded at
+ once, so a text in two languages does not reload them.
  Settings in /etc/speech-dispatcher/modules/sherpa-onnx.conf.
 
 Package: speech-dispatcher-piper-sherpa-onnx
@@ -89,12 +91,14 @@ Recommends: piper-voice-ru-ru-dmitri-medium,
             piper-voice-pl-pl-gosia-medium,
             piper-voice-pl-pl-darkman-medium,
             piper-voice-kk-kz-issai-high
-Description: Speech Dispatcher synthesizer for Piper voices
- Speaks with Piper neural voices through sherpa-onnx, as the synthesizer
- "piper-sherpa-onnx" (the module of speech-dispatcher-sherpa-onnx under
- another name). The voices are the piper-voice-* packages; the other Piper
- voices can be installed with the speech settings app.
- Settings in /etc/speech-dispatcher/modules/piper-sherpa-onnx.conf.
+Description: Piper voices for the sherpa-onnx synthesizer
+ Brings the packaged Piper neural voices (the piper-voice-* packages) and
+ the espeak-ng data they need to the synthesizer "sherpa-onnx" of
+ speech-dispatcher-sherpa-onnx, which lists them beside its other voices.
+ The other Piper voices can be installed with the speech settings app.
+ .
+ Earlier versions of this package were a synthesizer of their own,
+ "piper-sherpa-onnx"; its settings file is removed.
 
 Package: speech-dispatcher-sherpa
 Architecture: all

@@ -86,10 +86,9 @@ endif
 
 # -------------------------------------------------------------- sherpa
 sherpa = cc.find_library('sherpa-onnx-c-api', has_headers: ['sherpa-onnx/c-api/c-api.h'], required: false)
-# one module, two synthesizers: sd_piper-sherpa-onnx is a link to it and
-# reads piper-sherpa-onnx.conf (the -vulkan-rs variants of sherpa/build-deb.sh
-# need onnxruntime-ep-vulkan, so they are not installed here)
-# (espeak-ng turns the text of Piper voices into phonemes)
+# Supertonic, Piper, Pocket TTS and MMS in one module (the -vulkan-rs variant
+# of sherpa/build-deb.sh needs onnxruntime-ep-vulkan, so it is not installed
+# here); espeak-ng turns the text of Piper voices into phonemes
 if get_option('sherpa').require(sherpa.found() and espeak.found(),
     error_message: 'sd_sherpa-onnx needs the sherpa-onnx C API and espeak-ng').allowed()
   # espeak-ng < 1.52 (Ubuntu 24.04) has no espeak_TextToPhonemesWithTerminator
@@ -103,8 +102,7 @@ if get_option('sherpa').require(sherpa.found() and espeak.found(),
     include_directories: [speechd_inc, shim_inc],
     dependencies: module_deps + [sherpa, espeak],
     install: true, install_dir: module_dir)
-  install_symlink('sd_piper-sherpa-onnx', pointing_to: 'sd_sherpa-onnx', install_dir: module_dir)
-  install_data('sherpa/sherpa-onnx.conf', 'sherpa/piper-sherpa-onnx.conf', install_dir: conf_dir)
+  install_data('sherpa/sherpa-onnx.conf', install_dir: conf_dir)
 endif
 
 # -------------------------------------------------------------- silero

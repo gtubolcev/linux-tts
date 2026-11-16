@@ -12,10 +12,9 @@ inputs (the front end), and the runtimes that run the neural network.
   +---------------+---------+-------------+------------+-----------+
   |               |         |             |            |           |
 sd_sherpa-onnx  sd_kokoro  sd_teratts   sd_vosk     sd_silero   sd_rhvoice,
-sd_piper-         |         |             |            |         espeak-ng
- sherpa-onnx      |         |             |            |           |
-(one binary,      |         |             |            |           |
- 4 names)         |         |             |            |           |
+(+ -vulkan-rs:    |         |             |            |         espeak-ng
+ one binary,      |         |             |            |           |
+ 2 names)         |         |             |            |           |
   |               v         v             v            v           v
   |   phonemizer: our C code: text -> phonemes      silero-     no neural
   |   espeak-ng   (espeak-ng, dictionaries)          server     network:
@@ -39,12 +38,11 @@ sherpa-onnx           |         |             |        |
 
 Not packaged: `extra/zonos3` (ZONOS3-Mini on ggml/Vulkan, until its model
 stops inventing words). Pied's `piper-generic` (the `piper` command) is
-replaced by `piper-sherpa-onnx`.
+replaced by the Piper voices of `sherpa-onnx`.
 
 | Module | Models | Front end | Runtime | Graphics card |
 |---|---|---|---|---|
-| `sd_sherpa-onnx` (synthesizers `sherpa-onnx`, `sherpa-onnx-vulkan-rs`) | Supertonic 3, MMS, Pocket TTS | sherpa-onnx | ONNX Runtime | MMS: `-vulkan-rs`; Supertonic, Pocket: no |
-| the same binary as `sd_piper-sherpa-onnx` (`piper-sherpa-onnx`, `piper-sherpa-onnx-vulkan-rs`) | Piper voices (`vits-piper-*`: piper-voice-* packages, the downloader) | espeak-ng in `sd_sherpa.c`, as piper-phonemize | ONNX Runtime | `-vulkan-rs` |
+| `sd_sherpa-onnx` (synthesizers `sherpa-onnx`, `sherpa-onnx-vulkan-rs`) | Supertonic 3, Piper voices (`vits-piper-*`: piper-voice-* packages, the downloader), MMS, Pocket TTS | sherpa-onnx; for Piper espeak-ng in `sd_sherpa.c`, as piper-phonemize | ONNX Runtime | Piper, MMS: `-vulkan-rs`; Supertonic, Pocket: no |
 | `sd_kokoro` | Kokoro (Russian) | `kokoro/ru-g2p.c`, espeak-ng | ONNX Runtime | not yet; the same plugin would work |
 | `sd_teratts` | TeraTTS | `teratts/`, stress dictionary | ONNX Runtime | not yet, as above |
 | `sd_vosk` | Vosk TTS | `vosk/vosk.c` | ONNX Runtime | not yet, as above |
@@ -53,31 +51,29 @@ replaced by `piper-sherpa-onnx`.
 | `sd_silero` | Silero v5 (user-installed, non-commercial) | silero-tts-onnx | ONNX Runtime (Python) | no |
 | `sd_rhvoice`, espeak-ng | RHVoice voices, espeak-ng | built in | no neural network | not needed |
 
-## One module, four synthesizers
+## One module, two synthesizers
 
 speech-dispatcher starts a synthesizer `<name>` as the program
 `sd_<name>` with the config `modules/<name>.conf`. `sd_sherpa-onnx` is
-installed once; the other three names are links to it:
+installed once; `sd_sherpa-onnx-vulkan-rs` is a link to it:
 
-| Synthesizer | Config | Families | Provider | Package |
-|---|---|---|---|---|
-| `sherpa-onnx` | `sherpa-onnx.conf` | supertonic pocket vits | cpu | speech-dispatcher-sherpa-onnx |
-| `sherpa-onnx-vulkan-rs` | generated from it | vits | vulkan | the same |
-| `piper-sherpa-onnx` | `piper-sherpa-onnx.conf` | piper | cpu | speech-dispatcher-piper-sherpa-onnx |
-| `piper-sherpa-onnx-vulkan-rs` | generated from it | piper | vulkan | the same |
+| Synthesizer | Config | Families | Provider |
+|---|---|---|---|
+| `sherpa-onnx` | `sherpa-onnx.conf` | supertonic piper pocket vits | cpu |
+| `sherpa-onnx-vulkan-rs` | generated from it | piper vits | vulkan |
 
-Options may be written with the prefix `Sherpa` or `Piper`
-(`SherpaVoice`, `PiperVoice`), so the settings app can address each
-synthesizer. A `-vulkan-rs` synthesizer fails to start without the plugin,
-and speech-dispatcher then does not list it. The names say what runs
-under them (sherpa on ONNX Runtime on onnx-vulkan-rs), leaving room for
-`sherpa-ncnn` or others later.
+Both are in speech-dispatcher-sherpa-onnx; speech-dispatcher-piper-sherpa-onnx
+only brings the packaged Piper voices. Until 2026-11-16 Piper was a
+synthesizer of its own, `piper-sherpa-onnx` (a further link with
+`PiperFamilies "piper"`); the module still reads options with the prefix
+`Piper` (`PiperVoice`), so such a config keeps working. A `-vulkan-rs`
+synthesizer fails to start without the plugin, and speech-dispatcher then
+does not list it. The names say what runs under them (sherpa on ONNX
+Runtime on onnx-vulkan-rs), leaving room for `sherpa-ncnn` or others later.
 
-Piper voices: `/usr/share/sherpa-onnx/tts/vits-piper-<key>/` (packages
-`piper-voice-<lang>-<region>-<name>-<quality>`) and
-`~/.local/share/sherpa-onnx/tts/` (the downloader of the speech settings
-app). Each has its `.onnx` (with metadata), `.onnx.json`, `tokens.txt`, and
-`espeak-ng-data`, a link to the shared `piper-espeak-ng-data`.
+Up to `SherpaMaxModels` (2) models stay loaded, the one used longest ago
+goes first: a text in two languages spoken by voices of two models does not
+load a model at every change of language.
 
 ## Phonemizers
 
@@ -136,7 +132,7 @@ does not know or does worse (the Russian stress dictionaries).
 ## The Vulkan path
 
 ```
-sd_sherpa-onnx as sherpa-onnx-vulkan-rs / piper-sherpa-onnx-vulkan-rs
+sd_sherpa-onnx as sherpa-onnx-vulkan-rs
   -> sherpa-onnx, provider "vulkan"             (packaging/sherpa-onnx/debian/patches)
   -> ONNX Runtime 1.29, private copy            libonnxruntime-sherpa:
                                                   /usr/lib/x86_64-linux-gnu/sherpa-onnx/
