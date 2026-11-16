@@ -7,14 +7,13 @@ pipeline) module.
 
 | Module | Engine | Languages |
 |---|---|---|
-| `sherpa/` — `sd_sherpa-onnx` | [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx): Supertonic 3, Pocket TTS, MMS | many (Supertonic), en (Pocket), ru (MMS) |
-| `sherpa/` — `sd_piper-sherpa-onnx` | [Piper](https://github.com/OHF-Voice/piper1-gpl) voices on sherpa-onnx; voice packages in `packaging/piper-voices/`, the others through the downloader of xfce4-speech-settings | 40+ |
+| `sherpa/` — `sd_sherpa-onnx` | [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx): Supertonic 3, [Piper](https://github.com/OHF-Voice/piper1-gpl) voices (packages in `packaging/piper-voices/`, the others through the downloader of xfce4-speech-settings), Pocket TTS, MMS | many (Supertonic), 40+ (Piper), en (Pocket), ru (MMS) |
 | `vosk/` — `sd_vosk` | [Vosk TTS](https://github.com/alphacep/vosk-tts) 0.9-multi, a C port of `vosk_tts` | ru |
 | `kokoro/` — `sd_kokoro` | Russian Kokoro ([zaakirio/kokoro-ru](https://huggingface.co/zaakirio/kokoro-ru)) with a C port of its G2P | ru |
 | `teratts/` — `sd_teratts` | [TeraTTS](https://huggingface.co/TeraTTS) (OpenRAIL-M) with a stress dictionary | ru, en |
 | `silero/` — `sd_silero` | [Silero](https://github.com/snakers4/silero-models) v5_6_ru through `silero-server` on the ONNX port [silero-tts-onnx](https://github.com/some1-in-here/silero-tts-onnx); the model (CC BY-NC-SA, non-commercial) is installed separately into `~/.local/share/silero-tts/` | ru |
 
-`sd_sherpa-onnx-vulkan-rs` and `sd_piper-sherpa-onnx-vulkan-rs` are the same modules on the graphics
+`sd_sherpa-onnx-vulkan-rs` is the same module on the graphics
 card through Vulkan ([onnx-vulkan-rs](https://github.com/0xshawn/onnx-vulkan-rs)), with
 only the models it can run (Piper, MMS).
 

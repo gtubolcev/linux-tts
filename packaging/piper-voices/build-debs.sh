@@ -6,7 +6,7 @@
 #   OUT    where the .debs go
 #
 # Voices land in /usr/share/sherpa-onnx/tts/vits-piper-<key>/, where
-# sd_piper-sherpa-onnx looks for them; their espeak-ng-data is a link to
+# sd_sherpa-onnx looks for them; their espeak-ng-data is a link to
 # /usr/share/sherpa-onnx/piper-espeak-ng-data (the same 19 MB in every
 # tarball, slightly different from the system espeak-ng-data: the one the
 # voices were trained with).
@@ -87,10 +87,10 @@ Section: sound
 Priority: optional
 Depends: piper-espeak-ng-data
 Provides: piper-voice
-Enhances: speech-dispatcher-piper-sherpa-onnx
+Enhances: speech-dispatcher-sherpa-onnx
 Installed-Size: $(du -sk "$W/usr" | cut -f1)
 Description: Piper voice "$NAME" ($LANG_, $QUALITY quality)
- A neural voice for the speech-dispatcher synthesizer piper-sherpa-onnx,
+ A neural voice for the speech-dispatcher synthesizer sherpa-onnx,
  in the sherpa-onnx form of the Piper voice $KEY.
 X
   dpkg-deb --root-owner-group -b "$W" "$OUT/${P}_${VER}_all.deb" >/dev/null

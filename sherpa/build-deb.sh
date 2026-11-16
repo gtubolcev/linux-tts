@@ -2,15 +2,16 @@
 # Builds into this directory:
 #   speech-dispatcher-sherpa-onnx        sd_sherpa-onnx, the synthesizers
 #                                        sherpa-onnx and sherpa-onnx-vulkan-rs
-#   speech-dispatcher-piper-sherpa-onnx  the same module as the synthesizers
-#                                        piper-sherpa-onnx and
-#                                        piper-sherpa-onnx-vulkan-rs
+#   speech-dispatcher-piper-sherpa-onnx  the packaged Piper voices for it (no
+#                                        module; removes the configs of the
+#                                        former synthesizer piper-sherpa-onnx)
 # speech-dispatcher finds a synthesizer as sd_<name> with modules/<name>.conf;
-# the other names are links to sd_sherpa-onnx, the config tells them apart.
+# sd_sherpa-onnx-vulkan-rs is a link to sd_sherpa-onnx, the config tells them
+# apart.
 set -e
 umask 022
 HERE=$(cd "$(dirname "$0")" && pwd)
-VER=0.1-6~local
+VER=0.1-7~local
 VOICES=$HERE/../packaging/piper-voices/voices.list
 MOD=usr/lib/speech-dispatcher-modules
 CONF=etc/speech-dispatcher/modules
@@ -70,7 +71,7 @@ install -m755 "$HERE/sd_sherpa" "$W/$MOD/sd_sherpa-onnx"
 strip "$W/$MOD/sd_sherpa-onnx"
 ln -s sd_sherpa-onnx "$W/$MOD/sd_sherpa-onnx-vulkan-rs"
 install -m644 "$HERE/sherpa-onnx.conf" "$W/$CONF/sherpa-onnx.conf"
-vulkan_conf sherpa-onnx "VITS models on characters (MMS)" Sherpa vits \
+vulkan_conf sherpa-onnx "Piper voices and VITS models on characters (MMS)" Sherpa "piper vits" \
     "$W/$CONF/sherpa-onnx-vulkan-rs.conf"
 printf '/%s\n' "$CONF/sherpa-onnx.conf" "$CONF/sherpa-onnx-vulkan-rs.conf" \
     > "$W/DEBIAN/conffiles"
@@ -92,29 +93,32 @@ Provides: speech-dispatcher-sherpa
 Installed-Size: $(du -sk --total "$W/usr" "$W/etc" | tail -1 | cut -f1)
 Description: Speech Dispatcher module for sherpa-onnx voices
  Speaks with neural voices through sherpa-onnx: Supertonic 3 (31 languages,
- among them Russian and English, 5 female and 5 male voices), Pocket TTS
- (English) and MMS (one language per model). The model is loaded into the
- module once and stays loaded, so only the first message waits for it.
+ among them Russian and English, 5 female and 5 male voices), Piper voices
+ (speech-dispatcher-piper-sherpa-onnx brings the packaged ones), Pocket TTS
+ (English) and MMS (one language per model). Models are loaded into the
+ module once and stay loaded, two at a time, so only the first message
+ waits for them.
  .
  With onnxruntime-ep-vulkan installed, the synthesizer
- "sherpa-onnx-vulkan-rs" speaks the MMS voices on the graphics card.
- Piper voices are the synthesizer "piper-sherpa-onnx"
- (speech-dispatcher-piper-sherpa-onnx).
+ "sherpa-onnx-vulkan-rs" speaks the Piper and MMS voices on the graphics
+ card.
 X
 dpkg-deb --root-owner-group -b "$W" "$HERE/${P}_${VER}_amd64.deb"
 
-# --- speech-dispatcher-piper-sherpa-onnx
+# --- speech-dispatcher-piper-sherpa-onnx: voices only
 P=speech-dispatcher-piper-sherpa-onnx
 W=$HERE/deb/$P
-mkdir -p "$W/DEBIAN" "$W/$MOD" "$W/$CONF" "$W/usr/share/doc/$P"
-ln -s sd_sherpa-onnx "$W/$MOD/sd_piper-sherpa-onnx"
-ln -s sd_sherpa-onnx "$W/$MOD/sd_piper-sherpa-onnx-vulkan-rs"
-install -m644 "$HERE/piper-sherpa-onnx.conf" "$W/$CONF/piper-sherpa-onnx.conf"
-vulkan_conf piper-sherpa-onnx "all Piper voices" Piper piper \
-    "$W/$CONF/piper-sherpa-onnx-vulkan-rs.conf"
-printf '/%s\n' "$CONF/piper-sherpa-onnx.conf" "$CONF/piper-sherpa-onnx-vulkan-rs.conf" \
-    > "$W/DEBIAN/conffiles"
+OLD="/$CONF/piper-sherpa-onnx.conf /$CONF/piper-sherpa-onnx-vulkan-rs.conf"
+mkdir -p "$W/DEBIAN" "$W/usr/share/doc/$P"
 copyright > "$W/usr/share/doc/$P/copyright"
+# the configs of the former synthesizer piper-sherpa-onnx (up to 0.1-6~local)
+for s in preinst postinst postrm; do
+  { echo '#!/bin/sh'; echo 'set -e'
+    for f in $OLD; do
+      echo "dpkg-maintscript-helper rm_conffile $f 0.1-7~local~ $P -- \"\$@\""
+    done; } > "$W/DEBIAN/$s"
+  chmod 755 "$W/DEBIAN/$s"
+done
 # the packaged voices, one Recommends each
 RECOMMENDS=$(grep -v '^#' "$VOICES" | awk 'NF { printf "%spiper-voice-%s", sep, tolower($1); sep=", " }' \
              | tr '_' '-')
@@ -125,17 +129,17 @@ Architecture: all
 Maintainer: Grigory Tuboltsev <gtubolcev@gmail.com>
 Section: sound
 Priority: optional
+Pre-Depends: dpkg (>= 1.17.14)
 Depends: speech-dispatcher-sherpa-onnx (>= $VER), piper-espeak-ng-data, piper-voice
 Recommends: $RECOMMENDS
-Suggests: onnxruntime-ep-vulkan
-Installed-Size: $(du -sk --total "$W/usr" "$W/etc" | tail -1 | cut -f1)
-Description: Speech Dispatcher synthesizer for Piper voices
- Speaks with Piper neural voices through sherpa-onnx, as the synthesizer
- "piper-sherpa-onnx" (the module of speech-dispatcher-sherpa-onnx under
- another name). The voices are the piper-voice-* packages; the other Piper
- voices can be installed with the speech settings app.
+Installed-Size: $(du -sk "$W/usr" | cut -f1)
+Description: Piper voices for the sherpa-onnx synthesizer
+ Brings the packaged Piper neural voices (the piper-voice-* packages) and
+ the espeak-ng data they need to the synthesizer "sherpa-onnx" of
+ speech-dispatcher-sherpa-onnx, which lists them beside its other voices.
+ The other Piper voices can be installed with the speech settings app.
  .
- With onnxruntime-ep-vulkan installed, the synthesizer
- "piper-sherpa-onnx-vulkan-rs" speaks them on the graphics card.
+ Earlier versions of this package were a synthesizer of their own,
+ "piper-sherpa-onnx"; its settings files are removed.
 X
 dpkg-deb --root-owner-group -b "$W" "$HERE/${P}_${VER}_all.deb"

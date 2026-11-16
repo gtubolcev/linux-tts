@@ -96,6 +96,10 @@ static int cfg_steps = 5;
 static int cfg_first_chunk = 40;
 static gchar *cfg_preload = NULL;          /* a voice or model name */
 static int cfg_idle_timeout = 300;          /* s; 0 keeps the model */
+/* sherpa-onnx shortens every pause the model makes to this share; its
+ * examples use 0.2, which left Piper voices 60 ms at a full stop where
+ * Piper itself makes 300 ms.  1 keeps the pauses the voice was trained with. */
+static float cfg_silence_scale = 1.0f;
 #ifndef VULKAN_EP_LIBRARY
 /* where the patched sherpa-onnx looks for it: next to its libonnxruntime */
 #define VULKAN_EP_LIBRARY "/usr/lib/x86_64-linux-gnu/sherpa-onnx/libonnxruntime_ep_vulkan.so"
@@ -117,8 +121,20 @@ static gchar *set_language = NULL;
 static int set_rate = 0;
 static int set_volume = 0;
 
-/* the loaded model */
-static Model *loaded_model = NULL;
+/* The loaded models, at most SherpaMaxModels of them: a text in two languages
+ * spoken by voices of two models (Piper for Russian, Supertonic for English)
+ * would otherwise load a model at every change of language.  When another one
+ * is needed, the one used longest ago goes. */
+#define MAX_MODELS_LIMIT 4
+typedef struct
+{
+  Model *model;
+  const SherpaOnnxOfflineTts *tts;
+  gint64 used;
+} Loaded;
+static Loaded loaded[MAX_MODELS_LIMIT];
+static int cfg_max_models = 2;
+/* the model of the message being spoken (one of loaded[]) */
 static const SherpaOnnxOfflineTts *tts = NULL;
 
 static volatile int stop_requested = 0;
@@ -231,6 +247,13 @@ module_config (const char *configfile)
         cfg_vulkan = g_ascii_strcasecmp (value, "vulkan") == 0;
       else if (g_ascii_strcasecmp (key, "IdleTimeout") == 0)
         cfg_idle_timeout = atoi (value);
+      else if (g_ascii_strcasecmp (key, "MaxModels") == 0)
+        cfg_max_models = CLAMP (atoi (value), 1, MAX_MODELS_LIMIT);
+      else if (g_ascii_strcasecmp (key, "SilenceScale") == 0)
+        {
+          float s = (float) g_ascii_strtod (value, NULL);
+          cfg_silence_scale = s > 0.0f && s <= 4.0f ? s : 1.0f;
+        }
       else if (g_ascii_strcasecmp (key, "Preload") == 0)
         {
           g_free (cfg_preload);
@@ -780,21 +803,41 @@ load_model (Model *m)
 #define PATH_(name) ({ gchar *p_ = g_build_filename (m->dir, name, NULL); \
                        g_ptr_array_add (keep, p_); p_; })
 
-  if (loaded_model == m && tts != NULL)
-    return TRUE;
-  if (tts != NULL)
+  Loaded *slot = NULL;
+
+  for (int i = 0; i < cfg_max_models; i++)
+    if (loaded[i].model == m && loaded[i].tts != NULL)
+      {
+        loaded[i].used = t0;
+        tts = loaded[i].tts;
+        g_ptr_array_free (keep, TRUE);
+        return TRUE;
+      }
+  /* a free slot, or the one used longest ago */
+  for (int i = 0; i < cfg_max_models; i++)
+    if (slot == NULL || loaded[i].tts == NULL
+        || (slot->tts != NULL && loaded[i].used < slot->used))
+      {
+        slot = &loaded[i];
+        if (slot->tts == NULL)
+          break;
+      }
+  if (slot->tts != NULL)
     {
-      SherpaOnnxDestroyOfflineTts (tts);
-      tts = NULL;
-      loaded_model = NULL;
+      DBG ("unloading %s for %s", slot->model->name, m->name);
+      SherpaOnnxDestroyOfflineTts (slot->tts);
+      slot->tts = NULL;
+      slot->model = NULL;
+      malloc_trim (0);
     }
+  tts = NULL;
 
   memset (&c, 0, sizeof c);
   c.model.num_threads = wanted_threads ();
   c.model.provider = cfg_vulkan ? "vulkan" : "cpu";
   c.model.debug = debug_on > 1;
   c.max_num_sentences = 1;
-  c.silence_scale = 0.2f;
+  c.silence_scale = cfg_silence_scale;
   switch (m->family)
     {
     case FAMILY_SUPERTONIC:
@@ -860,7 +903,9 @@ load_model (Model *m)
       ERR ("cannot load the model %s", m->dir);
       return FALSE;
     }
-  loaded_model = m;
+  slot->model = m;
+  slot->tts = tts;
+  slot->used = g_get_monotonic_time ();
   DBG ("loaded %s (%s, %s, %d threads) in %.1f s", m->name, family_names[m->family],
        c.model.provider, c.model.num_threads, (g_get_monotonic_time () - t0) / 1e6);
   return TRUE;
@@ -1190,6 +1235,39 @@ send_audio (const float *f, size_t n, int sample_rate)
 
 
 
+/* The pause after a piece of split_sentences.  Each piece is synthesized on
+ * its own, so the pause sherpa-onnx puts between the sentences of one call
+ * (0.2 s times silence_scale for VITS models) is missing; Piper and MMS end
+ * a piece with only about 60 ms of silence, which ran the sentences
+ * together.  Supertonic and Pocket TTS end with a long silence of their own. */
+static void
+send_pause (const gchar *piece, Voice *v)
+{
+  const gchar *end = piece + strlen (piece);
+  gunichar last;
+  float seconds;
+  int sr;
+  size_t n;
+  float *zeros;
+
+  if (v->model->family != FAMILY_PIPER && v->model->family != FAMILY_VITS)
+    return;
+  if (end == piece || tts == NULL)
+    return;
+  last = g_utf8_get_char (g_utf8_prev_char (end));
+  /* a sentence end (or line break) as sherpa-onnx; half after a comma cut */
+  seconds = (last == ',' || last == ':' || last == 0x2014 ? 0.1f : 0.2f) * cfg_silence_scale;
+  sr = SherpaOnnxOfflineTtsSampleRate (tts);
+  n = (size_t) (seconds * sr);
+  if (n == 0)
+    return;
+  zeros = g_new0 (float, n);
+  send_audio (zeros, n, sr);
+  g_free (zeros);
+}
+
+
+
 static void
 speak_sentence (const gchar *text, Voice *v)
 {
@@ -1203,7 +1281,7 @@ speak_sentence (const gchar *text, Voice *v)
 
   memset (&g, 0, sizeof g);
   g.sid = v->sid;
-  g.silence_scale = 0.2f;
+  g.silence_scale = cfg_silence_scale;
   switch (v->model->family)
     {
     case FAMILY_SUPERTONIC:
@@ -1297,9 +1375,13 @@ module_speak_sync (const char *data, size_t bytes, SPDMessageType msgtype)
   if (load_model (voice->model))
     for (guint i = 0; i < sentences->len && !stop_requested; i++)
       {
+        const gchar *piece = g_ptr_array_index (sentences, i);
+
         process_input ();
         if (!stop_requested)
-          speak_sentence (g_ptr_array_index (sentences, i), voice);
+          speak_sentence (piece, voice);
+        if (!stop_requested && i + 1 < sentences->len)
+          send_pause (piece, voice);
       }
 
   g_ptr_array_free (sentences, TRUE);
@@ -1330,34 +1412,47 @@ module_stop (void)
 
 
 
+/* frees every loaded model; FALSE if none was loaded */
+static gboolean
+unload_all (void)
+{
+  gboolean any = FALSE;
+
+  for (int i = 0; i < MAX_MODELS_LIMIT; i++)
+    if (loaded[i].tts != NULL)
+      {
+        SherpaOnnxDestroyOfflineTts (loaded[i].tts);
+        loaded[i].tts = NULL;
+        loaded[i].model = NULL;
+        any = TRUE;
+      }
+  tts = NULL;
+  return any;
+}
+
 int
 module_close (void)
 {
-  if (tts != NULL)
-    SherpaOnnxDestroyOfflineTts (tts);
-  tts = NULL;
+  unload_all ();
   return 0;
 }
 
 
 
-/* frees the model after SherpaIdleTimeout seconds without a command from
- * the server; the next message loads it again */
+/* frees the models after SherpaIdleTimeout seconds without a command from
+ * the server; the next message loads its model again.  sherpa loads in this
+ * thread, so nothing is being loaded or spoken now. */
 static void
 unload_if_idle (void)
 {
   if (cfg_idle_timeout <= 0
       || g_get_monotonic_time () - last_use < (gint64) cfg_idle_timeout * G_TIME_SPAN_SECOND)
     return;
-  /* sherpa loads in this thread, nothing to wait for */
-  if (tts == NULL)
+  if (!unload_all ())
     return;
-  SherpaOnnxDestroyOfflineTts (tts);
-  tts = NULL;
-  loaded_model = NULL;
   /* give the freed heap back to the system */
   malloc_trim (0);
-  DBG ("model unloaded after %d s without speech", cfg_idle_timeout);
+  DBG ("models unloaded after %d s without speech", cfg_idle_timeout);
 }
 
 
