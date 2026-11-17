@@ -3,7 +3,7 @@
 Sources: 4pda topic 1110815 (local archive `../4pda`, 5542 posts), Habr, GitHub/PyPI/HF,
 the T-Bank talk on FST normalization (YouTube 42UUahzVroc, 2024-05-24), papers, and our own
 survey (`scripts/norm-test`, 15 sentences through every engine, checked with Vosk ASR).
-Not yet searched: Telegram group «Распознавание и синтез речи» (the MCP was disconnected).
+Telegram group «Распознавание и синтез речи» searched 2026-11-17 (section 3a).
 
 ## 1. Terms and the problem
 
@@ -125,6 +125,29 @@ Academic work (search: cyberleninka.ru, its JSON API `POST /api/search`
 - Feoktistov & Morozov (NSU, 2025): social-media normalization corpus. See §1; this is not
   TTS TN.
 - MSU Lomonosov-2022 abstract on neural ITN.
+
+## 3a. Telegram group «Распознавание и синтез речи» and other runtimes (2026-11-17)
+
+- The group's default advice for Russian is "text → RUNorm → RUAccent → engine" (nshmyrev,
+  Den4ik, many). Reported faults of RUNorm: "Улан-Батор" → "Улан- инкубатор", "21 крупнейшей"
+  → "двадцать первой", reads НАТО/СМИ letter by letter, phone numbers fail. Den4ik asked for
+  contributors in 2025-08; the project needs data cleaning and stability work.
+- NeMo ru TN: "с окончаниями там беда" (akbarkhuja, 2026-02). Agrees with our view that its
+  grammars need case agreement on top.
+- ru-normalizr was reposted by the group channel (2026-03-16) with no reports since.
+- LLMnorm-GUI (zelenukhin = azimutspb on 4pda): regex picks the spots, gemma-4 31B rewrites
+  only those; pipeline LLMnorm → RuVoice-Stress-Converter → LLMnorm (все/всё). Book mode only.
+- Others seen: num2t4ru (numbers to words), rus2num and yargy (ITN, not TN),
+  saarus72/russian_text_normalizer (used for numbers and Latin by one vosk-tts user).
+- Multilingual rule sets: NeMo-text-processing TN covers ar, de, en, es, fr, hi, hu, hy, it,
+  ja, ko, pt, ru, rw, sv, vi, zh (Apache-2.0). WeTextProcessing (wenet, Apache-2.0): zh, en,
+  ja, with a C++ runtime (`processor_main`, tagger + verbalizer FSTs on OpenFst); wetext-rs is
+  a Rust port. voxnorm (Python): zh, en, ja, ko. num2words (LGPL): numbers only, ~50 languages.
+- **sherpa-onnx has a TN hook**: `OfflineTtsConfig.rule_fsts` / `rule_fars` (comma lists),
+  applied in order by `kaldifst::TextNormalizer` before the frontend. Shipped only for Chinese
+  (matcha-zh: phone.fst, date.fst, number.fst). Any rewrite FST compiled with pynini works,
+  so NeMo-derived grammars could be fed to our sherpa module without new code, and the same
+  kaldifst runtime (Apache-2.0, small, header-mostly) can serve the other modules in common/.
 
 ## 4. Our engines today (norm-test, 2026-11-17)
 
