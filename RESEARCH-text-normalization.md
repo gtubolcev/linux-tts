@@ -166,6 +166,17 @@ engine receives it.
 `tts_norm(ctx, text, lang, profile)`. Inside the module it sees the final text after
 speechd's own symbol pass and before our stress and g2p.
 
+**Switch (user, 2026-11-17).** The settings dialog gets an "Enable text normalization"
+check box, because some users care more about speed and memory. When it is off:
+- the helper is not started;
+- no dictionaries are loaded;
+- the text goes to the engine as now: only the engine's own minimal preparation, such as
+  the stress marks it needs to work.
+
+It is stored as a module option in the module's .conf, so speechd modules read it without
+the dialog. It may later grow into off / fast (C rules only) / full (the morphology helper);
+the check box comes first.
+
 **Pipeline (each stage switchable by profile):**
 1. Segmentation: sentences and tokens; keep SSML and index marks intact.
 2. User dictionaries in Demagog/Balabolka `.dic`/`.rex` format (global, per language, per
