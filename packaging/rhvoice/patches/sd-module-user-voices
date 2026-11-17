@@ -1,0 +1,78 @@
+Description: Speech Dispatcher module: languages and voices of the user
+ Also load the languages and voices in $XDG_DATA_HOME/RHVoice/languages and
+ voices (~/.local/share/RHVoice/...), one directory each, as the RHVoice
+ package format has them. A settings program can then install voices from
+ the RHVoice package directory without root. A newer version there wins
+ over the system one, as with any resource path.
+Author: Grigory Tuboltsev <gtubolcev@gmail.com>
+Forwarded: no
+Last-Update: 2026-11-16
+
+--- a/src/sd_module/init.cpp
++++ b/src/sd_module/init.cpp
+@@ -13,9 +13,11 @@
+ /* You should have received a copy of the GNU General Public License */
+ /* along with this program.  If not, see <https://www.gnu.org/licenses/>. */
+ 
++#include <cstdlib>
+ #include <exception>
+ #include <set>
+ #include "core/engine.hpp"
++#include "core/path.hpp"
+ #include "core/voice_profile.hpp"
+ #include "init.hpp"
+ #include "io.hpp"
+@@ -24,6 +26,41 @@
+ {
+   namespace sd
+   {
++    namespace
++    {
++      // The languages and voices a user installed without root:
++      // $XDG_DATA_HOME/RHVoice/languages/<name> and voices/<name>, by default
++      // under ~/.local/share. Each one is a resource path of its own, so a
++      // newer version there wins over the one in the data path.
++      void add_user_resources(engine::init_params& p,const std::string& type)
++      {
++        std::string base;
++        const char* xdg=std::getenv("XDG_DATA_HOME");
++        if(xdg&&*xdg=='/')
++          base=xdg;
++        else
++          {
++            const char* home=std::getenv("HOME");
++            if(!home||*home!='/')
++              return;
++            base=path::join(path::join(home,".local"),"share");
++          }
++        const std::string dir=path::join(path::join(base,"RHVoice"),type+"s");
++        if(!path::isdir(dir))
++          return;
++        try
++          {
++            for(path::directory d(dir);!d.done();d.next())
++              if(!d.get().empty()&&d.get()[0]!='.')
++                p.resource_paths.push_back(path::join(dir,d.get()));
++          }
++        catch(const std::exception& e)
++          {
++            logger::log(2,"Cannot read ",dir);
++          }
++      }
++    }
++
+     namespace cmd
+     {
+       bool init::is_valid() const
+@@ -35,7 +72,10 @@
+       {
+         try
+           {
+-            tts_engine=engine::create();
++            engine::init_params params;
++            add_user_resources(params,"language");
++            add_user_resources(params,"voice");
++            tts_engine=engine::create(params);
+             logger::log(3,"Initialized the engine");
+             register_languages();
+             register_voices();
