@@ -149,6 +149,30 @@ Academic work (search: cyberleninka.ru, its JSON API `POST /api/search`
   so NeMo-derived grammars could be fed to our sherpa module without new code, and the same
   kaldifst runtime (Apache-2.0, small, header-mostly) can serve the other modules in common/.
 
+### saarus72 in detail (2026-11-18)
+
+- Model `saarus72/russian_text_normalizer`: FRED-T5-large (820M, F32), Apache-2.0. Input
+  marks every number or Latin span: `<SC1>Было у отца [3]<extra_id_0> сына … за [142 990]<extra_id_1> руб.`;
+  the model outputs only the spoken form per sentinel, so the rest of the text can't be
+  "eaten". It inflects numbers by context; Latin was added from the Kaggle Russian TN data
+  and made numbers worse (the number-only version is commit 8c2476b). Own examples of
+  faults: "одни [5]" → "пятые", phone numbers read as one big number.
+- How the data was made — the useful part: take a big Russian corpus (ficbook, librusec,
+  pikabu), find sentences with spelled-out numbers by regex, run ITN (a fixed
+  flockentanz/word_to_number_ru) to get the digit form, clean by hand. Every pair is then a
+  real sentence with the correct case of the number, written by a human. LLM labelling
+  was tried and dropped (too many silent errors).
+- Dataset `saarus72/ficbook_text_norm` (HF, card says Apache-2.0; the texts themselves are
+  ficbook authors'): 3.93 M sentences, 1.9 GB JSONL, each a list of
+  `{text_from, text_to}` spans ("5" → "пять"). **Use: a large reference set for numbers in
+  context** (case agreement), scored per span; far beyond our hand-written tests. Not for
+  redistribution in our repo; download in the test container only.
+- Repo github.com/saarus72/text_normalization (Apache-2.0): notebooks for the pipeline
+  above and an ITN comparison (NeMo, Oknolaz, SergeyShk, averkij, flockentanz). No metrics.
+- For us: the model itself is too slow for the screen-reader path (820M seq2seq), but the
+  "mark spans, let a model only inflect them" design is the right shape for an optional
+  book mode, and the dataset can train or test a small case-agreement component.
+
 ## 4. Our engines today (norm-test, 2026-11-17)
 
 No engine handles TN fully:
