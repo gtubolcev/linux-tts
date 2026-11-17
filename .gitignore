@@ -13,3 +13,4 @@ sd_silero
 sd_teratts
 teratts-test
 _build/
+__pycache__/
