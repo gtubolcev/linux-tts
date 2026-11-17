@@ -173,6 +173,28 @@ Academic work (search: cyberleninka.ru, its JSON API `POST /api/search`
   "mark spans, let a model only inflect them" design is the right shape for an optional
   book mode, and the dataset can train or test a small case-agreement component.
 
+### Hugging Face search "normalization/normalisation/normalizer" (2026-11-18)
+
+Most hits are unrelated (audio loudness, legal data, spelling of social-media text). TTS-relevant:
+
+| item | what | licence | note |
+|---|---|---|---|
+| intx82/byt5-textnorm-ru (2026-09) | ByT5-small (~300M) TN for TTS: numbers, dates, time, units, %, fractions, math | Apache-2.0 | newest; 78% exact / 89.6% "semantic valid" on own test; 92% on numeric-heavy math texts; data rule-generated + model-reviewed; byte-level, so no tokenizer gaps for symbols |
+| saarus72/russian_text_normalizer | FRED-T5-large, see above | Apache-2.0 | 12 likes, most known |
+| maximxls/text-normalization-ru-terrible | tiny T5 from scratch on Kaggle RU TN | MIT | author: "very much unreliable"; useful only as a size floor |
+| alexue4/text-normalization-ru-new | rut5-small fine-tune, Kaggle + custom | MIT | no card details |
+| CrabInHoney/t5-ru-text-normalization-v1 | spelling/spacing fixes | Apache-2.0 | not TN for speech |
+| saarus72/ficbook_text_norm, pikabu_text_norm | 3.9 M / 1–10 M sentence pairs (ITN-made), spans `text_from→text_to` | Apache-2.0 card | best large test set for numbers in context |
+| kenenbek/gemma-russian-normalization-dataset | 597 k chat-format pairs, no card | none stated | licence unknown — skip |
+| ruscorpora/normalization | 1930 social-media spelling pairs | CC-BY-NC-SA | not TN for speech |
+| skypro1111/uk-text-normalization | **Ukrainian** TTS TN pairs: numbers, dates, money, units, abbreviations, phones, IBAN, domains, Roman, Latin; separate test sets for agreement and transliteration | CC-BY-4.0 | ready test set for uk; Space speech-uk/text-normalization and Yehor/normalize-text-uk are uk normalizers |
+| Folx/byt5-small-pl-text-normalization, Folx/qwen3-0.6b-pl-… | Polish TN | gated | — |
+| others | Turkish, Kyrgyz, Bambara, Hindi, Malay, Khmer, Vietnamese datasets/models | various | not our languages now |
+
+Conclusion: no rule-based Russian TN on HF; the neural ones are all T5-family. intx82/byt5 is the
+best candidate to add to the benchmark next to RUNorm (similar size, TTS-oriented, Apache).
+For Ukrainian there is a real dataset and a normalizer to look at later.
+
 ## 4. Our engines today (norm-test, 2026-11-17)
 
 No engine handles TN fully:
