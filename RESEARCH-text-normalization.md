@@ -195,6 +195,49 @@ Conclusion: no rule-based Russian TN on HF; the neural ones are all T5-family. i
 best candidate to add to the benchmark next to RUNorm (similar size, TTS-oriented, Apache).
 For Ukrainian there is a real dataset and a normalizer to look at later.
 
+### Benchmark on our test set (2026-11-18, scripts/normbench)
+
+47 auto-scored rows (+8 judged by hand: acronyms, Latin, versions, web, phone), on mikhail in
+docker with 3 CPUs. Exact = after lowercase/ё/punctuation folding; any listed variant counts.
+
+| class | rn | nemo | runorm | byt5 | saarus |
+|---|---|---|---|---|---|
+| abbrev | 3/4 | 0/4 | 1/4 | 0/4 | 0/4 |
+| acronyms | 1/1 | 1/1 | 0/1 | 1/1 | 1/1 |
+| cases | 9/13 | 0/13 | 12/13 | 6/13 | 11/13 |
+| dates | 3/3 | 0/3 | 3/3 | 1/3 | 2/3 |
+| money | 4/5 | 0/5 | 2/5 | 5/5 | 0/5 |
+| names | 1/1 | 1/1 | 1/1 | 1/1 | 1/1 |
+| numbers | 4/4 | 0/4 | 3/4 | 1/4 | 1/4 |
+| ordinals | 3/3 | 0/3 | 3/3 | 1/3 | 0/3 |
+| roman | 3/3 | 0/3 | 0/3 | 0/3 | 3/3 |
+| time | 1/2 | 0/2 | 2/2 | 2/2 | 1/2 |
+| units | 5/5 | 1/5 | 2/5 | 4/5 | 0/5 |
+| years | 3/3 | 0/3 | 2/3 | 1/3 | 2/3 |
+| **total exact** | **40/47** | **3/47** | **31/47** | **23/47** | **22/47** |
+| best of alternatives | — | 27/47 | — | — | — |
+| WER | 6.2% | 44.4% | 18.0% | 20.6% | 21.8% |
+| ms/phrase median (max) | 1.7 (178) | 36.1 (325) | 671.8 (2102) | 3593.9 (15734) | 2225.8 (13526) |
+| load s | 0.2 | 74.0 | 48.0 | 106.1 | 280.6 |
+| RSS MB | 71 | 1814 | 728 | 1524 | 3488 |
+
+
+Notes:
+- NeMo-ru only has a non-deterministic mode (meant to pick by audio); "first" option is
+  arbitrary, the best of up to 50 options hits 27/47; many cases stay as digits. Not usable as is.
+- RUNorm crashes on Latin/Roman with transformers 5 (`token_type_ids`), so its Latin is untested;
+  otherwise best on case agreement (12/13), weak on %, units, abbreviations, acronyms letter by letter.
+- byt5-textnorm-ru: 3.6 s median per phrase, loops ("данные ООН и минус данные ООН…"), garbage
+  on Latin/URLs, wrong Roman numerals. Rejected.
+- saarus72 was given only number/Latin spans by our wrapper, so units/abbreviations/% stay
+  unexpanded by design and ordinal suffixes leak ("втором-м") — a wrapper limit. Its Latin
+  transliteration is the best of all (линакс, файерфокс, джитхаб); 3.5 GB RAM, 2.2 s per phrase.
+- ru-normalizr: best overall (40/47, WER 6%), 1.7 ms per phrase, 71 MB. Its faults are
+  case agreement after "нет/около/представители" (genitive), time "ноля минут", "Цена 99 руб."
+  → genitive, and the Latin reader (линэкс, джисзюб). Plan: keep ru-normalizr as the base,
+  fix genitive agreement, take Latin transliteration from a dictionary; neural models only
+  for an optional book mode.
+
 ## 4. Our engines today (norm-test, 2026-11-17)
 
 No engine handles TN fully:
