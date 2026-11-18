@@ -351,7 +351,10 @@ Test 2026-11-18 on mikhail (docker, --cpus=3, i5-8600K, BlueTTS cbe5150), 10 Rus
   восемнадцать", "две тысячи двадцать шесть года"), "15%" → "пятнадцать percent", "руб."
   left, Roman numerals and decimals ("XIX", "2,5") untouched, phone in 【…】 with "plus".
   For a module: our normalizer first (ru-normalizr), then `normalize_text=False`.
-- Listening (stress, accent of the English voices): pending, the user listens.
+- Listening (user, 2026-11-18): voices are decent; homographs fail ("зАмок на двери старого
+  зАмка") — polyg2p uses the RUAccent dictionaries without the context model. Stress marks in
+  the text won't help (the front end strips combining marks after NFD); a fix would be our own
+  stress/G2P and `text_is_phonemes=True`.
 Licence still blocks the PPA (decoder OpenRAIL-M); at most a user-downloaded module.
 
 ## Runtimes worth building on
