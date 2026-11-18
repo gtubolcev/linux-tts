@@ -46,6 +46,7 @@
 
 #include <speech-dispatcher/spd_module_main.h>
 
+#include "tts-copy.h"
 #include "tts-norm.h"
 #include "tts-stress.h"
 
@@ -110,6 +111,9 @@ static time_t last_use = 0;
 
 static volatile int stop_requested = 0;
 static TtsNormConfig norm_cfg;  /* TextNormalization... keys */
+static TtsCopyConfig copy_cfg;  /* AudioCopyDir */
+static TtsCopy *copy = NULL;
+static gboolean copy_made = FALSE;
 static TtsNorm *norm = NULL;
 static TtsStressConfig stress_cfg;  /* TextStress... keys */
 static TtsStress *stress_stage = NULL;
@@ -154,6 +158,7 @@ parse_config (gchar *contents)
       value = unquote (value);
 
       if (tts_norm_config_parse (&norm_cfg, line, value)
+          || tts_copy_config_parse (&copy_cfg, line, value)
           || tts_stress_config_parse (&stress_cfg, line, value))
         ;
       else if (g_ascii_strcasecmp (line, "SileroServer") == 0)
@@ -209,6 +214,7 @@ module_config (const char *configfile)
 
   cfg_server = g_strdup ("/usr/bin/silero-server");
   tts_norm_config_init (&norm_cfg);
+  tts_copy_config_init (&copy_cfg);
   /* off until the engine is tested with marks */
   tts_stress_config_init (&stress_cfg, FALSE, RU_STRESS_PLUS);
   cfg_version = g_strdup ("v5_6_ru");
@@ -1268,6 +1274,7 @@ send_audio (GByteArray *pcm, int sample_rate)
   track.num_samples = (int) n;
   track.samples = s;
   module_tts_output_server (&track, SPD_AUDIO_LE);
+  tts_copy_audio (copy, s, n, track.sample_rate, 1);
   g_free (s);
 }
 
@@ -1293,6 +1300,8 @@ module_speak_sync (const char *data, size_t bytes, SPDMessageType msgtype)
       module_report_event_end ();
       return;
     }
+  if (!copy_made)
+    copy = tts_copy_new (&copy_cfg), copy_made = TRUE;
   module_speak_ok ();
   module_report_event_begin ();
   last_use = time (NULL);
@@ -1315,6 +1324,7 @@ module_speak_sync (const char *data, size_t bytes, SPDMessageType msgtype)
         GByteArray *pcm = g_byte_array_new ();
         int rate = 48000;
 
+        tts_copy_text (copy, ready);
         if (!stop_requested && generate (ready, voice, pcm, &rate))
           send_audio (pcm, rate);
         g_byte_array_free (pcm, TRUE);
@@ -1325,6 +1335,7 @@ module_speak_sync (const char *data, size_t bytes, SPDMessageType msgtype)
   last_use = time (NULL);
   g_ptr_array_free (sentences, TRUE);
   g_free (text);
+  tts_copy_end (copy);
   if (stop_requested)
     module_report_event_stop ();
   else
@@ -1356,6 +1367,8 @@ module_close (void)
 {
   server_release ();
   tts_norm_free (norm);
+  tts_copy_free (copy);
+  copy = NULL;
   tts_stress_free (stress_stage);
   stress_stage = NULL;
   norm = NULL;

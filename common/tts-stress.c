@@ -50,6 +50,8 @@ tts_stress_config_parse (TtsStressConfig *c, const gchar *key, const gchar *valu
         c->mark = RU_STRESS_PLUS;
       else if (g_ascii_strcasecmp (value, "acute") == 0)
         c->mark = RU_STRESS_ACUTE;
+      else if (g_ascii_strcasecmp (value, "none") == 0)
+        c->mark = RU_STRESS_NONE;
       /* anything else keeps the module's default */
     }
   else

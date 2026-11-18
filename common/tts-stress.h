@@ -26,7 +26,7 @@ typedef struct
 {
   gboolean enabled;     /* TextStress yes|no (module default) */
   gchar *dictionary;    /* TextStressDictionary (the Vosk dictionary) */
-  RuStressMark mark;    /* TextStressMark plus|acute (module default) */
+  RuStressMark mark;    /* TextStressMark plus|acute|none (module default) */
 } TtsStressConfig;
 
 typedef struct TtsStress TtsStress;

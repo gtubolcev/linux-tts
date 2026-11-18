@@ -25,6 +25,8 @@ typedef enum
 {
   RU_STRESS_ACUTE,      /* U+0301 after the vowel: "молоко́" */
   RU_STRESS_PLUS,       /* "+" before the vowel: "молок+о" */
+  RU_STRESS_NONE,       /* no marks, only ё: for front ends that ignore or
+                           misread marks, as espeak-ng does with both */
 } RuStressMark;
 
 /* dict: the sorted Vosk dictionary */

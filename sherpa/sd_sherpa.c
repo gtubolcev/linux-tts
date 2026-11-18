@@ -57,6 +57,7 @@
 #include <sherpa-onnx/c-api/c-api.h>
 #include <speech-dispatcher/spd_module_main.h>
 
+#include "tts-copy.h"
 #include "tts-norm.h"
 #include "tts-stress.h"
 
@@ -146,6 +147,9 @@ static const SherpaOnnxOfflineTts *tts = NULL;
 
 static volatile int stop_requested = 0;
 static TtsNormConfig norm_cfg;  /* TextNormalization... keys */
+static TtsCopyConfig copy_cfg;  /* AudioCopyDir */
+static TtsCopy *copy = NULL;
+static gboolean copy_made = FALSE;
 static TtsNorm *norm = NULL;
 static TtsStressConfig stress_cfg;  /* TextStress... keys */
 static TtsStress *stress_stage = NULL;
@@ -224,8 +228,12 @@ module_config (const char *configfile)
 
   cfg_models_dir = g_strdup ("/usr/share/sherpa-onnx/tts");
   tts_norm_config_init (&norm_cfg);
+  tts_copy_config_init (&copy_cfg);
   /* off until the engine is tested with marks */
-  tts_stress_config_init (&stress_cfg, FALSE, RU_STRESS_ACUTE);
+  /* Piper reads through espeak-ng, which takes a U+0301 or "+" as a reason
+   * to stress some other syllable (за́мок -> zamˈok); MMS and Supertonic
+   * read letters and know no marks.  So only ё, which they all read right */
+  tts_stress_config_init (&stress_cfg, FALSE, RU_STRESS_NONE);
 
   if (configfile == NULL || !g_file_get_contents (configfile, &contents, NULL, NULL))
     return 0;
@@ -248,6 +256,7 @@ module_config (const char *configfile)
       key = option_name (line);
 
       if (tts_norm_config_parse (&norm_cfg, line, value)
+          || tts_copy_config_parse (&copy_cfg, line, value)
           || tts_stress_config_parse (&stress_cfg, line, value))
         ;
       else if (g_ascii_strcasecmp (key, "ModelsDir") == 0)
@@ -1366,6 +1375,7 @@ send_audio (const float *f, size_t n, int sample_rate)
   track.num_samples = (int) n;
   track.samples = s;
   module_tts_output_server (&track, SPD_AUDIO_LE);
+  tts_copy_audio (copy, s, n, track.sample_rate, 1);
   g_free (s);
 }
 
@@ -1503,6 +1513,8 @@ module_speak_sync (const char *data, size_t bytes, SPDMessageType msgtype)
       module_report_event_end ();
       return;
     }
+  if (!copy_made)
+    copy = tts_copy_new (&copy_cfg), copy_made = TRUE;
   module_speak_ok ();
   module_report_event_begin ();
 
@@ -1527,7 +1539,10 @@ module_speak_sync (const char *data, size_t bytes, SPDMessageType msgtype)
                                              voice->language);
 
             if (!stop_requested)
-              speak_sentence (ready, voice);
+              {
+                tts_copy_text (copy, ready);
+                speak_sentence (ready, voice);
+              }
             g_free (ready);
             g_free (norm_piece);
           }
@@ -1537,6 +1552,7 @@ module_speak_sync (const char *data, size_t bytes, SPDMessageType msgtype)
 
   g_ptr_array_free (sentences, TRUE);
   g_free (text);
+  tts_copy_end (copy);
   if (stop_requested)
     module_report_event_stop ();
   else
@@ -1586,6 +1602,8 @@ module_close (void)
 {
   unload_all ();
   tts_norm_free (norm);
+  tts_copy_free (copy);
+  copy = NULL;
   tts_stress_free (stress_stage);
   stress_stage = NULL;
   norm = NULL;
