@@ -253,6 +253,25 @@ only those spans plus their neighbour words go to a small model that picks the c
 Cheaper alternative first: fix rn's agreement rules (governing prepositions/verbs + pymorphy
 government of the next noun) and measure on the ficbook pairs.
 
+### Telegram group, 2026-11-16..18
+
+- Debate rules vs LLM. Zelenukhin (LLMnorm-GUI author): LLM normalizes best; uses gemma-4 31B
+  (or 26B MoE on 6 GB VRAM) through llama.cpp; LLMnorm-GUI picks only matching sentences by
+  regex and sends just those to the LLM (yaml pipelines). saarus72: rules are faster,
+  deterministic, easy to change; LLMs still hallucinate in TN (confirmed by another member);
+  TTS + LLM on one GPU means swapping models. Agreed middle ground (AigizK): rules cover ~95%;
+  write a golden set and let a coding agent grow/optimize the rules against it.
+  For us: rules in the screen-reader path, LLM never on the default path (size, GPU, determinism).
+- RuVoice-Stress-Converter 0.3 (Windows portable, from kost-t-human/ruvoice-tts) contains its
+  own normalizer. ruvoice-tts `text/` (Kotlin): Normalizer, Abbrev, Latin, Uk/Bel layers;
+  case agreement by preposition + noun from a morph table built from the AOT dictionary
+  (`tools/aot_morph.py` → `assets/morph.bin`: gender/number/case of nouns and adjectives).
+  "около 500 рублей" → "пятисот", "с 500 рублями" → "пятьюстами", "2 ч. л." → "две чайные ложки".
+  Uses ru-normalizr's tests as its test corpus. **Code licence CC BY-NC-SA 4.0 — not usable
+  in our free PPA**; take only the idea (compact morph table instead of full pymorphy) and
+  the AOT data (LGPL). Also a candidate for the benchmark (runs on JVM; later).
+- Inverse-TN question (rus2num/yargy turning "на втором месте" into digits) — not our task.
+
 ## 4. Our engines today (norm-test, 2026-11-17)
 
 No engine handles TN fully:
