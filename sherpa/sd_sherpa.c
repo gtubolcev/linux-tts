@@ -57,6 +57,9 @@
 #include <sherpa-onnx/c-api/c-api.h>
 #include <speech-dispatcher/spd_module_main.h>
 
+#include "tts-norm.h"
+#include "tts-stress.h"
+
 #define DBG(...) do { if (debug_on) { fprintf (stderr, "sd_sherpa-onnx: " __VA_ARGS__); fputc ('\n', stderr); } } while (0)
 #define ERR(...) do { fprintf (stderr, "sd_sherpa-onnx: " __VA_ARGS__); fputc ('\n', stderr); } while (0)
 
@@ -142,6 +145,10 @@ static int cfg_max_models = 2;
 static const SherpaOnnxOfflineTts *tts = NULL;
 
 static volatile int stop_requested = 0;
+static TtsNormConfig norm_cfg;  /* TextNormalization... keys */
+static TtsNorm *norm = NULL;
+static TtsStressConfig stress_cfg;  /* TextStress... keys */
+static TtsStress *stress_stage = NULL;
 static gboolean quit_requested = FALSE;
 
 
@@ -216,6 +223,9 @@ module_config (const char *configfile)
   gchar **lines;
 
   cfg_models_dir = g_strdup ("/usr/share/sherpa-onnx/tts");
+  tts_norm_config_init (&norm_cfg);
+  /* off until the engine is tested with marks */
+  tts_stress_config_init (&stress_cfg, FALSE, RU_STRESS_ACUTE);
 
   if (configfile == NULL || !g_file_get_contents (configfile, &contents, NULL, NULL))
     return 0;
@@ -237,7 +247,10 @@ module_config (const char *configfile)
       value = unquote (value);
       key = option_name (line);
 
-      if (g_ascii_strcasecmp (key, "ModelsDir") == 0)
+      if (tts_norm_config_parse (&norm_cfg, line, value)
+          || tts_stress_config_parse (&stress_cfg, line, value))
+        ;
+      else if (g_ascii_strcasecmp (key, "ModelsDir") == 0)
         g_free (cfg_models_dir), cfg_models_dir = g_strdup (value);
       else if (g_ascii_strcasecmp (key, "Threads") == 0)
         cfg_threads = atoi (value);
@@ -1293,6 +1306,36 @@ process_input (void)
 }
 
 
+/* lets STOP interrupt a wait for the normalizer */
+static gboolean
+norm_cancel (void)
+{
+  process_input ();
+  return stop_requested != 0;
+}
+
+/* the normalizer, made with the first message; NULL when it is off */
+static TtsNorm *
+get_norm (void)
+{
+  if (norm == NULL && norm_cfg.enabled)
+    {
+      norm = tts_norm_new (&norm_cfg);
+      tts_norm_set_cancel (norm, norm_cancel);
+    }
+  return norm;
+}
+
+/* the stress stage, made with the first message; NULL when it is off */
+static TtsStress *
+get_stress (void)
+{
+  if (stress_stage == NULL && stress_cfg.enabled)
+    stress_stage = tts_stress_new (&stress_cfg);
+  return stress_stage;
+}
+
+
 
 static int32_t
 progress_cb (const float *samples, int32_t n, float p, void *arg)
@@ -1446,6 +1489,7 @@ module_speak_sync (const char *data, size_t bytes, SPDMessageType msgtype)
   gchar *text;
   GPtrArray *sentences;
   Voice *voice;
+  gboolean ok, whole;
 
   stop_requested = 0;
   text = ssml_to_text (data, bytes);
@@ -1463,17 +1507,30 @@ module_speak_sync (const char *data, size_t bytes, SPDMessageType msgtype)
   module_report_event_begin ();
 
   voice = pick_voice ();
+  /* the helper loads while the model does */
+  tts_norm_start (get_norm ());
+  ok = load_model (voice->model);
+  whole = !ok || tts_norm_message (norm, &text, voice->language);
   sentences = split_sentences (text);
   DBG ("speaking %u sentence(s) with %s: %s", sentences->len, voice->name, text);
 
-  if (load_model (voice->model))
+  if (ok)
     for (guint i = 0; i < sentences->len && !stop_requested; i++)
       {
         const gchar *piece = g_ptr_array_index (sentences, i);
 
         process_input ();
         if (!stop_requested)
-          speak_sentence (piece, voice);
+          {
+            gchar *norm_piece = whole ? NULL : tts_norm_text (norm, piece, voice->language);
+            gchar *ready = tts_stress_apply (get_stress (), norm_piece != NULL ? norm_piece : piece,
+                                             voice->language);
+
+            if (!stop_requested)
+              speak_sentence (ready, voice);
+            g_free (ready);
+            g_free (norm_piece);
+          }
         if (!stop_requested && i + 1 < sentences->len)
           send_pause (piece, voice);
       }
@@ -1528,6 +1585,10 @@ int
 module_close (void)
 {
   unload_all ();
+  tts_norm_free (norm);
+  tts_stress_free (stress_stage);
+  stress_stage = NULL;
+  norm = NULL;
   return 0;
 }
 
@@ -1542,6 +1603,7 @@ unload_if_idle (void)
   if (cfg_idle_timeout <= 0
       || g_get_monotonic_time () - last_use < (gint64) cfg_idle_timeout * G_TIME_SPAN_SECOND)
     return;
+  tts_norm_stop (norm);
   if (!unload_all ())
     return;
   /* give the freed heap back to the system */

@@ -26,6 +26,15 @@ separately; see each `build-deb.sh`. Measurements and notes on the engines:
 [RESEARCH-tts-engines.md](RESEARCH-tts-engines.md). How the modules, sherpa-onnx, ONNX Runtime,
 ggml and the graphics card fit together: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
+Russian text goes through [ru-normalizr](https://github.com/NickZaitsev/ru-normalizr)
+before the voice reads it: numbers, dates, units and abbreviations become words. The
+modules run it as one resident Python helper each (`common/tts-normalize.py`, package
+`speech-dispatcher-text-normalizer`, started with the first message, stopped with the
+model) and read the text as it is when the helper or `ru_normalizr` is missing, fails or
+is slow; `TextNormalization no` in a module's .conf turns it off. After it,
+`common/tts-stress.c` can mark the stress from the Vosk dictionary (`TextStress yes`,
+sd_sherpa-onnx and sd_silero; off by default, homographs not resolved yet).
+
 A settings dialog for Xfce: [xfce4-speech-settings](https://github.com/gtubolcev/xfce4-speech-settings).
 
 Status: early. Packages for Ubuntu 26.04: `sudo add-apt-repository ppa:gtubolcev/linux-tts`

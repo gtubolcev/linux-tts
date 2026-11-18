@@ -37,12 +37,24 @@ module_dir = get_option('prefix') / 'lib' / 'speech-dispatcher-modules'
 conf_dir = get_option('sysconfdir') / 'speech-dispatcher' / 'modules'
 module_deps = [speechd_module, glib, math, threads]
 
+# text normalization (ru-normalizr) through a resident Python helper; the
+# modules pass text through unchanged when it or ru_normalizr is missing
+norm_helper = module_dir / 'tts-normalize'
+norm_src = files('common/tts-norm.c')
+# the stress stage after it (Vosk dictionary; homographs later)
+stress_src = files('common/tts-stress.c', 'common/ru-stress.c')
+add_project_arguments('-DTTS_NORM_HELPER="@0@"'.format(norm_helper), language: 'c')
+install_data('common/tts-normalize.py', rename: 'tts-normalize',
+  install_dir: module_dir, install_mode: 'rwxr-xr-x')
+executable('tts-norm-test', 'common/tts-norm-test.c', norm_src, stress_src,
+  include_directories: common_inc, dependencies: glib)
+
 onnx_ok = json_glib.found() and onnxruntime.found()
 
 # ---------------------------------------------------------------- vosk
 if get_option('vosk').require(onnx_ok, error_message: 'sd_vosk needs json-glib and onnxruntime').allowed()
-  executable('sd_vosk', 'vosk/vosk.c', 'vosk/sd_vosk.c',
-    include_directories: [speechd_inc, shim_inc],
+  executable('sd_vosk', 'vosk/vosk.c', 'vosk/sd_vosk.c', norm_src,
+    include_directories: [speechd_inc, shim_inc, common_inc],
     dependencies: module_deps + [json_glib, onnxruntime],
     install: true, install_dir: module_dir)
   # sorts the model's dictionary for the model package (vosk-test --sort-dictionary)
@@ -56,7 +68,7 @@ espeak = dependency('espeak-ng', required: false)
 espeak_prog = find_program('espeak-ng', required: false)
 if get_option('kokoro').require(onnx_ok and espeak.found() and espeak_prog.found(),
     error_message: 'sd_kokoro needs json-glib, onnxruntime and espeak-ng').allowed()
-  executable('sd_kokoro', 'kokoro/ru-g2p.c', 'common/ru-stress.c', 'kokoro/kokoro.c', 'kokoro/sd_kokoro.c',
+  executable('sd_kokoro', 'kokoro/ru-g2p.c', 'common/ru-stress.c', 'kokoro/kokoro.c', 'kokoro/sd_kokoro.c', norm_src,
     include_directories: [speechd_inc, shim_inc, common_inc],
     dependencies: module_deps + [json_glib, onnxruntime, espeak],
     install: true, install_dir: module_dir)
@@ -77,7 +89,7 @@ endif
 
 # ------------------------------------------------------------- teratts
 if get_option('teratts').require(onnx_ok, error_message: 'sd_teratts needs json-glib and onnxruntime').allowed()
-  executable('sd_teratts', 'teratts/teratts.c', 'common/num-words.c', 'common/ru-stress.c', 'teratts/sd_teratts.c',
+  executable('sd_teratts', 'teratts/teratts.c', 'common/num-words.c', 'common/ru-stress.c', 'teratts/sd_teratts.c', norm_src,
     include_directories: [speechd_inc, shim_inc, common_inc],
     dependencies: module_deps + [json_glib, onnxruntime],
     install: true, install_dir: module_dir)
@@ -97,9 +109,9 @@ if get_option('sherpa').require(sherpa.found() and espeak.found(),
                      prefix: '#include <espeak-ng/speak_lib.h>')
     sherpa_args += '-DHAVE_ESPEAK_TERMINATOR'
   endif
-  executable('sd_sherpa-onnx', 'sherpa/sd_sherpa.c',
+  executable('sd_sherpa-onnx', 'sherpa/sd_sherpa.c', norm_src, stress_src,
     c_args: sherpa_args,
-    include_directories: [speechd_inc, shim_inc],
+    include_directories: [speechd_inc, shim_inc, common_inc],
     dependencies: module_deps + [sherpa, espeak],
     install: true, install_dir: module_dir)
   install_data('sherpa/sherpa-onnx.conf', install_dir: conf_dir)
@@ -108,8 +120,8 @@ endif
 # -------------------------------------------------------------- silero
 # the module only; silero-server needs the user's Silero model (CC BY-NC-SA)
 if get_option('silero').allowed()
-  executable('sd_silero', 'silero/sd_silero.c',
-    include_directories: [speechd_inc, shim_inc],
+  executable('sd_silero', 'silero/sd_silero.c', norm_src, stress_src,
+    include_directories: [speechd_inc, shim_inc, common_inc],
     dependencies: module_deps,
     install: true, install_dir: module_dir)
   install_data('silero/silero.conf', install_dir: conf_dir)

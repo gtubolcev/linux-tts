@@ -46,6 +46,9 @@
 
 #include <speech-dispatcher/spd_module_main.h>
 
+#include "tts-norm.h"
+#include "tts-stress.h"
+
 #define DBG(...) do { if (debug_on) { fprintf (stderr, "sd_silero: " __VA_ARGS__); fputc ('\n', stderr); } } while (0)
 #define ERR(...) do { fprintf (stderr, "sd_silero: " __VA_ARGS__); fputc ('\n', stderr); } while (0)
 
@@ -106,6 +109,10 @@ static gboolean quit_requested = FALSE;
 static time_t last_use = 0;
 
 static volatile int stop_requested = 0;
+static TtsNormConfig norm_cfg;  /* TextNormalization... keys */
+static TtsNorm *norm = NULL;
+static TtsStressConfig stress_cfg;  /* TextStress... keys */
+static TtsStress *stress_stage = NULL;
 
 
 
@@ -146,7 +153,10 @@ parse_config (gchar *contents)
         *value++ = '\0';
       value = unquote (value);
 
-      if (g_ascii_strcasecmp (line, "SileroServer") == 0)
+      if (tts_norm_config_parse (&norm_cfg, line, value)
+          || tts_stress_config_parse (&stress_cfg, line, value))
+        ;
+      else if (g_ascii_strcasecmp (line, "SileroServer") == 0)
         g_free (cfg_server), cfg_server = g_strdup (value);
       else if (g_ascii_strcasecmp (line, "SileroDir") == 0)
         g_free (cfg_dir), cfg_dir = g_strdup (value);
@@ -198,6 +208,9 @@ module_config (const char *configfile)
   gchar *contents = NULL;
 
   cfg_server = g_strdup ("/usr/bin/silero-server");
+  tts_norm_config_init (&norm_cfg);
+  /* off until the engine is tested with marks */
+  tts_stress_config_init (&stress_cfg, FALSE, RU_STRESS_PLUS);
   cfg_version = g_strdup ("v5_6_ru");
 
   if (configfile != NULL && g_file_get_contents (configfile, &contents, NULL, NULL))
@@ -703,6 +716,36 @@ process_input (void)
       quit_requested = TRUE;
       stop_requested = 1;
     }
+}
+
+
+/* lets STOP interrupt a wait for the normalizer */
+static gboolean
+norm_cancel (void)
+{
+  process_input ();
+  return stop_requested != 0;
+}
+
+/* the normalizer, made with the first message; NULL when it is off */
+static TtsNorm *
+get_norm (void)
+{
+  if (norm == NULL && norm_cfg.enabled)
+    {
+      norm = tts_norm_new (&norm_cfg);
+      tts_norm_set_cancel (norm, norm_cancel);
+    }
+  return norm;
+}
+
+/* the stress stage, made with the first message; NULL when it is off */
+static TtsStress *
+get_stress (void)
+{
+  if (stress_stage == NULL && stress_cfg.enabled)
+    stress_stage = tts_stress_new (&stress_cfg);
+  return stress_stage;
 }
 
 
@@ -1236,6 +1279,7 @@ module_speak_sync (const char *data, size_t bytes, SPDMessageType msgtype)
   gchar *text;
   GPtrArray *sentences;
   Voice *voice;
+  gboolean ok, whole;
 
   stop_requested = 0;
   text = ssml_to_text (data, bytes);
@@ -1254,17 +1298,28 @@ module_speak_sync (const char *data, size_t bytes, SPDMessageType msgtype)
   last_use = time (NULL);
 
   voice = pick_voice ();
+  /* the helper loads while the server does */
+  tts_norm_start (get_norm ());
+  ok = server_start ();
+  whole = !ok || tts_norm_message (norm, &text, voice->language);
   sentences = split_sentences (text);
   DBG ("speaking %u sentence(s) with %s: %s", sentences->len, voice->name, text);
 
-  if (server_start ())
+  if (ok)
     for (guint i = 0; i < sentences->len && !stop_requested; i++)
       {
+        const gchar *piece = g_ptr_array_index (sentences, i);
+        gchar *norm_piece = whole ? NULL : tts_norm_text (norm, piece, voice->language);
+        gchar *ready = tts_stress_apply (get_stress (), norm_piece != NULL ? norm_piece : piece,
+                                         voice->language);
         GByteArray *pcm = g_byte_array_new ();
         int rate = 48000;
-        if (generate (g_ptr_array_index (sentences, i), voice, pcm, &rate))
+
+        if (!stop_requested && generate (ready, voice, pcm, &rate))
           send_audio (pcm, rate);
         g_byte_array_free (pcm, TRUE);
+        g_free (ready);
+        g_free (norm_piece);
       }
 
   last_use = time (NULL);
@@ -1300,6 +1355,10 @@ int
 module_close (void)
 {
   server_release ();
+  tts_norm_free (norm);
+  tts_stress_free (stress_stage);
+  stress_stage = NULL;
+  norm = NULL;
   return 0;
 }
 
@@ -1341,7 +1400,10 @@ module_loop (void)
       if (watcher_pid > 0 && waitpid (watcher_pid, NULL, WNOHANG) == watcher_pid)
         watcher_pid = 0;
       if (server_pid > 0 && cfg_idle_timeout > 0 && time (NULL) - last_use > cfg_idle_timeout)
-        server_stop ();
+        {
+          server_stop ();
+          tts_norm_stop (norm);
+        }
       else
         server_alive ();
     }

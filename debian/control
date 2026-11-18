@@ -21,7 +21,7 @@ Rules-Requires-Root: no
 Package: speech-dispatcher-vosk
 Architecture: any
 Depends: speech-dispatcher (>= 0.12~), ${misc:Depends}, ${shlibs:Depends}
-Recommends: vosk-tts-model-ru-0.9-multi
+Recommends: speech-dispatcher-text-normalizer, vosk-tts-model-ru-0.9-multi
 Description: Speech Dispatcher module for Vosk TTS voices
  Speaks with the neural voices of Vosk TTS (Alpha Cephei) through ONNX
  Runtime, without Python: the Russian multi-speaker model has 5 voices
@@ -33,7 +33,7 @@ Description: Speech Dispatcher module for Vosk TTS voices
 Package: speech-dispatcher-kokoro
 Architecture: any
 Depends: espeak-ng-data, speech-dispatcher (>= 0.12~), ${misc:Depends}, ${shlibs:Depends}
-Recommends: kokoro-tts-model-ru, vosk-tts-model-ru-0.9-multi
+Recommends: speech-dispatcher-text-normalizer, kokoro-tts-model-ru, vosk-tts-model-ru-0.9-multi
 Description: Speech Dispatcher module for Kokoro voices
  Speaks with Kokoro neural voices through ONNX Runtime, without Python.
  So far Russian (the kokoro-ru model): stress marks from the dictionary of
@@ -44,7 +44,7 @@ Description: Speech Dispatcher module for Kokoro voices
 Package: speech-dispatcher-teratts
 Architecture: any
 Depends: speech-dispatcher (>= 0.12~), ${misc:Depends}, ${shlibs:Depends}
-Recommends: teratts-model-v2, vosk-tts-model-ru-0.9-multi
+Recommends: speech-dispatcher-text-normalizer, teratts-model-v2, vosk-tts-model-ru-0.9-multi
 Description: Speech Dispatcher module for TeraTTSv2 voices
  Speaks with the TeraTTSv2 voices of TeraSpace (Russian and English, 44.1 kHz)
  through ONNX Runtime, without Python. Latin words in Russian text are read
@@ -56,7 +56,7 @@ Package: speech-dispatcher-sherpa-onnx
 Architecture: any
 # libsherpa-onnx-c-api.so has no versioned soname, so no shlibs entry
 Depends: sherpa-onnx (>= 2.0.1), speech-dispatcher (>= 0.12~), ${misc:Depends}, ${shlibs:Depends}
-Recommends: sherpa-onnx-tts-supertonic-3 | sherpa-onnx-tts-pocket
+Recommends: speech-dispatcher-text-normalizer, sherpa-onnx-tts-supertonic-3 | sherpa-onnx-tts-pocket
 Suggests: speech-dispatcher-piper-sherpa-onnx
 Breaks: speech-dispatcher-sherpa (<< 0.1.0+git20261114~)
 Replaces: speech-dispatcher-sherpa (<< 0.1.0+git20261114~)
@@ -116,6 +116,7 @@ Depends: python3,
          speech-dispatcher (>= 0.12~),
          ${misc:Depends},
          ${shlibs:Depends}
+Recommends: speech-dispatcher-text-normalizer
 Description: Speech Dispatcher module for Silero TTS (Russian)
  Speaks with the neural Silero voices (v5_6_ru: aidar, baya, eugene,
  kseniya, xenia). The model runs in a resident silero-server (ONNX Runtime,
@@ -125,3 +126,14 @@ Description: Speech Dispatcher module for Silero TTS (Russian)
  The model and its runtime are licensed CC BY-NC-SA 4.0 (non-commercial use
  only) and are not part of this package; install them, with their licences,
  into ~/.local/share/silero-tts/v5_6_ru.
+
+Package: speech-dispatcher-text-normalizer
+Architecture: all
+Depends: python3, ${misc:Depends}
+Recommends: python3-ru-normalizr
+Description: text normalization for the speech-dispatcher-modules voices
+ A helper the Vosk, Kokoro, TeraTTS, sherpa-onnx and Silero modules run to
+ read numbers, dates, units and abbreviations in Russian text as words
+ ("5 кг" -> "пять килограммов") before the voice speaks it. It uses the
+ ru_normalizr Python package; without that package, or with
+ "TextNormalization no" in a module's .conf, the text is spoken as it is.

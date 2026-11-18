@@ -34,6 +34,8 @@
 
 #include <speech-dispatcher/spd_module_main.h>
 
+#include "tts-norm.h"
+
 #include "vosk.h"
 
 #define DBG(...) do { if (debug_on) { fprintf (stderr, "sd_vosk: " __VA_ARGS__); fputc ('\n', stderr); } } while (0)
@@ -82,6 +84,8 @@ static gboolean loading = FALSE;
 static GThread *load_thread = NULL;
 
 static volatile int stop_requested = 0;
+static TtsNormConfig norm_cfg;  /* TextNormalization... keys */
+static TtsNorm *norm = NULL;
 static gboolean quit_requested = FALSE;
 
 
@@ -119,6 +123,7 @@ module_config (const char *configfile)
   gchar **lines;
 
   cfg_models_dir = g_strdup ("/usr/share/vosk-tts");
+  tts_norm_config_init (&norm_cfg);
 
   if (configfile == NULL || !g_file_get_contents (configfile, &contents, NULL, NULL))
     return 0;
@@ -138,7 +143,9 @@ module_config (const char *configfile)
         *value++ = '\0';
       value = unquote (value);
 
-      if (g_ascii_strcasecmp (line, "VoskModelsDir") == 0)
+      if (tts_norm_config_parse (&norm_cfg, line, value))
+        ;
+      else if (g_ascii_strcasecmp (line, "VoskModelsDir") == 0)
         g_free (cfg_models_dir), cfg_models_dir = g_strdup (value);
       else if (g_ascii_strcasecmp (line, "VoskThreads") == 0)
         cfg_threads = atoi (value);
@@ -682,6 +689,27 @@ process_input (void)
 }
 
 
+/* lets STOP interrupt a wait for the normalizer */
+static gboolean
+norm_cancel (void)
+{
+  process_input ();
+  return stop_requested != 0;
+}
+
+/* the normalizer, made with the first message; NULL when it is off */
+static TtsNorm *
+get_norm (void)
+{
+  if (norm == NULL && norm_cfg.enabled)
+    {
+      norm = tts_norm_new (&norm_cfg);
+      tts_norm_set_cancel (norm, norm_cancel);
+    }
+  return norm;
+}
+
+
 
 /* waits until m is loaded; FALSE if it failed or the message was stopped */
 static gboolean
@@ -767,6 +795,7 @@ module_speak_sync (const char *data, size_t bytes, SPDMessageType msgtype)
   gchar *text;
   GPtrArray *sentences;
   Voice *voice;
+  gboolean ok, whole;
 
   stop_requested = 0;
   text = ssml_to_text (data, bytes);
@@ -784,15 +813,26 @@ module_speak_sync (const char *data, size_t bytes, SPDMessageType msgtype)
   module_report_event_begin ();
 
   voice = pick_voice ();
+  /* the helper loads while the model does */
+  tts_norm_start (get_norm ());
+  ok = wait_for_model (voice->model);
+  whole = !ok || tts_norm_message (norm, &text, voice->language);
   sentences = split_sentences (text);
   DBG ("speaking %u sentence(s) with %s: %s", sentences->len, voice->name, text);
 
-  if (wait_for_model (voice->model))
+  if (ok)
     for (guint i = 0; i < sentences->len && !stop_requested; i++)
       {
         process_input ();
         if (!stop_requested)
-          speak_sentence (g_ptr_array_index (sentences, i), voice);
+          {
+            const gchar *piece = g_ptr_array_index (sentences, i);
+            gchar *norm_piece = whole ? NULL : tts_norm_text (norm, piece, voice->language);
+
+            if (!stop_requested)
+              speak_sentence (norm_piece != NULL ? norm_piece : piece, voice);
+            g_free (norm_piece);
+          }
       }
 
   g_ptr_array_free (sentences, TRUE);
@@ -849,6 +889,8 @@ module_close (void)
   if (loaded_model != NULL)
     vosk_model_unload (loaded_model);
   loaded_model = NULL;
+  tts_norm_free (norm);
+  norm = NULL;
   return 0;
 }
 
@@ -864,6 +906,7 @@ unload_if_idle (void)
   if (cfg_idle_timeout <= 0
       || g_get_monotonic_time () - last_use < (gint64) cfg_idle_timeout * G_TIME_SPAN_SECOND)
     return;
+  tts_norm_stop (norm);
   g_mutex_lock (&load_lock);
   m = loading ? NULL : loaded_model;
   if (m != NULL)
