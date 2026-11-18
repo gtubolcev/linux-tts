@@ -34,6 +34,7 @@
 
 #include <speech-dispatcher/spd_module_main.h>
 
+#include "tts-copy.h"
 #include "tts-norm.h"
 
 #include "vosk.h"
@@ -85,6 +86,9 @@ static GThread *load_thread = NULL;
 
 static volatile int stop_requested = 0;
 static TtsNormConfig norm_cfg;  /* TextNormalization... keys */
+static TtsCopyConfig copy_cfg;  /* AudioCopyDir */
+static TtsCopy *copy = NULL;
+static gboolean copy_made = FALSE;
 static TtsNorm *norm = NULL;
 static gboolean quit_requested = FALSE;
 
@@ -124,6 +128,7 @@ module_config (const char *configfile)
 
   cfg_models_dir = g_strdup ("/usr/share/vosk-tts");
   tts_norm_config_init (&norm_cfg);
+  tts_copy_config_init (&copy_cfg);
 
   if (configfile == NULL || !g_file_get_contents (configfile, &contents, NULL, NULL))
     return 0;
@@ -143,7 +148,8 @@ module_config (const char *configfile)
         *value++ = '\0';
       value = unquote (value);
 
-      if (tts_norm_config_parse (&norm_cfg, line, value))
+      if (tts_norm_config_parse (&norm_cfg, line, value)
+          || tts_copy_config_parse (&copy_cfg, line, value))
         ;
       else if (g_ascii_strcasecmp (line, "VoskModelsDir") == 0)
         g_free (cfg_models_dir), cfg_models_dir = g_strdup (value);
@@ -756,6 +762,7 @@ send_audio (const float *f, size_t n, int sample_rate)
   track.num_samples = (int) n;
   track.samples = s;
   module_tts_output_server (&track, SPD_AUDIO_LE);
+  tts_copy_audio (copy, s, n, track.sample_rate, 1);
   g_free (s);
 }
 
@@ -809,6 +816,8 @@ module_speak_sync (const char *data, size_t bytes, SPDMessageType msgtype)
       module_report_event_end ();
       return;
     }
+  if (!copy_made)
+    copy = tts_copy_new (&copy_cfg), copy_made = TRUE;
   module_speak_ok ();
   module_report_event_begin ();
 
@@ -830,13 +839,17 @@ module_speak_sync (const char *data, size_t bytes, SPDMessageType msgtype)
             gchar *norm_piece = whole ? NULL : tts_norm_text (norm, piece, voice->language);
 
             if (!stop_requested)
-              speak_sentence (norm_piece != NULL ? norm_piece : piece, voice);
+              {
+                tts_copy_text (copy, norm_piece != NULL ? norm_piece : piece);
+                speak_sentence (norm_piece != NULL ? norm_piece : piece, voice);
+              }
             g_free (norm_piece);
           }
       }
 
   g_ptr_array_free (sentences, TRUE);
   g_free (text);
+  tts_copy_end (copy);
   if (stop_requested)
     module_report_event_stop ();
   else
@@ -890,6 +903,8 @@ module_close (void)
     vosk_model_unload (loaded_model);
   loaded_model = NULL;
   tts_norm_free (norm);
+  tts_copy_free (copy);
+  copy = NULL;
   norm = NULL;
   return 0;
 }

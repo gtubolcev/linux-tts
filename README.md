@@ -14,7 +14,7 @@ pipeline) module.
 | `silero/` — `sd_silero` | [Silero](https://github.com/snakers4/silero-models) v5_6_ru through `silero-server` on the ONNX port [silero-tts-onnx](https://github.com/some1-in-here/silero-tts-onnx); the model (CC BY-NC-SA, non-commercial) is installed separately into `~/.local/share/silero-tts/` | ru |
 
 `sd_sherpa-onnx-vulkan-rs` is the same module on the graphics
-card through Vulkan ([onnx-vulkan-rs](https://github.com/0xshawn/onnx-vulkan-rs)), with
+card through Vulkan ([onnx-vulkan-rs](https://github.com/automataIA/onnx-vulkan-rs)), with
 only the models it can run (Piper, MMS).
 
 `extra/` holds modules that are not packaged; they can be built by hand. `extra/zonos3/`

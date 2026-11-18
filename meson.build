@@ -40,7 +40,7 @@ module_deps = [speechd_module, glib, math, threads]
 # text normalization (ru-normalizr) through a resident Python helper; the
 # modules pass text through unchanged when it or ru_normalizr is missing
 norm_helper = module_dir / 'tts-normalize'
-norm_src = files('common/tts-norm.c')
+norm_src = files('common/tts-norm.c', 'common/tts-copy.c')
 # the stress stage after it (Vosk dictionary; homographs later)
 stress_src = files('common/tts-stress.c', 'common/ru-stress.c')
 add_project_arguments('-DTTS_NORM_HELPER="@0@"'.format(norm_helper), language: 'c')
