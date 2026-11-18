@@ -303,6 +303,29 @@ speech-dispatcher also has a symbol preprocessor. `SymbolsPreproc` in speechd.co
 level. It runs *before* the module, so our normalizer must not double-handle symbols that
 speechd has already spoken.
 
+### End-to-end with the normalizer in the modules (2026-11-19, mikhail)
+
+All five modules (resolute debs of 4f995b0 + speech-dispatcher-ru-normalizr) in a private
+speechd in docker, texts-ru.txt with `TextNormalization yes` and `no`, ASR with
+vosk-model-small-ru-0.22 (scripts/norm-test/docker-e2e.sh). Every message ended; with the
+normalizer all five read numbers, dates, cases, ordinals, Roman numerals and units in full
+(«двадцать одно письмо», «у трёх берёз», «семнадцатого ноября две тысячи двадцать шестого
+года», «в двадцать первом веке»). Without it vosk drops all digits; the others say bare
+cardinals («у три берёз», «один и место»).
+
+**speechd damages the text before the module** (sd_vosk.proto.log, punctuation none):
+`3,5%` → `3 ,5 `, `руб.,` → `руб ,`, `€20` → ` евро 20`, `км/ч` → `км ч`, `°C` → ` C`,
+`−5` → ` минус 5`, `№` → `No`, and `+ = * >` vanish. So percent and the formula's
+operators are lost and «евро двадцать» comes out in the wrong order, although the
+normalizer handles the raw text right («три целых пять десятых процента», «двадцать евро»,
+«два плюс два равно четыре»). Needs: speechd's symbol preprocessing off (or minimal) for
+modules that normalize — check how SymbolsPreproc can be set per module/client.
+
+ru-normalizr weaknesses seen here: «14:30» → «четырнадцать, тридцать»; English names
+(«линэкс», «фээфокс», «джисзюб», «убуту», «пайсан»); «ООН» → «оо он», «США» → «сэ шэ аа»;
+versions read as decimals («семь целых ноль десятых», «три целых десять сотых»);
+«GNOME 50» → «пятидесяти»; «/» kept between numbers; «https» → «хтпс».
+
 ## 5. Proposal: one normalization module with engine profiles
 
 The user's idea: every engine gets text from one normalizer, and the normalizer knows which
