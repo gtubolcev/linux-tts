@@ -240,11 +240,11 @@ Notes:
 
 ### ru-normalizr vs RUNorm row by row; combining them (idea, later)
 
-RUNorm better (4): genitive agreement after нет/около/представители ("двадцати двух писем",
+RUNorm better (5): genitive agreement after нет/около/представители ("двадцати двух писем",
 "двадцати одной крупнейшей"), "около тысячи" (rn: "одной тысячи"), time "9:00" (rn: "часов
-ноля минут"), "Цена 99 руб." (rn wrongly genitive). ru-normalizr better (15): Roman numerals,
+ноля минут"), "Цена 99 руб." (rn wrongly genitive). ru-normalizr better (14): Roman numerals,
 %, currency symbols, units (ГБ, °C, "1 км"), abbreviations (т. е., д.), formulas, year
-ranges, acronyms read as words (НАТО). 28 rows both right, 4 both wrong.
+ranges, acronyms read as words (НАТО). 26 rows both right, 2 both wrong.
 
 So RUNorm wins only on inflection, ru-normalizr on everything rule-shaped. Combination
 (user's idea, 2026-11-18, for later): ru-normalizr does all expansion and marks number spans;
