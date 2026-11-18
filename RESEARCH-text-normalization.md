@@ -371,3 +371,18 @@ audio with Vosk ASR through `norm-test`.
 - Whether speechd's `SymbolsPreproc` should be off for our modules, since the normalizer
   can say symbols better in context.
 - English text: NeMo has English TN too; the same module design applies.
+
+## 6. Reference material to read
+
+- Microsoft Azure Speech, SSML pronunciation
+  (https://learn.microsoft.com/azure/ai-services/speech-service/speech-synthesis-markup-pronunciation;
+  user, 2026-11-18). The controls a mature commercial engine gives authors:
+  - `<phoneme>` with IPA/SAPI/UPS alphabets;
+  - custom lexicons (PLS XML: grapheme → phoneme or alias), also for homographs and
+    abbreviations;
+  - `<say-as interpret-as=…>`: cardinal, ordinal, date with format, time, telephone,
+    currency, address, characters/spell-out, fraction, …;
+  - `<sub alias=…>` substitution.
+  Use as a checklist for which SSML our modules should honour, how per-voice user
+  dictionaries could look (PLS as an exchange format besides Balabolka `.dic`), and which
+  say-as types the normalizer needs as entry points.
