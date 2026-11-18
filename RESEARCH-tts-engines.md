@@ -342,8 +342,17 @@ Russian stress/ё from RUAccent dictionaries, MIT).
 - **Decoder is a fine-tune of the Supertonic-3 vocoder under BigScience OpenRAIL-M**
   (use-based restrictions) → not a free licence, not for our PPA, like Supertonic itself.
 - Text normalisation is Hebrew only (heb-tts-normalizer); nothing for Russian.
-Verdict: worth a listening test in docker on mikhail (ru, a few voices); the architecture is Supertonic-like (we already run
-Supertonic via sherpa), so a later module would be cheap, but the licence blocks the PPA.
+Test 2026-11-18 on mikhail (docker, --cpus=3, i5-8600K, BlueTTS cbe5150), 10 Russian phrases
+× maya/adam/david × 8/4 steps; WAVs in `_tmp/bluev3/` (README.txt there):
+- Speed: RTF 0.19 at 8 steps, 0.12 at 4 steps (≈5–8× real time on 3 cores), RSS ≈1.2 GB,
+  load 1.3–2.4 s per voice. Needs `ORT_NUM_THREADS` = real cores: by default it takes
+  min(8, cpu_count) threads and under a 3-CPU limit RTF falls to ≈1.0.
+- Built-in normalizer for ru is weak: no case agreement ("нет пять рублей", "с девять до
+  восемнадцать", "две тысячи двадцать шесть года"), "15%" → "пятнадцать percent", "руб."
+  left, Roman numerals and decimals ("XIX", "2,5") untouched, phone in 【…】 with "plus".
+  For a module: our normalizer first (ru-normalizr), then `normalize_text=False`.
+- Listening (stress, accent of the English voices): pending, the user listens.
+Licence still blocks the PPA (decoder OpenRAIL-M); at most a user-downloaded module.
 
 ## Runtimes worth building on
 - **sherpa-onnx** (k2-fsa, Apache-2.0, C/C++ API, CPU) — one runtime for many TTS model
