@@ -130,7 +130,7 @@ Description: Speech Dispatcher module for Silero TTS (Russian)
 Package: speech-dispatcher-text-normalizer
 Architecture: all
 Depends: python3, ${misc:Depends}
-Recommends: python3-ru-normalizr
+Recommends: speech-dispatcher-ru-normalizr
 Description: text normalization for the speech-dispatcher-modules voices
  A helper the Vosk, Kokoro, TeraTTS, sherpa-onnx and Silero modules run to
  read numbers, dates, units and abbreviations in Russian text as words

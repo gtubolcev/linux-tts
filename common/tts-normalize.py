@@ -11,10 +11,16 @@
 # Copyright (C) 2026 Grigory Tuboltsev
 # SPDX-License-Identifier: MIT
 
+import os
 import sys
 import warnings
 
 MAX_LINE = 1 << 20
+# speech-dispatcher-ru-normalizr: ru_normalizr and the libraries Ubuntu lacks,
+# outside the system Python; before it on the path, so its versions win
+PRIVATE = os.path.join(os.path.dirname(os.path.realpath(__file__)), "python")
+if os.path.isdir(PRIVATE):
+    sys.path.insert(0, PRIVATE)
 
 
 def one_line(text):
