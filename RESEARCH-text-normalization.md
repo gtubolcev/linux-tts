@@ -374,6 +374,14 @@ audio with Vosk ASR through `norm-test`.
 
 ## 6. Reference material to read
 
+Sources of knowledge on TTS markup and pronunciation (user, 2026-11-18), not read yet
+except the Azure page:
+- Hannes Pirker, ESSLLI 2003 course excerpt (D9c):
+  https://www.ofai.at/~hannes.pirker/esslli03/D9c_excerpt.pdf
+- Google Assistant SSML (beta), broad vs narrow transcriptions:
+  https://developers.google.com/assistant/conversational/ssml-beta#broad_vs_narrow_transcriptions
+- ElevenLabs, SSML tags explained: https://elevenlabs.io/blog/ssml-tags-explained
+
 - Microsoft Azure Speech, SSML pronunciation
   (https://learn.microsoft.com/azure/ai-services/speech-service/speech-synthesis-markup-pronunciation;
   user, 2026-11-18). The controls a mature commercial engine gives authors:
