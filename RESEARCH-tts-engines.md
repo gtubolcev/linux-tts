@@ -324,6 +324,23 @@ Stress comparison by ear (to do): bench/stress-crisp-dict.wav (dictionary G2P) v
 bench/stress-audiocpp-espeak.wav (espeak-ng), text "Мы пили молоко и ели творог. Все
 пришли, всё готово. В две тысячи двадцать шестом году."
 
+### BlueTTS / BlueV3 (checked 2026-11-18)
+
+github.com/maxmelichov/BlueTTS (code MIT), weights notmax123/BlueV3(-onnx), v3.0.1, bundle
+updated 2026-11-18. Flow-matching text-to-latent + codec decoder, 8 Euler steps, plain ONNX
+Runtime on CPU (also CUDA/OpenVINO/TensorRT, WebGPU); RTF 14–18× real time on a Ryzen 9 7950X.
+Files: text encoder 28 MB + flow 260 MB + decoder 101 MB (+ reference encoder 136 MB for
+cloning from ~10 s). 15 LibriTTS-R voices (CC BY 4.0). Own Rust G2P `polyg2p` (Apache-2.0,
+Russian stress/ё from RUAccent dictionaries, MIT).
+- **Russian is not in the released language set**: release = he, en, es, it, de; the Russian
+  front end exists in the engine, but "not part of this release". The GitHub README lists
+  Russian anyway — trust the bundle notes.
+- **Decoder is a fine-tune of the Supertonic-3 vocoder under BigScience OpenRAIL-M**
+  (use-based restrictions) → not a free licence, not for our PPA, like Supertonic itself.
+- Text normalisation is Hebrew only (heb-tts-normalizer); nothing for Russian.
+Verdict: watch for a Russian release; the architecture is Supertonic-like (we already run
+Supertonic via sherpa), so a later module would be cheap, but the licence blocks the PPA.
+
 ## Runtimes worth building on
 - **sherpa-onnx** (k2-fsa, Apache-2.0, C/C++ API, CPU) — one runtime for many TTS model
   families (VITS/Piper, Matcha, Kokoro, Kitten, …) and for STT (Vosk, GigaAM v3, Whisper,
