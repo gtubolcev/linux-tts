@@ -1,0 +1,8 @@
+# ru-normalizr's dependencies that Ubuntu does not ship (num2words, roman come
+# from python3-num2words, python3-roman). Pure Python only: pymorphy3 falls
+# back to dawg-python when the compiled DAWG2 is missing.
+pymorphy3==2.0.6
+pymorphy3-dicts-ru==2.4.417150.4580142
+dawg2-python==0.9.0
+eng_to_ipa==0.0.2
+phonenumberslite==9.0.43
