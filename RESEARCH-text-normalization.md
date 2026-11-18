@@ -238,6 +238,21 @@ Notes:
   fix genitive agreement, take Latin transliteration from a dictionary; neural models only
   for an optional book mode.
 
+### ru-normalizr vs RUNorm row by row; combining them (idea, later)
+
+RUNorm better (4): genitive agreement after нет/около/представители ("двадцати двух писем",
+"двадцати одной крупнейшей"), "около тысячи" (rn: "одной тысячи"), time "9:00" (rn: "часов
+ноля минут"), "Цена 99 руб." (rn wrongly genitive). ru-normalizr better (15): Roman numerals,
+%, currency symbols, units (ГБ, °C, "1 км"), abbreviations (т. е., д.), formulas, year
+ranges, acronyms read as words (НАТО). 28 rows both right, 4 both wrong.
+
+So RUNorm wins only on inflection, ru-normalizr on everything rule-shaped. Combination
+(user's idea, 2026-11-18, for later): ru-normalizr does all expansion and marks number spans;
+only those spans plus their neighbour words go to a small model that picks the case form
+(RUNorm/saarus72 design, or a light classifier trained on saarus72/ficbook_text_norm).
+Cheaper alternative first: fix rn's agreement rules (governing prepositions/verbs + pymorphy
+government of the next noun) and measure on the ficbook pairs.
+
 ## 4. Our engines today (norm-test, 2026-11-17)
 
 No engine handles TN fully:
