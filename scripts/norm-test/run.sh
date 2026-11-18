@@ -5,7 +5,8 @@
 # The module talks to proxy.py, which keeps the audio in WAV files; the
 # private server has its own socket, configuration (a copy of the system and
 # the user configuration) and runtime dir, and no reachable audio server.
-# Results: $OUT/<module>-<lang>/ (default /home/grigory/Storage/Claude/norm-test).
+# Results: $OUT/<module>-<lang>$TAG/ (default /home/grigory/Storage/Claude/norm-test).
+# NORM=yes|no adds "TextNormalization <NORM>" to the module's configuration.
 # Then: collect.py <result dir> joins each message into <test>.16k.wav, and
 # asr.py (in a container with vosk) transcribes them all.
 set -eu
@@ -14,13 +15,15 @@ M=$1; shift
 OUT=${OUT:-/home/grigory/Storage/Claude/norm-test}
 case $M in *-generic) BIN=sd_generic ;; *) BIN=sd_$M ;; esac
 
+UCONF=$HOME/.config/speech-dispatcher
 for L in "$@"; do
-  W=$OUT/$M-$L
+  W=$OUT/$M-$L${TAG:-}
   rm -rf "$W"; mkdir -p "$W/conf" "$W/mods" "$W/run" "$W/xdg" "$W/log"
   cp -r /etc/speech-dispatcher/. "$W/conf/"
-  cp -r "$HOME/.config/speech-dispatcher/." "$W/conf/"
+  [ -d "$UCONF" ] && cp -r "$UCONF/." "$W/conf/"
+  [ -f "$UCONF/speechd.conf" ] || UCONF=/etc/speech-dispatcher
   # this module only, under its own name
-  grep -v '^ *\(AddModule\|DefaultModule\|AudioOutputMethod\)' "$HOME/.config/speech-dispatcher/speechd.conf" > "$W/conf/speechd.conf"
+  grep -v '^ *\(AddModule\|DefaultModule\|AudioOutputMethod\)' "$UCONF/speechd.conf" > "$W/conf/speechd.conf"
   cat >> "$W/conf/speechd.conf" <<X
 AddModule "$M" "sd_proxy" "$M.conf"
 DefaultModule "$M"
@@ -36,6 +39,7 @@ X
     sed -i "s|OUTPUT=\\\\'\$PLAY_COMMAND\\\\'|OUTPUT=\\\\'$W/savewav\\\\'|; s|OUTPUT=\\\\'aplay\\\\'|OUTPUT=\\\\'$W/savewav\\\\'|g" "$W/conf/modules/$M.conf"
     grep -q "savewav" "$W/conf/modules/$M.conf" || { echo "cannot redirect $M output" >&2; exit 1; }
   fi
+  [ -n "${NORM:-}" ] && printf '\nTextNormalization %s\n' "$NORM" >> "$W/conf/modules/$M.conf"
   printf '#!/bin/sh\nexec python3 -I %s/proxy.py /usr/lib/speech-dispatcher-modules/%s "$@"\n' "$CP" "$BIN" > "$W/mods/sd_proxy"
   chmod +x "$W/mods/sd_proxy"
   # the private server and the modules play into record.py, nothing else
