@@ -1,0 +1,32 @@
+#!/usr/bin/make -f
+# Rust from the versioned toolchain packages; the crates are in vendor/ of
+# the orig tarball (see packaging/onnxruntime-ep-vulkan/make-source.sh)
+export DEB_BUILD_MAINT_OPTIONS = hardening=+all
+PRIV = usr/lib/$(DEB_HOST_MULTIARCH)/linux-tts
+export PATH := /usr/lib/rust-1.97/bin:$(PATH)
+export CARGO_HOME = $(CURDIR)/debian/cargo-home
+export CARGO_TARGET_DIR = $(CURDIR)/target
+# bindgen reads the C API of the private onnxruntime
+export ORT_INCLUDE_DIR = /usr/include/linux-tts/onnxruntime
+export RUSTFLAGS = -C link-arg=-Wl,-z,relro,-z,now
+JOBS = $(patsubst parallel=%,%,$(filter parallel=%,$(DEB_BUILD_OPTIONS)))
+
+%:
+	dh $@
+
+override_dh_auto_configure:
+	mkdir -p $(CARGO_HOME)
+	printf '[source.crates-io]\nreplace-with = "vendored"\n[source.vendored]\ndirectory = "$(CURDIR)/vendor"\n[net]\noffline = true\n' > $(CARGO_HOME)/config.toml
+
+override_dh_auto_build:
+	cargo build --release --frozen -p vulkan-ep $(if $(JOBS),-j$(JOBS))
+
+# the GPU tests need a Vulkan device, which the builders do not have
+override_dh_auto_test:
+
+override_dh_auto_install:
+	install -D -m644 target/release/libonnxruntime_ep_vulkan.so \
+	  debian/onnxruntime-ep-vulkan/$(PRIV)/libonnxruntime_ep_vulkan.so
+
+override_dh_auto_clean:
+	rm -rf target debian/cargo-home

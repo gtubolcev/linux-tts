@@ -1,0 +1,7 @@
+onnxruntime-ep-vulkan (0.0.1~git8625ef9-1) noble; urgency=medium
+
+  * Package onnx-vulkan-rs at commit 8625ef9 as a plugin EP for the
+    private onnxruntime 1.32 of libonnxruntime-tts; the crates are vendored.
+  * Pad modes edge, reflect and wrap (for Supertonic).
+
+ -- Grigory Tuboltsev <gtubolcev@gmail.com>  Thu, 19 Nov 2026 05:30:00 +0100

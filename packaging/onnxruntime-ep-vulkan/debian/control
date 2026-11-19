@@ -1,0 +1,27 @@
+Source: onnxruntime-ep-vulkan
+Section: science
+Priority: optional
+Maintainer: Grigory Tuboltsev <gtubolcev@gmail.com>
+Build-Depends: debhelper-compat (= 13),
+               rustc-1.97,
+               cargo-1.97,
+               libclang-dev,
+               libonnxruntime-tts-dev (>= 1.32.0)
+Standards-Version: 4.7.2
+Homepage: https://github.com/automataIA/onnx-vulkan-rs
+Rules-Requires-Root: no
+
+Package: onnxruntime-ep-vulkan
+Architecture: amd64
+Depends: ${shlibs:Depends}, ${misc:Depends}, libvulkan1,
+         libonnxruntime-tts (>= 1.32.0)
+Recommends: mesa-vulkan-drivers | vulkan-icd
+Description: Vulkan execution provider plugin for ONNX Runtime
+ onnx-vulkan-rs runs ONNX models on any graphics card with a Vulkan
+ driver (AMD, Intel, NVIDIA), through compute shaders. This package has
+ its plugin execution provider for the private onnxruntime of
+ libonnxruntime-tts, in /usr/lib/<triplet>/linux-tts; sherpa-onnx of the
+ linux-tts PPA loads it for the provider "vulkan".
+ .
+ The project is young (2026, one author); it supports the operators of
+ the Piper, MMS and Supertonic voices, others fall back to the CPU.
