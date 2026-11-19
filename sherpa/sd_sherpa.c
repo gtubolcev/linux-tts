@@ -239,7 +239,7 @@ module_config (const char *configfile)
    * the original data, like espeak-ng < 1.52, takes the mark as a reason to
    * stress some other syllable (за́мок -> zamˈok), so those voices, MMS and
    * Supertonic (which read letters) get only ё */
-  tts_stress_config_init (&stress_cfg, FALSE, RU_STRESS_NONE);
+  tts_stress_config_init (&stress_cfg, TRUE, RU_STRESS_NONE);
 
   if (configfile == NULL || !g_file_get_contents (configfile, &contents, NULL, NULL))
     return 0;
