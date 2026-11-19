@@ -42,7 +42,7 @@ replaced by the Piper voices of `sherpa-onnx`.
 
 | Module | Models | Front end | Runtime | Graphics card |
 |---|---|---|---|---|
-| `sd_sherpa-onnx` (synthesizers `sherpa-onnx`, `sherpa-onnx-vulkan-rs`) | Supertonic 3, Piper voices (`vits-piper-*`: piper-voice-* packages, the downloader), MMS, Pocket TTS | sherpa-onnx; for Piper espeak-ng in `sd_sherpa.c`, as piper-phonemize | ONNX Runtime | Piper, MMS: `-vulkan-rs`; Supertonic, Pocket: no |
+| `sd_sherpa-onnx` (synthesizers `sherpa-onnx`, `sherpa-onnx-vulkan-rs`) | Supertonic 3, Piper voices (`vits-piper-*`: piper-voice-* packages, the downloader), MMS, Pocket TTS | sherpa-onnx; for Piper espeak-ng in `sd_sherpa.c`, as piper-phonemize | ONNX Runtime | Piper, MMS, Supertonic: `-vulkan-rs`; Pocket: no |
 | `sd_kokoro` | Kokoro (Russian) | `kokoro/ru-g2p.c`, espeak-ng | ONNX Runtime | not yet; the same plugin would work |
 | `sd_teratts` | TeraTTS | `teratts/`, stress dictionary | ONNX Runtime | not yet, as above |
 | `sd_vosk` | Vosk TTS | `vosk/vosk.c` | ONNX Runtime | not yet, as above |
