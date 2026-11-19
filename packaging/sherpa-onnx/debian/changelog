@@ -1,8 +1,9 @@
-sherpa-onnx (2.0.1+deps2-2) resolute; urgency=medium
+sherpa-onnx (2.0.1+deps2-5) resolute; urgency=medium
 
   * Build against the private onnxruntime 1.32 of libonnxruntime-tts
     (RUNPATH /usr/lib/<triplet>/linux-tts) instead of the distribution's.
   * Add the "vulkan" provider, which loads the onnx-vulkan-rs plugin EP.
+  * -2 to -4 were local test builds.
 
  -- Grigory Tuboltsev <gtubolcev@gmail.com>  Thu, 19 Nov 2026 05:00:00 +0100
 
