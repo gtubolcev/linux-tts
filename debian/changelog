@@ -1,3 +1,13 @@
+speech-dispatcher-modules (0.1.0-2) resolute; urgency=medium
+
+  * Build vosk, kokoro and teratts against the private onnxruntime 1.32 of
+    libonnxruntime-tts (RUNPATH), the one sherpa-onnx and the Vulkan plugin
+    use.
+  * New package speech-dispatcher-sherpa-onnx-vulkan-rs: the synthesizer
+    sherpa-onnx on the graphics card (Piper, MMS, Supertonic).
+
+ -- Grigory Tuboltsev <gtubolcev@gmail.com>  Thu, 19 Nov 2026 06:00:00 +0100
+
 speech-dispatcher-modules (0.1.0-1) resolute; urgency=medium
 
   * Initial release: speech-dispatcher modules for Vosk TTS, Kokoro,

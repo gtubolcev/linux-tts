@@ -30,8 +30,9 @@ sherpa-onnx           |         |             |        |
             v                                          v
    +-------- ONNX Runtime (C) ----------+         ONNX Runtime
    | CPU execution provider             |        (Python, CPU)
+   | 1.32, private: libonnxruntime-tts  |
    | + Vulkan plugin EP (onnx-vulkan-rs,|
-   |   needs ONNX Runtime >= 1.29):     |
+   |   needs ONNX Runtime >= 1.24):     |
    |   the *-vulkan-rs synthesizers     |
    +------------------------------------+
 ```
@@ -60,9 +61,11 @@ installed once; `sd_sherpa-onnx-vulkan-rs` is a link to it:
 | Synthesizer | Config | Families | Provider |
 |---|---|---|---|
 | `sherpa-onnx` | `sherpa-onnx.conf` | supertonic piper pocket vits | cpu |
-| `sherpa-onnx-vulkan-rs` | generated from it | piper vits | vulkan |
+| `sherpa-onnx-vulkan-rs` | generated from it (`sherpa/vulkan-conf.sh`) | supertonic piper vits | vulkan |
 
-Both are in speech-dispatcher-sherpa-onnx; speech-dispatcher-piper-sherpa-onnx
+The first is in speech-dispatcher-sherpa-onnx, the second (link and config,
+meson option `sherpa_vulkan`) in speech-dispatcher-sherpa-onnx-vulkan-rs,
+which depends on onnxruntime-ep-vulkan; speech-dispatcher-piper-sherpa-onnx
 only brings the packaged Piper voices. Until 2026-11-16 Piper was a
 synthesizer of its own, `piper-sherpa-onnx` (a further link with
 `PiperFamilies "piper"`); the module still reads options with the prefix
@@ -134,17 +137,22 @@ does not know or does worse (the Russian stress dictionaries).
 ```
 sd_sherpa-onnx as sherpa-onnx-vulkan-rs
   -> sherpa-onnx, provider "vulkan"             (packaging/sherpa-onnx/debian/patches)
-  -> ONNX Runtime 1.29, private copy            libonnxruntime-sherpa:
-                                                  /usr/lib/x86_64-linux-gnu/sherpa-onnx/
+  -> ONNX Runtime 1.32, private copy            libonnxruntime-tts:
+                                                  /usr/lib/x86_64-linux-gnu/linux-tts/
   -> libonnxruntime_ep_vulkan.so (onnx-vulkan-rs) onnxruntime-ep-vulkan, same directory
   -> the Vulkan driver (Mesa radv/anv, NVIDIA)
 ```
 
-- Ubuntu's ONNX Runtime 1.23 cannot load the plugin, and its symbols are
-  versioned `VERS_1.23`, so a newer library cannot be dropped in under the
-  existing sherpa-onnx: sherpa-onnx is rebuilt against the private 1.29 copy.
-  Every module runs in its own process, so the other modules keep using
-  Ubuntu's ONNX Runtime.
+- Ubuntu's ONNX Runtime 1.23 cannot load the plugin (it needs the kernel API
+  of 1.24), and its symbols are versioned `VERS_1.23`, so a newer library
+  cannot be dropped in under programs built against it. The PPA has its own
+  ONNX Runtime 1.32 (packaging/onnxruntime-tts) in a private directory, and
+  sherpa-onnx, `sd_vosk`, `sd_kokoro` and `sd_teratts` are built against it
+  (RUNPATH); Ubuntu's libonnxruntime stays untouched for other programs.
+  `silero-server` uses Python's onnxruntime.
+- github.com/microsoft/onnxruntime is gone since 2026-11-17; the source is
+  the commit of the v1.32.0 tag as archived by Software Heritage on
+  2026-11-14, fetched by its hash from a fork.
 - The plugin compiles the graph for the device on the first run
   (`VULKAN_EP_COMPILE=1`, set by the patch); without it the card is slower
   than the CPU.
@@ -153,10 +161,11 @@ sd_sherpa-onnx as sherpa-onnx-vulkan-rs
 - The first run on a machine takes about 8 s more: the shaders are compiled
   and kept in Mesa's cache (`~/.cache/mesa_shader_cache`); later starts are
   as fast as on the CPU.
-- Only the VITS graphs (Piper, MMS) run. Supertonic uses Pad mode "edge",
-  which the plugin accepts but cannot run; the error ends the process
-  (sherpa-onnx throws through its C API), so the `-vulkan-rs` synthesizers
-  list only Piper and MMS voices.
+- The VITS graphs (Piper, MMS) and Supertonic run. Supertonic uses Pad mode
+  "edge", which the upstream plugin accepts but cannot run (the error ends
+  the process: sherpa-onnx throws through its C API); onnxruntime-ep-vulkan
+  carries a patch with the Pad modes edge, reflect and wrap. Pocket TTS is
+  not tried yet.
 - Measured with a Piper voice (one phrase, ms; CPU time while on the card):
 
   | Card | CPU | Vulkan |

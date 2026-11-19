@@ -98,9 +98,8 @@ endif
 
 # -------------------------------------------------------------- sherpa
 sherpa = cc.find_library('sherpa-onnx-c-api', has_headers: ['sherpa-onnx/c-api/c-api.h'], required: false)
-# Supertonic, Piper, Pocket TTS and MMS in one module (the -vulkan-rs variant
-# of sherpa/build-deb.sh needs onnxruntime-ep-vulkan, so it is not installed
-# here); espeak-ng turns the text of Piper voices into phonemes
+# Supertonic, Piper, Pocket TTS and MMS in one module; espeak-ng turns the
+# text of Piper voices into phonemes
 if get_option('sherpa').require(sherpa.found() and espeak.found(),
     error_message: 'sd_sherpa-onnx needs the sherpa-onnx C API and espeak-ng').allowed()
   # espeak-ng < 1.52 (Ubuntu 24.04) has no espeak_TextToPhonemesWithTerminator
@@ -115,6 +114,15 @@ if get_option('sherpa').require(sherpa.found() and espeak.found(),
     dependencies: module_deps + [sherpa, espeak],
     install: true, install_dir: module_dir)
   install_data('sherpa/sherpa-onnx.conf', install_dir: conf_dir)
+  # the same module on the graphics card: a link and its own settings
+  if get_option('sherpa_vulkan').allowed()
+    install_symlink('sd_sherpa-onnx-vulkan-rs', pointing_to: 'sd_sherpa-onnx',
+      install_dir: module_dir)
+    custom_target('sherpa-onnx-vulkan-rs.conf',
+      input: 'sherpa/sherpa-onnx.conf', output: 'sherpa-onnx-vulkan-rs.conf',
+      command: [find_program('sh'), files('sherpa/vulkan-conf.sh'), '@INPUT@', '@OUTPUT@'],
+      install: true, install_dir: conf_dir)
+  endif
 endif
 
 # -------------------------------------------------------------- silero

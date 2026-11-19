@@ -70,6 +70,20 @@ Description: Speech Dispatcher module for sherpa-onnx voices
  once, so a text in two languages does not reload them.
  Settings in /etc/speech-dispatcher/modules/sherpa-onnx.conf.
 
+Package: speech-dispatcher-sherpa-onnx-vulkan-rs
+Architecture: all
+# the "vulkan" provider is in sherpa-onnx 2.0.1+deps2-2, built against the
+# private onnxruntime that the plugin needs
+Depends: speech-dispatcher-sherpa-onnx (>= ${source:Version}),
+         sherpa-onnx (>= 2.0.1+deps2-2~),
+         onnxruntime-ep-vulkan (>= 0.0.1~git8625ef9),
+         ${misc:Depends}
+Description: Speech Dispatcher module for sherpa-onnx voices on the graphics card
+ The synthesizer "sherpa-onnx-vulkan-rs": sd_sherpa-onnx with the Vulkan
+ plugin of onnxruntime (onnx-vulkan-rs), for Piper voices, MMS models and
+ Supertonic on any graphics card with a Vulkan driver. Settings in
+ /etc/speech-dispatcher/modules/sherpa-onnx-vulkan-rs.conf.
+
 Package: speech-dispatcher-piper-sherpa-onnx
 Architecture: all
 Depends: speech-dispatcher-sherpa-onnx (>= ${source:Version}),
