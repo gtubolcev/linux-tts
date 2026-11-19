@@ -2,7 +2,7 @@ Source: sherpa-onnx
 Section: sound
 Priority: optional
 Maintainer: Grigory Tuboltsev <gtubolcev@gmail.com>
-Build-Depends: debhelper-compat (= 13), cmake, libonnxruntime-dev, patchelf
+Build-Depends: debhelper-compat (= 13), cmake, libonnxruntime-tts-dev, patchelf
 Standards-Version: 4.7.2
 Homepage: https://github.com/k2-fsa/sherpa-onnx
 Rules-Requires-Root: no
@@ -23,7 +23,7 @@ Description: local speech recognition and synthesis (sherpa-onnx)
 Package: libsherpa-onnx-dev
 Architecture: amd64
 Section: libdevel
-Depends: sherpa-onnx (= ${binary:Version}), libonnxruntime-dev, ${misc:Depends}
+Depends: sherpa-onnx (= ${binary:Version}), libonnxruntime-tts-dev, ${misc:Depends}
 Description: local speech recognition and synthesis (sherpa-onnx) - headers
  sherpa-onnx runs speech models with ONNX Runtime on the CPU.
  .

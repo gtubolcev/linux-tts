@@ -8,7 +8,7 @@ Build-Depends: debhelper-compat (= 13),
                libglib2.0-dev (>= 2.70),
                libjson-glib-dev,
                libsherpa-onnx-dev,
-               libonnxruntime-dev,
+               libonnxruntime-tts-dev,
                libspeechd-dev (>= 0.12~),
                meson,
                pkgconf

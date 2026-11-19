@@ -3,6 +3,11 @@
 # (see packaging/sherpa-onnx/make-source.sh); CMake takes them from there.
 export DEB_BUILD_MAINT_OPTIONS = hardening=+all
 LIBDIR = usr/lib/$(DEB_HOST_MULTIARCH)
+# built against the private onnxruntime of libonnxruntime-tts (newer than
+# the distribution's, for the Vulkan plugin EP); found by these variables
+ORTDIR = /usr/lib/$(DEB_HOST_MULTIARCH)/linux-tts
+export SHERPA_ONNXRUNTIME_LIB_DIR = $(ORTDIR)
+export SHERPA_ONNXRUNTIME_INCLUDE_DIR = /usr/include/linux-tts/onnxruntime
 
 %:
 	dh $@ --buildsystem=cmake
@@ -17,9 +22,9 @@ override_dh_auto_configure:
 	  -DSHERPA_ONNX_ENABLE_TESTS=OFF -DSHERPA_ONNX_ENABLE_BINARY=ON \
 	  -DSHERPA_ONNX_BUILD_C_API_EXAMPLES=OFF
 
-# cmake installs to /usr/lib, copies the system onnxruntime next to the
-# libraries and writes a .pc with an rpath: move the libraries to the
-# multiarch dir, drop the copies, write our own .pc
+# cmake installs to /usr/lib, copies onnxruntime next to the libraries and
+# writes a .pc with an rpath: move the libraries to the multiarch dir, drop
+# the copies, write our own .pc, point the rpath to the private onnxruntime
 override_dh_auto_install:
 	dh_auto_install
 	cd debian/tmp && rm -f usr/lib/libonnxruntime* usr/sherpa-onnx.pc \
@@ -27,17 +32,11 @@ override_dh_auto_install:
 	  && mv usr/lib/libsherpa-onnx-*.so $(LIBDIR)/
 	sed -e 's|@LIBDIR@|$(LIBDIR)|' -e 's|@VERSION@|$(DEB_VERSION_UPSTREAM)|' \
 	  debian/sherpa-onnx.pc.in > debian/tmp/$(LIBDIR)/pkgconfig/sherpa-onnx.pc
-ifeq ($(SHERPA_ONNXRUNTIME_LIB_DIR),)
-	patchelf --remove-rpath debian/tmp/usr/bin/* debian/tmp/$(LIBDIR)/*.so
-else
-	# built against the private onnxruntime of libonnxruntime-sherpa (newer
-	# than the distribution's, for the Vulkan plugin)
-	patchelf --set-rpath $(SHERPA_ONNXRUNTIME_LIB_DIR) debian/tmp/usr/bin/* debian/tmp/$(LIBDIR)/*.so
-endif
+	patchelf --set-rpath $(ORTDIR) debian/tmp/usr/bin/* debian/tmp/$(LIBDIR)/*.so
 	install -m755 debian/sherpa-say debian/tmp/usr/bin/
 
 override_dh_shlibdeps:
-	dh_shlibdeps $(if $(SHERPA_ONNXRUNTIME_LIB_DIR),-l$(SHERPA_ONNXRUNTIME_LIB_DIR))
+	dh_shlibdeps -l$(ORTDIR)
 
 # "make check" of sherpa-onnx is clang-tidy, not tests
 override_dh_auto_test:

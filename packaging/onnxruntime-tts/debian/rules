@@ -1,0 +1,29 @@
+#!/usr/bin/make -f
+# The archives that CMake would fetch are in mirror/ of the orig tarball
+# (see packaging/onnxruntime-tts/make-source.sh); CMake takes them from there.
+# LTO over the statically linked dependencies takes hours and much memory
+export DEB_BUILD_MAINT_OPTIONS = hardening=+all optimize=-lto
+# false positives of GCC 13-15 in the vendored code, made errors by -Werror
+export DEB_CFLAGS_MAINT_APPEND = -Wno-maybe-uninitialized
+export DEB_CXXFLAGS_MAINT_APPEND = -Wno-maybe-uninitialized -Wno-error=maybe-uninitialized
+# private directories, apart from the distribution's libonnxruntime
+PRIV = lib/$(DEB_HOST_MULTIARCH)/linux-tts
+
+%:
+	dh $@ --buildsystem=cmake --sourcedirectory=cmake
+
+# debhelper sets FETCHCONTENT_FULLY_DISCONNECTED=ON, which skips unpacking
+# the local archives too; the URLs are local files, nothing is downloaded
+override_dh_auto_configure:
+	dh_auto_configure -- -DCMAKE_BUILD_TYPE=Release \
+	  -DCMAKE_INSTALL_LIBDIR=$(PRIV) \
+	  -DCMAKE_INSTALL_INCLUDEDIR=include/linux-tts \
+	  -DFETCHCONTENT_FULLY_DISCONNECTED=OFF \
+	  -Donnxruntime_BUILD_SHARED_LIB=ON \
+	  -Donnxruntime_BUILD_UNIT_TESTS=OFF \
+	  -Donnxruntime_BUILD_BENCHMARKS=OFF \
+	  -Donnxruntime_ENABLE_PYTHON=OFF \
+	  -Donnxruntime_USE_XNNPACK=OFF \
+	  -DPython_EXECUTABLE=/usr/bin/python3
+
+override_dh_auto_test:
