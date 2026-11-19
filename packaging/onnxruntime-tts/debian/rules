@@ -27,3 +27,6 @@ override_dh_auto_configure:
 	  -DPython_EXECUTABLE=/usr/bin/python3
 
 override_dh_auto_test:
+
+# "Too many DIEs" for libonnxruntime.so: dwz gives up and fails the build
+override_dh_dwz:
