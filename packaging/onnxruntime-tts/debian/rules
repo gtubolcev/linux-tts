@@ -35,14 +35,24 @@ override_dh_auto_test:
 override_dh_auto_install:
 	dh_auto_install
 	mkdir -p debian/tmp/$(PYPRIV)
-	cp -a obj-$(DEB_HOST_GNU_TYPE)/onnxruntime debian/tmp/$(PYPRIV)/
-	find debian/tmp/$(PYPRIV) -name __pycache__ -prune -exec rm -rf {} +
+	# without the wheel's copy of the C library (the module has ORT linked in)
+	tar -C obj-$(DEB_HOST_GNU_TYPE) --exclude=__pycache__ \
+	  --exclude='onnxruntime/capi/libonnxruntime.so*' -cf - onnxruntime \
+	  | tar -C debian/tmp/$(PYPRIV) -xf -
+	# written by setup.py; without it every import warns
+	printf 'package_name = "onnxruntime"\n__version__ = "%s"\n' \
+	  "$$(cat VERSION_NUMBER)" > debian/tmp/$(PYPRIV)/onnxruntime/capi/build_and_package_info.py
+	# the extension with the ABI tag of the build's Python, from which
+	# dh_python3 takes the version range (below it renames nothing)
+	cd debian/tmp/$(PYPRIV)/onnxruntime/capi && mv onnxruntime_pybind11_state.so \
+	  onnxruntime_pybind11_state$$(python3 -c 'import sysconfig; print(sysconfig.get_config_var("EXT_SUFFIX"))')
 	# the .so files of the package are not executables
 	find debian/tmp/$(PYPRIV) -name '*.so' -exec chmod 644 {} +
 
+# only this package has Python files; a plain dh_python3 would rename them
 override_dh_python3:
-	dh_python3
-	dh_python3 -ppython3-onnxruntime-tts /$(PYPRIV)
+	# no ABI tag on libonnxruntime_providers_shared.so: ORT loads it by name
+	dh_python3 -ppython3-onnxruntime-tts --no-ext-rename /$(PYPRIV)
 	dh_numpy3 -ppython3-onnxruntime-tts
 
 # "Too many DIEs" for libonnxruntime.so: dwz gives up and fails the build
