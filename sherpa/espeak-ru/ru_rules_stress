@@ -1,0 +1,47 @@
+// Rules that honour the stress mark U+0301 after a vowel, from the
+// espeak-ng master ru_rules (GPL-3+, Kirill Kolov and the espeak-ng
+// contributors). merge-stress-rules.py adds them to the ru_rules the
+// Piper voices were trained with, which have none.
+.group а
+        а (́   'V
+.group е
+        _) е ((́   'je
+        A) е ((́   'je
+        C) е ((́   'e
+        A(́) е   je
+.group и
+        и (́   'i
+     ц) и ((́     'y
+      ш) и ((́     'y
+.group о
+        о (́   'o
+.group у
+        у (́   'u
+        ч) у ((́      'u"
+          щ) у ((́     'u"
+.group ы
+        ы (́   'y
+.group э
+        э (́   'E2
+.group ю
+        _) ю ((́   'ju
+        A) ю ((́   'ju
+        C) ю ((́   'u"
+        A(́) ю   ju
+      ъ) ю(́     'ju
+       ь) ю(́    'ju
+.group я
+        _) я ((́   'ja
+        A) я ((́   'ja
+        C) я ((́   'V
+        A(́) я   ja
+        A(́) я (_   ja
+        ъ) я(́     'ja
+        ъ) я ((́_     'ja
+       ь)   я(́    'ja
+.group ё
+        _) ё ((́   'j8
+        A) ё ((́   'j8
+        C) ё ((́   '8
+        A(́) ё   j8
+        A(́) ё (_   j8

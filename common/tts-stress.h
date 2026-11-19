@@ -28,6 +28,7 @@ typedef struct
   gboolean enabled;     /* TextStress yes|no (module default) */
   gchar *dictionary;    /* TextStressDictionary: files separated by ":" */
   RuStressMark mark;    /* TextStressMark plus|acute|none (module default) */
+  gboolean mark_set;    /* TextStressMark was given: it overrides a voice's */
 } TtsStressConfig;
 
 typedef struct TtsStress TtsStress;
@@ -49,5 +50,8 @@ void tts_stress_set_resolver (TtsStress *s, TtsStressResolver resolver, gpointer
 /* a new string: text with stress marks for Russian, else a copy; s may be
  * NULL */
 gchar *tts_stress_apply (TtsStress *s, const gchar *text, const gchar *lang);
+/* the same with the mark a voice reads; TextStressMark, when given, wins */
+gchar *tts_stress_apply_mark (TtsStress *s, const gchar *text, const gchar *lang,
+                              RuStressMark voice_mark);
 
 #endif
