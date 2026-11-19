@@ -8,7 +8,7 @@
 #include "kokoro.h"
 
 #include <json-glib/json-glib.h>
-#include <onnxruntime/onnxruntime_c_api.h>
+#include <onnxruntime_c_api.h>
 #include <string.h>
 
 #define STYLE_DIM 256

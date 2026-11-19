@@ -13,6 +13,13 @@ onnxruntime = dependency('libonnxruntime', required: false)
 math = cc.find_library('m')
 threads = dependency('threads')
 
+module_dir = get_option('prefix') / 'lib' / 'speech-dispatcher-modules'
+conf_dir = get_option('sysconfdir') / 'speech-dispatcher' / 'modules'
+# the text normalization helper (below); project arguments must come before
+# the first target (the speechd_module fallback)
+norm_helper = module_dir / 'tts-normalize'
+add_project_arguments('-DTTS_NORM_HELPER="@0@"'.format(norm_helper), language: 'c')
+
 # libspeechd-dev has no .pc file for the module library: the header is
 # <speech-dispatcher/spd_module_main.h>, spd_audio.h is shimmed per module
 speechd_inc = include_directories('/usr/include/speech-dispatcher')
@@ -33,17 +40,13 @@ if not speechd_module.found()
       dependencies: threads))
 endif
 
-module_dir = get_option('prefix') / 'lib' / 'speech-dispatcher-modules'
-conf_dir = get_option('sysconfdir') / 'speech-dispatcher' / 'modules'
 module_deps = [speechd_module, glib, math, threads]
 
 # text normalization (ru-normalizr) through a resident Python helper; the
 # modules pass text through unchanged when it or ru_normalizr is missing
-norm_helper = module_dir / 'tts-normalize'
 norm_src = files('common/tts-norm.c', 'common/tts-copy.c')
 # the stress stage after it (Vosk dictionary; homographs later)
 stress_src = files('common/tts-stress.c', 'common/ru-stress.c')
-add_project_arguments('-DTTS_NORM_HELPER="@0@"'.format(norm_helper), language: 'c')
 install_data('common/tts-normalize.py', rename: 'tts-normalize',
   install_dir: module_dir, install_mode: 'rwxr-xr-x')
 executable('tts-norm-test', 'common/tts-norm-test.c', norm_src, stress_src,
