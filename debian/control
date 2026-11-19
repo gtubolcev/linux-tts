@@ -126,7 +126,7 @@ Architecture: any
 Depends: python3,
          python3-num2words,
          python3-numpy,
-         python3-onnxruntime,
+         python3-onnxruntime-tts,
          speech-dispatcher (>= 0.12~),
          ${misc:Depends},
          ${shlibs:Depends}

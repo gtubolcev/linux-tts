@@ -28,8 +28,9 @@ sherpa-onnx           |         |             |        |
   +---------+---------+---------+-------------+        |
             |                                          |
             v                                          v
-   +-------- ONNX Runtime (C) ----------+         ONNX Runtime
-   | CPU execution provider             |        (Python, CPU)
+   +-------- ONNX Runtime (C) ----------+         ONNX Runtime 1.32
+   | CPU execution provider             |        (Python, CPU,
+   |                                    |    python3-onnxruntime-tts)
    | 1.32, private: libonnxruntime-tts  |
    | + Vulkan plugin EP (onnx-vulkan-rs,|
    |   needs ONNX Runtime >= 1.24):     |
@@ -149,7 +150,9 @@ sd_sherpa-onnx as sherpa-onnx-vulkan-rs
   ONNX Runtime 1.32 (packaging/onnxruntime-tts) in a private directory, and
   sherpa-onnx, `sd_vosk`, `sd_kokoro` and `sd_teratts` are built against it
   (RUNPATH); Ubuntu's libonnxruntime stays untouched for other programs.
-  `silero-server` uses Python's onnxruntime.
+  `silero-server` uses the Python module of the same release
+  (python3-onnxruntime-tts, in /usr/lib/python3/linux-tts, off Python's
+  search path; noble has no python3-onnxruntime at all).
 - github.com/microsoft/onnxruntime is gone since 2026-11-17; the source is
   the commit of the v1.32.0 tag as archived by Software Heritage on
   2026-11-14, fetched by its hash from a fork.

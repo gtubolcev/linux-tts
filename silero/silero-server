@@ -31,6 +31,9 @@ from xml.sax.saxutils import escape
 engine = None
 engine_lock = threading.Lock()
 SAMPLE_RATE = 48000
+# the onnxruntime of python3-onnxruntime-tts (the release the other modules
+# use), off Python's search path; the distribution's one otherwise
+ORT_DIR = "/usr/lib/python3/linux-tts"
 
 
 def log(*a):
@@ -39,8 +42,12 @@ def log(*a):
 
 def load(args):
     global engine
+    if os.path.isdir(os.path.join(ORT_DIR, "onnxruntime")):
+        sys.path.insert(0, ORT_DIR)
     sys.path.insert(0, args.dir)
     import numpy  # noqa: F401  (fail early with a clear message)
+    import onnxruntime
+    log(f"onnxruntime {onnxruntime.__version__} from {os.path.dirname(onnxruntime.__file__)}")
     from silero_onnx import ort as silero_ort
     from silero_onnx.engine import SileroTTS
 

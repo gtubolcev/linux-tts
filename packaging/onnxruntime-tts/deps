@@ -1,8 +1,9 @@
 # The entries of cmake/deps.txt that a CPU-only build of the shared library
 # fetches (found with a trial configure on noble); URL and SHA1 come from
-# the release's deps.txt
+# the release's deps.txt; pybind11 and dlpack for the Python module
 abseil_cpp
 date
+dlpack
 eigen
 flatbuffers
 json
@@ -10,6 +11,7 @@ microsoft_gsl
 mp11
 onnx
 protobuf
+pybind11
 pytorch_cpuinfo
 re2
 safeint

@@ -1,3 +1,12 @@
+onnxruntime-tts (1.32.0+deps-2) noble; urgency=medium
+
+  * New package python3-onnxruntime-tts: the Python module of the same
+    release in /usr/lib/python3/linux-tts, for silero-server on noble,
+    which has no python3-onnxruntime. pybind11 and dlpack in the orig
+    tarball.
+
+ -- Grigory Tuboltsev <gtubolcev@gmail.com>  Thu, 19 Nov 2026 12:00:00 +0100
+
 onnxruntime-tts (1.32.0+deps-1) noble; urgency=medium
 
   * Private copy of the v1.32.0 release (commit fab30a46) for the linux-tts
