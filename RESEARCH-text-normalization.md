@@ -448,3 +448,28 @@ Plan for us:
    (ме́жконфессиона́льными) — keep one.
 5. JN `.rex` rules (553, ~300 homographs) as seed pairs "homograph + context" for our own
    homograph stage, not run as regexes.
+
+### 7a. Stress sources and cross-checking (2026-11-19)
+
+Free sources with stress on all word forms, checked:
+
+| Source | Licence | What | Get it |
+|---|---|---|---|
+| English Wiktionary via kaikki.org | CC-BY-SA | full stressed inflection tables with tags, accent class (a, b, …) | `kaikki.org/dictionary/Russian/kaikki.org-dictionary-Russian.jsonl` (950 MB) |
+| Russian Wiktionary via kaikki.org | CC-BY-SA | full stressed tables, IPA, homograph categories | `kaikki.org/ruwiktionary/raw-wiktextract-data.jsonl.gz` (285 MB, all languages; filter lang_code ru) |
+| Koziev NLP_Datasets `Stress/all_accents.zip` | CC0 | 2.9M forms from Wikipedia/Wiktionary, forms generated assuming fixed stress: wrong for mobile stress (ре́ки/реки́) | GitHub |
+| OpenRussian (Badestrand/russian-dictionary) | CC-BY-SA-4.0 | ~30k lemmas, paradigms with `'` after the stressed vowel | GitHub CSV |
+| AOT (sokirko74/aot) | LGPL-2.1 | Zaliznyak-based paradigms + accent models; 4pda users trust it over neural accentuators | repo; dictionary files to locate |
+| udar, GiellaLT lang-rus | GPL-3.0 | FST with stress + CG homographs | GitHub |
+| rulex (poretsky) | GPL-2.0 | ru_tts pronunciation dictionary, ~60k entries + rules | GitHub |
+| RUAccent, silero-stress | MIT | neural; RUAccent dictionaries on HF (`ruaccent/accentuator`) | HF/PyPI |
+
+Not usable: Zaliznyak / Hagen orthoepic full-form lists (copyright; circulated on TTS forums),
+НКРЯ accent subcorpus (no download), gramota.ru / accentonline (lookup only).
+
+Cross-check of the 2279 JN/Vosk disagreements (`_tmp/4pda-jugger/xcheck.py`, output
+`xcheck.tsv`, run on mikhail, data in ~/claude-builds/stressdict): Wiktionary (en or ru) sides
+with JN in 1300, with Vosk in 208, has both variants in 280 (homographs, names, variants),
+en and ru disagree in 11, missing in 480 (names, slang). With Koziev and OpenRussian added:
+JN 1401, Vosk 316, conflict 261. The user's own marks (38) agree: 37 JN, 1 Vosk.
+→ JN before Vosk; Wiktionary as the referee and as the main free full-form source.
