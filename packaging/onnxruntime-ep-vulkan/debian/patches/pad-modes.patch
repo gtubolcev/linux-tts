@@ -1,0 +1,483 @@
+From 266bb7968724736b9d379ef4917ab7fbaf11a6b4 Mon Sep 17 00:00:00 2001
+From: Grigory Tuboltsev <gtubolcev@gmail.com>
+Date: Thu, 19 Nov 2026 02:41:22 +0100
+Subject: [PATCH] feat(core): Pad modes edge, reflect and wrap
+
+Pad claimed nodes in any mode but ran only "constant"; a node in another
+mode failed at run time, which ends hosts such as sherpa-onnx (Supertonic's
+text encoder pads with "edge"). The device kernel (f32) and the host path
+now map each output index to its source in all four modes, including pads
+wider than the dimension and negative pads. A mode the kernel lacks and the
+opset 18 "axes" input are refused at load time, so the node goes to another
+provider. An empty dimension padded in a source mode is an error, not a crash.
+
+Tested on a GTX 1060 (NVIDIA Vulkan) against numpy's np.pad.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_0189a4focDKPAbyh6UsPZ3Vz
+---
+ crates/onnx-vulkan-core/src/host_ops.rs       |  70 ++++++-
+ crates/onnx-vulkan-core/src/interp.rs         |  58 ++++--
+ .../onnx-vulkan-core/src/shaders/movement.rs  |  30 ++-
+ crates/onnx-vulkan-core/tests/pad_modes.rs    | 192 ++++++++++++++++++
+ 4 files changed, 326 insertions(+), 24 deletions(-)
+ create mode 100644 crates/onnx-vulkan-core/tests/pad_modes.rs
+
+diff --git a/crates/onnx-vulkan-core/src/host_ops.rs b/crates/onnx-vulkan-core/src/host_ops.rs
+index 6eb8c6d..136ce35 100644
+--- a/crates/onnx-vulkan-core/src/host_ops.rs
++++ b/crates/onnx-vulkan-core/src/host_ops.rs
+@@ -686,7 +686,68 @@ pub fn row_major_strides(shape: &[i64]) -> Vec<i64> {
+ 
+ /// `Pad` mode=constant, host-side dtype-generic. `begins`/`ends` per dim,
+ /// `cval` = bytes of the constant value (length elem_size; empty ⇒ zeros).
+-pub fn pad(data: &HostTensor, begins: &[i64], ends: &[i64], cval: &[u8]) -> Result<HostTensor> {
++/// `Pad`'s `mode` attribute.
++#[derive(Clone, Copy, Debug, PartialEq, Eq)]
++pub enum PadMode {
++    Constant,
++    Edge,
++    Reflect,
++    Wrap,
++}
++
++impl PadMode {
++    pub fn parse(mode: &str) -> Option<Self> {
++        match mode {
++            "constant" => Some(Self::Constant),
++            "edge" => Some(Self::Edge),
++            "reflect" => Some(Self::Reflect),
++            "wrap" => Some(Self::Wrap),
++            _ => None,
++        }
++    }
++
++    /// The code the `PAD` shader takes in its push constants.
++    pub fn code(self) -> u32 {
++        match self {
++            Self::Constant => 0,
++            Self::Edge => 1,
++            Self::Reflect => 2,
++            Self::Wrap => 3,
++        }
++    }
++
++    /// The input coordinate that output coordinate `ic` (already shifted by
++    /// the leading pad) reads along a dimension of `dim`, or `None` for the
++    /// constant value. Reflect and wrap repeat for pads wider than the
++    /// dimension, as numpy does.
++    pub fn source(self, ic: i64, dim: i64) -> Option<i64> {
++        if (0..dim).contains(&ic) {
++            return Some(ic);
++        }
++        if dim <= 0 {
++            return None;
++        }
++        match self {
++            Self::Constant => None,
++            Self::Edge => Some(ic.clamp(0, dim - 1)),
++            Self::Reflect if dim == 1 => Some(0),
++            Self::Reflect => {
++                let period = 2 * (dim - 1);
++                let m = ic.rem_euclid(period);
++                Some(if m < dim { m } else { period - m })
++            }
++            Self::Wrap => Some(ic.rem_euclid(dim)),
++        }
++    }
++}
++
++pub fn pad(
++    data: &HostTensor,
++    begins: &[i64],
++    ends: &[i64],
++    cval: &[u8],
++    mode: PadMode,
++) -> Result<HostTensor> {
+     data.validate()?;
+     let es = elem_size(data.dtype);
+     ensure!(es > 0, "Pad: dtype {} with unknown size", data.dtype);
+@@ -710,11 +771,10 @@ pub fn pad(data: &HostTensor, begins: &[i64], ends: &[i64], cval: &[u8]) -> Resu
+             let od = out_shape[d].max(1) as usize;
+             acc /= od;
+             let c = (o / acc.max(1)) % od;
+-            let ic = c as i64 - begins[d];
+-            if ic < 0 || ic >= data.shape[d] {
+-                oob = true;
++            match mode.source(c as i64 - begins[d], data.shape[d]) {
++                Some(ic) => si += ic * in_str[d],
++                None => oob = true,
+             }
+-            si += ic * in_str[d];
+         }
+         if oob {
+             if let Some(cv) = cval_bytes {
+diff --git a/crates/onnx-vulkan-core/src/interp.rs b/crates/onnx-vulkan-core/src/interp.rs
+index a117e72..9f0bed2 100644
+--- a/crates/onnx-vulkan-core/src/interp.rs
++++ b/crates/onnx-vulkan-core/src/interp.rs
+@@ -371,6 +371,12 @@ pub fn is_implemented_node(node: &NodeIr) -> bool {
+                 )
+         }
+         "MaxPool" | "AveragePool" => int_attr("ceil_mode", 0) == 0 && node.outputs.len() == 1,
++        // a mode the kernel lacks, or the opset 18 `axes` input, would fail
++        // at run time, and an EP error ends hosts such as sherpa-onnx: leave
++        // those nodes to the CPU
++        "Pad" => {
++            pad_mode(node).is_ok() && !node.inputs.get(3).is_some_and(|a| !a.is_empty())
++        }
+         // the schema's optional second output is `inv_std_var`, which the kernel
+         // does not produce: claiming a node that asks for it would silently
+         // leave a value undefined
+@@ -3228,15 +3234,11 @@ fn range(env: &mut Env, node: &NodeIr) -> Result<()> {
+ /// optional constant_value (input[2], scalar). Device (f32) via kernel;
+ /// otherwise host. Only mode=constant (the only one used by the model).
+ fn pad(env: &mut Env, node: &NodeIr) -> Result<()> {
+-    if let Some(m) = node.attrs.get("mode").and_then(|a| match a {
+-        crate::AttrValue::String(s) => Some(s.as_str()),
+-        _ => None,
+-    }) {
+-        ensure!(
+-            m == "constant",
+-            "Pad: mode '{m}' not supported (only constant)"
+-        );
+-    }
++    let mode = pad_mode(node)?;
++    ensure!(
++        !node.inputs.get(3).is_some_and(|a| !a.is_empty()),
++        "Pad: the axes input is not supported"
++    );
+     let data = &node.inputs[0];
+     let rank = env.shape_of(data)?.len();
+     let pads = env.host(&node.inputs[1])?.to_i64()?;
+@@ -3248,6 +3250,14 @@ fn pad(env: &mut Env, node: &NodeIr) -> Result<()> {
+     );
+     let begins = pads[..rank].to_vec();
+     let ends = pads[rank..].to_vec();
++    if mode != host_ops::PadMode::Constant {
++        // nothing to repeat: onnxruntime refuses this too
++        let shape = env.shape_of(data)?;
++        ensure!(
++            (0..rank).all(|d| shape[d] > 0 || (begins[d] <= 0 && ends[d] <= 0)),
++            "Pad: mode {mode:?} on an empty dimension of {shape:?}"
++        );
++    }
+ 
+     // no padding, as SAM 3's window partition when the grid divides: a copy
+     if pads.iter().all(|&p| p == 0) && env.on_device(data) && env.dtype_of(data)? == FLOAT {
+@@ -3255,7 +3265,7 @@ fn pad(env: &mut Env, node: &NodeIr) -> Result<()> {
+         return meta_reshape_out(env, node, shape);
+     }
+     if env.dtype_of(data)? == FLOAT {
+-        pad_device(env, node, &begins, &ends)
++        pad_device(env, node, &begins, &ends, mode)
+     } else {
+         let d = env.host(data)?;
+         let cval = if node.inputs.len() > 2 && !node.inputs[2].is_empty() {
+@@ -3263,15 +3273,32 @@ fn pad(env: &mut Env, node: &NodeIr) -> Result<()> {
+         } else {
+             Vec::new()
+         };
+-        let out = host_ops::pad(&d, &begins, &ends, &cval)?;
++        let out = host_ops::pad(&d, &begins, &ends, &cval, mode)?;
+         env.set(&node.outputs[0], Tensor::Host(out));
+         Ok(())
+     }
+ }
+ 
+-/// GPU (constant) Pad of an f32 activation: per-dim parameters in an i32 buffer,
+-/// f32 constant value in the push.
+-fn pad_device(env: &mut Env, node: &NodeIr, begins: &[i64], ends: &[i64]) -> Result<()> {
++/// `Pad`'s mode attribute; constant when absent.
++fn pad_mode(node: &NodeIr) -> Result<host_ops::PadMode> {
++    let mode = match node.attrs.get("mode") {
++        None => "constant",
++        Some(a) => a
++            .as_str()
++            .ok_or_else(|| anyhow::anyhow!("Pad: mode is not a string"))?,
++    };
++    host_ops::PadMode::parse(mode).ok_or_else(|| anyhow::anyhow!("Pad: mode '{mode}' not supported"))
++}
++
++/// GPU Pad of an f32 activation: per-dim parameters in an i32 buffer, f32
++/// constant value and the mode in the push.
++fn pad_device(
++    env: &mut Env,
++    node: &NodeIr,
++    begins: &[i64],
++    ends: &[i64],
++    mode: host_ops::PadMode,
++) -> Result<()> {
+     let ctx = env.context();
+     let data = &node.inputs[0];
+     let in_shape = env.shape_of(data)?;
+@@ -3302,10 +3329,11 @@ fn pad_device(env: &mut Env, node: &NodeIr, begins: &[i64], ends: &[i64]) -> Res
+     let d = env.device(data)?;
+     let out = ctx.create_storage_buffer(device_storage_bytes(FLOAT, n)?)?;
+     if n > 0 {
+-        let mut push = Vec::with_capacity(12);
++        let mut push = Vec::with_capacity(PAD_PUSH_BYTES as usize);
+         push.extend_from_slice(&(n as u32).to_le_bytes());
+         push.extend_from_slice(&(rank as u32).to_le_bytes());
+         push.extend_from_slice(&cval.to_le_bytes());
++        push.extend_from_slice(&mode.code().to_le_bytes());
+         with_pipeline(
+             env.cache(),
+             "Pad",
+diff --git a/crates/onnx-vulkan-core/src/shaders/movement.rs b/crates/onnx-vulkan-core/src/shaders/movement.rs
+index 651b85f..ef21445 100644
+--- a/crates/onnx-vulkan-core/src/shaders/movement.rs
++++ b/crates/onnx-vulkan-core/src/shaders/movement.rs
+@@ -228,7 +228,9 @@ pub const PAD: &str = r#"
+ @group(0) @binding(0) var<storage, read> src: array<f32>;
+ @group(0) @binding(1) var<storage, read> params: array<i32>;
+ @group(0) @binding(2) var<storage, read_write> dst: array<f32>;
+-struct Push { n: u32, rank: u32, cval: f32 }
++// mode: 0 constant, 1 edge, 2 reflect, 3 wrap (host_ops::PadMode::code);
++// the host refuses non-constant modes on empty input dimensions
++struct Push { n: u32, rank: u32, cval: f32, mode: u32 }
+ var<immediate> pc: Push;
+ @compute @workgroup_size(256)
+ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
+@@ -241,9 +243,29 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
+         let odim = u32(params[1u + d]);
+         acc = acc / odim;
+         let c = i32((o / acc) % odim);
+-        let ic = c - params[1u + pc.rank + d];
++        var ic = c - params[1u + pc.rank + d];
+         let idim = params[1u + 2u * pc.rank + d];
+-        if (ic < 0 || ic >= idim) { oob = true; }
++        if (ic < 0 || ic >= idim) {
++            if (pc.mode == 1u) {
++                ic = clamp(ic, 0, idim - 1);
++            } else if (pc.mode == 2u) {
++                if (idim == 1) {
++                    ic = 0;
++                } else {
++                    let p = 2 * (idim - 1);
++                    var m = ic % p;
++                    if (m < 0) { m = m + p; }
++                    if (m >= idim) { m = p - m; }
++                    ic = m;
++                }
++            } else if (pc.mode == 3u) {
++                var m = ic % idim;
++                if (m < 0) { m = m + idim; }
++                ic = m;
++            } else {
++                oob = true;
++            }
++        }
+         si = si + ic * params[1u + 3u * pc.rank + d];
+     }
+     if (oob) { dst[o] = pc.cval; } else { dst[o] = src[u32(si)]; }
+@@ -283,7 +305,7 @@ pub const CONCAT_PUSH_BYTES: u32 = 20;
+ pub const GATHER_BINDINGS: u32 = 3;
+ pub const GATHER_PUSH_BYTES: u32 = 16;
+ pub const PAD_BINDINGS: u32 = 3;
+-pub const PAD_PUSH_BYTES: u32 = 12;
++pub const PAD_PUSH_BYTES: u32 = 16;
+ pub const SLICE_BINDINGS: u32 = 3;
+ pub const SLICE_PUSH_BYTES: u32 = 8;
+ 
+diff --git a/crates/onnx-vulkan-core/tests/pad_modes.rs b/crates/onnx-vulkan-core/tests/pad_modes.rs
+new file mode 100644
+index 0000000..cd48499
+--- /dev/null
++++ b/crates/onnx-vulkan-core/tests/pad_modes.rs
+@@ -0,0 +1,192 @@
++//! `Pad` in the modes `edge`, `reflect` and `wrap`, on the device (f32) and
++//! on the host (other types), against numpy's `np.pad`. Supertonic's text
++//! encoder pads with `edge`; before these modes a node in them was claimed
++//! and then failed at run time, which ends hosts such as sherpa-onnx.
++//!
++//! A mode the kernel lacks, and the opset 18 `axes` input, are refused at
++//! load time so that the node goes to another provider.
++
++use onnx_vulkan_core::host_ops::PadMode;
++use onnx_vulkan_core::{
++    AttrValue, ExecutionEnv, GraphIr, HostTensor, KernelCache, NodeIr, Tensor, execute,
++    is_implemented_node,
++};
++use vk_compute::VkContext;
++
++const FLOAT: i32 = 1;
++const INT64: i32 = 7;
++
++fn pad_node(mode: Option<&str>, inputs: &[&str]) -> NodeIr {
++    NodeIr {
++        domain: String::new(),
++        op: "Pad".to_string(),
++        opset: 18,
++        name: "Pad_modes_test".to_string(),
++        inputs: inputs.iter().map(|name| (*name).to_string()).collect(),
++        outputs: vec!["y".to_string()],
++        attrs: mode
++            .map(|m| [("mode".to_string(), AttrValue::String(m.to_string()))].into())
++            .unwrap_or_default(),
++    }
++}
++
++fn ints(values: &[i64]) -> HostTensor {
++    HostTensor::new(
++        INT64,
++        vec![values.len() as i64],
++        values.iter().flat_map(|v| v.to_le_bytes()).collect(),
++    )
++}
++
++fn floats(shape: &[i64], values: &[f32]) -> HostTensor {
++    HostTensor::new(
++        FLOAT,
++        shape.to_vec(),
++        values.iter().flat_map(|v| v.to_le_bytes()).collect(),
++    )
++}
++
++/// Runs a `Pad` of `x` by `pads`; `x` is uploaded when `device`.
++fn run(mode: &str, x: HostTensor, pads: &[i64], device: bool) -> HostTensor {
++    let context = VkContext::new().expect("Vulkan context");
++    let cache = KernelCache::new(&context);
++    let node = pad_node(Some(mode), &["x", "pads"]);
++    assert!(is_implemented_node(&node), "mode {mode} must be claimed");
++    let graph = GraphIr {
++        inputs: node.inputs.clone(),
++        outputs: vec!["y".to_string()],
++        nodes: vec![node],
++        ..Default::default()
++    };
++    let mut env = ExecutionEnv::new(&cache, &graph.initializers);
++    env.set("x", Tensor::Host(x));
++    if device {
++        env.ensure_device_dtype("x").expect("upload");
++    }
++    env.set("pads", Tensor::Host(ints(pads)));
++    execute(&graph, &mut env).expect("graph execution");
++    let y = env.host("y").expect("output");
++    env.finish();
++    y
++}
++
++fn as_f32(t: &HostTensor) -> Vec<f32> {
++    t.data
++        .chunks_exact(4)
++        .map(|c| f32::from_le_bytes(c.try_into().unwrap()))
++        .collect()
++}
++
++fn as_i64(t: &HostTensor) -> Vec<i64> {
++    t.data
++        .chunks_exact(8)
++        .map(|c| i64::from_le_bytes(c.try_into().unwrap()))
++        .collect()
++}
++
++// np.pad(x, ((0, 1), (2, 1)), mode=...) for x = [[1, 2, 3], [4, 5, 6]]
++const MATRIX: [(&str, [f32; 18]); 3] = [
++    (
++        "edge",
++        [1., 1., 1., 2., 3., 3., 4., 4., 4., 5., 6., 6., 4., 4., 4., 5., 6., 6.],
++    ),
++    (
++        "reflect",
++        [3., 2., 1., 2., 3., 2., 6., 5., 4., 5., 6., 5., 3., 2., 1., 2., 3., 2.],
++    ),
++    (
++        "wrap",
++        [2., 3., 1., 2., 3., 1., 5., 6., 4., 5., 6., 4., 2., 3., 1., 2., 3., 1.],
++    ),
++];
++
++// np.pad([1, 2, 3], (5, 5), mode=...): pads wider than the dimension
++const WIDE: [(&str, [f32; 13]); 3] = [
++    ("edge", [1., 1., 1., 1., 1., 1., 2., 3., 3., 3., 3., 3., 3.]),
++    ("reflect", [2., 1., 2., 3., 2., 1., 2., 3., 2., 1., 2., 3., 2.]),
++    ("wrap", [2., 3., 1., 2., 3., 1., 2., 3., 1., 2., 3., 1., 2.]),
++];
++
++#[test]
++fn device_matches_numpy() {
++    for (mode, want) in MATRIX {
++        let x = floats(&[2, 3], &[1., 2., 3., 4., 5., 6.]);
++        let y = run(mode, x, &[0, 2, 1, 1], true);
++        assert_eq!(y.shape, vec![3, 6], "{mode}");
++        assert_eq!(as_f32(&y), want, "{mode}");
++    }
++    for (mode, want) in WIDE {
++        let y = run(mode, floats(&[3], &[1., 2., 3.]), &[5, 5], true);
++        assert_eq!(as_f32(&y), want, "{mode} wide");
++    }
++    let y = run("reflect", floats(&[1], &[7.]), &[2, 2], true);
++    assert_eq!(as_f32(&y), [7.; 5], "reflect of one element");
++}
++
++#[test]
++fn negative_pads_crop_in_every_mode() {
++    for mode in ["edge", "reflect", "wrap"] {
++        let y = run(mode, floats(&[4], &[1., 2., 3., 4.]), &[-1, 2], true);
++        let want: &[f32] = match mode {
++            "edge" => &[2., 3., 4., 4., 4.],
++            "reflect" => &[2., 3., 4., 3., 2.],
++            _ => &[2., 3., 4., 1., 2.],
++        };
++        assert_eq!(as_f32(&y), want, "{mode}");
++    }
++}
++
++#[test]
++fn host_matches_numpy() {
++    for (mode, want) in MATRIX {
++        let x = HostTensor::new(
++            INT64,
++            vec![2, 3],
++            [1i64, 2, 3, 4, 5, 6].iter().flat_map(|v| v.to_le_bytes()).collect(),
++        );
++        let y = run(mode, x, &[0, 2, 1, 1], false);
++        let want: Vec<i64> = want.iter().map(|&v| v as i64).collect();
++        assert_eq!(as_i64(&y), want, "{mode}");
++    }
++}
++
++#[test]
++fn source_index() {
++    assert_eq!(PadMode::Edge.source(-3, 4), Some(0));
++    assert_eq!(PadMode::Edge.source(9, 4), Some(3));
++    assert_eq!(PadMode::Reflect.source(-1, 4), Some(1));
++    assert_eq!(PadMode::Reflect.source(4, 4), Some(2));
++    assert_eq!(PadMode::Wrap.source(-1, 4), Some(3));
++    assert_eq!(PadMode::Constant.source(-1, 4), None);
++    assert_eq!(PadMode::Edge.source(0, 0), None);
++}
++
++#[test]
++fn unknown_mode_and_axes_are_refused_at_load() {
++    assert!(is_implemented_node(&pad_node(None, &["x", "pads"])));
++    assert!(is_implemented_node(&pad_node(Some("constant"), &["x", "pads", "v"])));
++    assert!(!is_implemented_node(&pad_node(Some("mirror"), &["x", "pads"])));
++    assert!(!is_implemented_node(&pad_node(
++        Some("edge"),
++        &["x", "pads", "", "axes"]
++    )));
++    assert!(is_implemented_node(&pad_node(Some("edge"), &["x", "pads", "", ""])));
++}
++
++#[test]
++fn empty_dimension_is_an_error_not_a_crash() {
++    let context = VkContext::new().expect("Vulkan context");
++    let cache = KernelCache::new(&context);
++    let node = pad_node(Some("edge"), &["x", "pads"]);
++    let graph = GraphIr {
++        inputs: node.inputs.clone(),
++        outputs: vec!["y".to_string()],
++        nodes: vec![node],
++        ..Default::default()
++    };
++    let mut env = ExecutionEnv::new(&cache, &graph.initializers);
++    env.set("x", Tensor::Host(floats(&[0], &[])));
++    env.set("pads", Tensor::Host(ints(&[1, 1])));
++    assert!(execute(&graph, &mut env).is_err());
++    env.finish();
++}
+-- 
+2.53.0
+

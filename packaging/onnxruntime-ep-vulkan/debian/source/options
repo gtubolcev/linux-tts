@@ -1,0 +1,2 @@
+# cargo vendor writes .cargo-checksum.json with the hashes of the files
+extend-diff-ignore = "^target/"
