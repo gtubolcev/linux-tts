@@ -8,6 +8,8 @@ export DEB_CFLAGS_MAINT_APPEND = -Wno-maybe-uninitialized
 export DEB_CXXFLAGS_MAINT_APPEND = -Wno-maybe-uninitialized -Wno-error=maybe-uninitialized
 # private directories, apart from the distribution's libonnxruntime
 PRIV = lib/$(DEB_HOST_MULTIARCH)/linux-tts
+# and apart from its python3-onnxruntime
+PYPRIV = usr/lib/python3/linux-tts
 
 %:
 	dh $@ --buildsystem=cmake --sourcedirectory=cmake
@@ -22,11 +24,26 @@ override_dh_auto_configure:
 	  -Donnxruntime_BUILD_SHARED_LIB=ON \
 	  -Donnxruntime_BUILD_UNIT_TESTS=OFF \
 	  -Donnxruntime_BUILD_BENCHMARKS=OFF \
-	  -Donnxruntime_ENABLE_PYTHON=OFF \
+	  -Donnxruntime_ENABLE_PYTHON=ON \
 	  -Donnxruntime_USE_XNNPACK=OFF \
 	  -DPython_EXECUTABLE=/usr/bin/python3
 
 override_dh_auto_test:
+
+# CMake does not install the Python module; the build assembles the package
+# directory onnxruntime/ next to the libraries (as for setup.py)
+override_dh_auto_install:
+	dh_auto_install
+	mkdir -p debian/tmp/$(PYPRIV)
+	cp -a obj-$(DEB_HOST_GNU_TYPE)/onnxruntime debian/tmp/$(PYPRIV)/
+	find debian/tmp/$(PYPRIV) -name __pycache__ -prune -exec rm -rf {} +
+	# the .so files of the package are not executables
+	find debian/tmp/$(PYPRIV) -name '*.so' -exec chmod 644 {} +
+
+override_dh_python3:
+	dh_python3
+	dh_python3 -ppython3-onnxruntime-tts /$(PYPRIV)
+	dh_numpy3 -ppython3-onnxruntime-tts
 
 # "Too many DIEs" for libonnxruntime.so: dwz gives up and fails the build
 override_dh_dwz:

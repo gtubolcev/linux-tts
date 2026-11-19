@@ -64,7 +64,8 @@ cp -r "$HERE/debian" "$S/"
 cd "$S"
 N=1
 sed -i "1s/(\([^)]*\)) [a-z]*;/(\1~ppa$N~$DIST) $DIST;/" debian/changelog
-if [ -n "${NO_UPLOAD:-}" ]; then dpkg-buildpackage -S -d -us -uc -sa; exit 0; fi
-dpkg-buildpackage -S -d -sa ${SIGN_KEY:+--sign-key="$SIGN_KEY"}
+# the tree is fresh: no clean, which would need the build dependencies (dh-python)
+if [ -n "${NO_UPLOAD:-}" ]; then dpkg-buildpackage -S -d -nc -us -uc -sa; exit 0; fi
+dpkg-buildpackage -S -d -nc -sa ${SIGN_KEY:+--sign-key="$SIGN_KEY"}
 cd ..
 dput "$PPA" ./*_source.changes
