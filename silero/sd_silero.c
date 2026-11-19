@@ -215,8 +215,8 @@ module_config (const char *configfile)
   cfg_server = g_strdup ("/usr/bin/silero-server");
   tts_norm_config_init (&norm_cfg);
   tts_copy_config_init (&copy_cfg);
-  /* off until the engine is tested with marks */
-  tts_stress_config_init (&stress_cfg, FALSE, RU_STRESS_PLUS);
+  /* Silero reads "+" before the stressed vowel */
+  tts_stress_config_init (&stress_cfg, TRUE, RU_STRESS_PLUS);
   cfg_version = g_strdup ("v5_6_ru");
 
   if (configfile != NULL && g_file_get_contents (configfile, &contents, NULL, NULL))
