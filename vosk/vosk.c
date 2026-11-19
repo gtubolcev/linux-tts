@@ -13,7 +13,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <json-glib/json-glib.h>
-#include <onnxruntime/onnxruntime_c_api.h>
+#include <onnxruntime_c_api.h>
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
