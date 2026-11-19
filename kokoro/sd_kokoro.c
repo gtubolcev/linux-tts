@@ -41,6 +41,7 @@
 
 #include "kokoro.h"
 #include "ru-g2p.h"
+#include "ru-stress.h"
 
 #define DBG(...) do { if (debug_on) { fprintf (stderr, "sd_kokoro: " __VA_ARGS__); fputc ('\n', stderr); } } while (0)
 #define ERR(...) do { fprintf (stderr, "sd_kokoro: " __VA_ARGS__); fputc ('\n', stderr); } while (0)
@@ -141,7 +142,7 @@ module_config (const char *configfile)
   cfg_models_dir = g_strdup ("/usr/share/kokoro-tts");
   tts_norm_config_init (&norm_cfg);
   tts_copy_config_init (&copy_cfg);
-  cfg_dictionary = g_strdup ("/usr/share/vosk-tts/vosk-model-tts-ru-0.9-multi/dictionary.sorted");
+  cfg_dictionary = g_strdup (RU_STRESS_DEFAULT_DICTIONARIES);
   cfg_espeak_data = g_strdup ("/usr/share/speech-dispatcher-kokoro");
 
   if (configfile == NULL || !g_file_get_contents (configfile, &contents, NULL, NULL))
@@ -520,9 +521,7 @@ module_init (char **msg)
       *msg = g_strdup_printf ("no Kokoro voices in %s", cfg_models_dir);
       return -1;
     }
-  dict = g_file_test (cfg_dictionary, G_FILE_TEST_EXISTS) ? cfg_dictionary : NULL;
-  if (dict == NULL)
-    ERR ("no stress dictionary %s, the stress will be guessed", cfg_dictionary);
+  dict = *cfg_dictionary != '\0' ? cfg_dictionary : NULL;
   g2p = ru_g2p_new (dict, cfg_espeak_data, &error);
   if (g2p == NULL)
     {

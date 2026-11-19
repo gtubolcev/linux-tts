@@ -133,7 +133,7 @@ module_config (const char *configfile)
   cfg_model_dir = g_strdup ("/usr/share/teratts/teratts-v2");
   tts_norm_config_init (&norm_cfg);
   tts_copy_config_init (&copy_cfg);
-  cfg_dictionary = g_strdup ("/usr/share/vosk-tts/vosk-model-tts-ru-0.9-multi/dictionary.sorted");
+  cfg_dictionary = g_strdup (RU_STRESS_DEFAULT_DICTIONARIES);
 
   if (configfile == NULL || !g_file_get_contents (configfile, &contents, NULL, NULL))
     return 0;
@@ -370,18 +370,15 @@ module_init (char **msg)
       *msg = g_strdup_printf ("no TeraTTS voices in %s", model_dir);
       return -1;
     }
-  if (g_file_test (cfg_dictionary, G_FILE_TEST_EXISTS))
-    {
-      GError *error = NULL;
-      stress = ru_stress_new (cfg_dictionary, &error);
-      if (stress == NULL)
-        {
-          ERR ("%s", error->message);
-          g_error_free (error);
-        }
-    }
-  else
-    ERR ("no stress dictionary %s, the model guesses the stress", cfg_dictionary);
+  {
+    GError *error = NULL;
+    stress = ru_stress_new (cfg_dictionary, &error);
+    if (stress == NULL)
+      {
+        ERR ("%s, the model guesses the stress", error->message);
+        g_error_free (error);
+      }
+  }
   module_audio_set_server ();
   *msg = g_strdup_printf ("TeraTTS ready, %u voices", voices->len);
   return 0;
