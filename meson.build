@@ -19,6 +19,8 @@ conf_dir = get_option('sysconfdir') / 'speech-dispatcher' / 'modules'
 # the first target (the speechd_module fallback)
 norm_helper = module_dir / 'tts-normalize'
 add_project_arguments('-DTTS_NORM_HELPER="@0@"'.format(norm_helper), language: 'c')
+# the user's module file is read on top of the system one (common/tts-config.c)
+add_project_arguments('-DTTS_SYS_CONF_DIR="@0@"'.format(get_option('prefix') / conf_dir), language: 'c')
 
 # libspeechd-dev has no .pc file for the module library: the header is
 # <speech-dispatcher/spd_module_main.h>, spd_audio.h is shimmed per module
@@ -44,11 +46,13 @@ module_deps = [speechd_module, glib, math, threads]
 
 # text normalization (ru-normalizr) through a resident Python helper; the
 # modules pass text through unchanged when it or ru_normalizr is missing
-norm_src = files('common/tts-norm.c', 'common/tts-copy.c')
+norm_src = files('common/tts-norm.c', 'common/tts-copy.c', 'common/tts-config.c')
 # the stress stage after it (Vosk dictionary; homographs later)
 stress_src = files('common/tts-stress.c', 'common/ru-stress.c')
 install_data('common/tts-normalize.py', rename: 'tts-normalize',
   install_dir: module_dir, install_mode: 'rwxr-xr-x')
+test('tts-config', executable('tts-config-test', 'common/tts-config-test.c', 'common/tts-config.c',
+  include_directories: common_inc, dependencies: glib))
 executable('tts-norm-test', 'common/tts-norm-test.c', norm_src, stress_src,
   include_directories: common_inc, dependencies: glib)
 

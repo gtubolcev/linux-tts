@@ -35,6 +35,7 @@
 #include <speech-dispatcher/spd_module_main.h>
 
 #include "tts-copy.h"
+#include "tts-config.h"
 #include "tts-norm.h"
 
 #include "vosk.h"
@@ -130,7 +131,7 @@ module_config (const char *configfile)
   tts_norm_config_init (&norm_cfg);
   tts_copy_config_init (&copy_cfg);
 
-  if (configfile == NULL || !g_file_get_contents (configfile, &contents, NULL, NULL))
+  if (!tts_config_read (configfile, &contents))
     return 0;
 
   lines = g_strsplit (contents, "\n", -1);
