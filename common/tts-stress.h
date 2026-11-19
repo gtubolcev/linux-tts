@@ -5,8 +5,9 @@
  * and writes "ё", in the form the engine understands ("+" before the vowel
  * or U+0301 after it).  Words the user marked by hand keep their marks.
  *
- * Now: the Vosk TTS dictionary (common/ru-stress.c), one stress per word.
- * Later, in this order (xfce4-speech-settings PLAN.md, "Russian stress
+ * Now: the stress dictionary of the project, then the Vosk TTS dictionary
+ * (common/ru-stress.c); case and the default reading pick among
+ * homographs.  Later, in this order (xfce4-speech-settings PLAN.md, "Russian stress
  * library in C"): a user dictionary from the GUI, a model for unknown
  * words, and homographs (замок/замок, все/всё) chosen from the context
  * by a resolver plugged in with tts_stress_set_resolver().
@@ -25,7 +26,7 @@
 typedef struct
 {
   gboolean enabled;     /* TextStress yes|no (module default) */
-  gchar *dictionary;    /* TextStressDictionary (the Vosk dictionary) */
+  gchar *dictionary;    /* TextStressDictionary: files separated by ":" */
   RuStressMark mark;    /* TextStressMark plus|acute|none (module default) */
 } TtsStressConfig;
 

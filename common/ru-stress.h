@@ -1,10 +1,24 @@
 /*
- * ru-stress - stress marks for Russian text from the Vosk TTS dictionary
+ * ru-stress - stress marks and ё for Russian text from dictionaries
  *
- * The dictionary of vosk-model-tts-ru (word<TAB>phonemes, one word per
- * line, sorted by bytes) gives the phonemes of a word; the stressed vowel
- * ends in "1", the others in "0".  The file is mapped, not read, so the
- * 96 MB cost only the pages a lookup touches.
+ * Dictionaries come in two formats, told apart by their first line; both
+ * are sorted by bytes and mapped, not read, so only the pages a lookup
+ * touches cost memory:
+ *
+ * - stress dictionary (data/ru-stress, built from Wiktionary and the
+ *   user's verdicts): key<TAB>variant[,variant...]; the key is the word in
+ *   lower case with ё written е; a variant is the word with U+0301 after
+ *   the stressed vowel (ё marks itself), then optionally "/" and flags:
+ *   n proper name, r rare reading, d default reading;
+ * - the Vosk TTS dictionary: word<TAB>phonemes, the stressed vowel ends
+ *   in "1", the others in "0" (the last "1" of a compound is the main one).
+ *
+ * The first dictionary that knows a word decides.  For a word with several
+ * readings the context chooses what it can: a capital letter inside a
+ * sentence takes a proper name (Ангары́), a small letter a common word
+ * (анга́ры); rare readings only when nothing else is left; then the
+ * default reading, then the first one.  Other homographs are left to a
+ * resolver (tts-stress.h).
  *
  * Words that already carry a mark (U+0301 after or "+" before a vowel)
  * are left as they are, so a user can correct a word by hand.  Words of
@@ -29,8 +43,14 @@ typedef enum
                            misread marks, as espeak-ng does with both */
 } RuStressMark;
 
-/* dict: the sorted Vosk dictionary */
-RuStress *ru_stress_new (const gchar *dict, GError **error);
+/* the dictionaries tried by default, in this order */
+#define RU_STRESS_DEFAULT_DICTIONARIES \
+  "/usr/share/linux-tts/ru-stress/ru-stress.tsv:" \
+  "/usr/share/vosk-tts/vosk-model-tts-ru-0.9-multi/dictionary.sorted"
+
+/* dicts: dictionary files separated by ":", the first that knows a word
+ * wins; missing ones are skipped, NULL with error when none opens */
+RuStress *ru_stress_new (const gchar *dicts, GError **error);
 void ru_stress_free (RuStress *s);
 
 /* text with the marks added; letter case is kept */

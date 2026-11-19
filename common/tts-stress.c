@@ -10,7 +10,6 @@
 #include <stdio.h>
 #include <string.h>
 
-#define DEFAULT_DICTIONARY "/usr/share/vosk-tts/vosk-model-tts-ru-0.9-multi/dictionary.sorted"
 #define MAX_TEXT 65536
 
 struct TtsStress
@@ -26,7 +25,7 @@ void
 tts_stress_config_init (TtsStressConfig *c, gboolean enabled, RuStressMark mark)
 {
   c->enabled = enabled;
-  c->dictionary = g_strdup (DEFAULT_DICTIONARY);
+  c->dictionary = g_strdup (RU_STRESS_DEFAULT_DICTIONARIES);
   c->mark = mark;
 }
 

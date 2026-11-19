@@ -89,10 +89,23 @@ What turns the text into the model's input, per voice family:
 | Supertonic 3 | none: digits and Latin letters go to the model as they are, so "2026 году" is read wrongly | none (the model) | none: characters |
 | MMS | none | none | characters (`tokens.txt`) |
 | Pocket TTS | the model | the model | the model's tokenizer |
-| Kokoro | espeak-ng | Vosk dictionary (`common/ru-stress.c`) | IPA from espeak-ng, as kokoro-ru's `ru_g2p.py` (`kokoro/ru-g2p.c`) |
-| TeraTTS | numbers spelt out in `teratts/teratts.c` | Vosk dictionary (`common/ru-stress.c`); "+" before a vowel wins | characters with stress marks |
+| Kokoro | espeak-ng | stress dictionaries (`common/ru-stress.c`, below) | IPA from espeak-ng, as kokoro-ru's `ru_g2p.py` (`kokoro/ru-g2p.c`) |
+| TeraTTS | numbers spelt out in `teratts/teratts.c` | stress dictionaries (`common/ru-stress.c`, below); "+" before a vowel wins | characters with stress marks |
 | Vosk | `vosk/vosk.c` (as vosk_tts) | the model's dictionary, g2p for missing words | the model's phonemes, plus BERT tokens |
 | RHVoice, espeak-ng | built in | built in | built in |
+
+Stress dictionaries (`common/ru-stress.c`), tried in this order, the first
+that knows a word decides:
+
+1. `/usr/share/linux-tts/ru-stress/ru-stress.tsv`: built from Wiktionary
+   (English and Russian, CC BY-SA 4.0) and our own checked words. Each word
+   lists its readings with flags: proper name, rare reading, default
+   reading. A capital letter inside a sentence takes the reading of a name
+   (Ангары́), a small letter the common word (анга́ры); rare readings
+   (Baikal wind ангары́) only when nothing else is left; the rest are
+   ordered by the lemma frequency of the Russian National Corpus
+   (уже́ before у́же). Other homographs (за́мок/замо́к) wait for a resolver.
+2. the Vosk TTS dictionary (phonemes), for words Wiktionary lacks.
 
 Planned: Russian text preparation (numbers, abbreviations, Latin words)
 as sherpa-onnx FST rules first, then a library of its own for all

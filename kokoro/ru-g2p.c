@@ -143,10 +143,15 @@ ru_g2p_new (const gchar *dict, const gchar *espeak_path, GError **error)
   g->marks_re = g_regex_new ("(\\s*(?:[;:!?¡¿—…\"«»“”(){}\\[\\]]"
                              "|(?<![0-9])[,.]|[,.](?![0-9]))+\\s*)+",
                              G_REGEX_OPTIMIZE, 0, NULL);
-  if (dict != NULL && (g->stress = ru_stress_new (dict, error)) == NULL)
+  if (dict != NULL)
     {
-      ru_g2p_free (g);
-      return NULL;
+      GError *e = NULL;
+      /* without a dictionary espeak-ng guesses the stress */
+      if ((g->stress = ru_stress_new (dict, &e)) == NULL)
+        {
+          g_printerr ("ru-g2p: %s; the stress will be guessed\n", e->message);
+          g_error_free (e);
+        }
     }
   return g;
 }
@@ -674,16 +679,18 @@ reduce_vowels (const gchar *ps)
 gchar *
 ru_g2p_accentuate (RuG2p *g, const gchar *text)
 {
-  gchar *lower = g_utf8_strdown (text, -1);
-  gchar *marked;
+  gchar *stressed, *marked;
   glong n;
   gunichar *t;
-  UStr *out = ustr_new ();
+  UStr *out;
 
   if (g->stress == NULL)
-    return lower;
-  marked = ru_stress_apply (g->stress, lower, RU_STRESS_ACUTE);
-  g_free (lower);
+    return g_utf8_strdown (text, -1);
+  out = ustr_new ();
+  /* before lower case: a capital letter picks the reading of a name */
+  stressed = ru_stress_apply (g->stress, text, RU_STRESS_ACUTE);
+  marked = g_utf8_strdown (stressed, -1);
+  g_free (stressed);
   /* a stress the user set with "+" before the vowel: the acute after it */
   t = g_utf8_to_ucs4_fast (marked, -1, &n);
   g_free (marked);
