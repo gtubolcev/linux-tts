@@ -35,6 +35,7 @@
 #include <speech-dispatcher/spd_module_main.h>
 
 #include "tts-copy.h"
+#include "tts-config.h"
 #include "tts-norm.h"
 
 #include "ru-stress.h"
@@ -135,7 +136,7 @@ module_config (const char *configfile)
   tts_copy_config_init (&copy_cfg);
   cfg_dictionary = g_strdup (RU_STRESS_DEFAULT_DICTIONARIES);
 
-  if (configfile == NULL || !g_file_get_contents (configfile, &contents, NULL, NULL))
+  if (!tts_config_read (configfile, &contents))
     return 0;
 
   lines = g_strsplit (contents, "\n", -1);
