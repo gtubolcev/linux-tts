@@ -1,0 +1,3 @@
+# only for the execution providers in shared libraries (CUDA, ...); this
+# build has the CPU one only (plugin EPs load through the C API instead)
+usr/lib/*/linux-tts/libonnxruntime_providers_shared.so

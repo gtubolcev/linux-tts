@@ -8,4 +8,4 @@ URL: https://github.com/k2-fsa/sherpa-onnx
 Version: @VERSION@
 Cflags: -I${includedir}
 Libs: -L${libdir} -lsherpa-onnx-c-api
-Libs.private: -lonnxruntime
+Libs.private: -L/@LIBDIR@/linux-tts -lonnxruntime

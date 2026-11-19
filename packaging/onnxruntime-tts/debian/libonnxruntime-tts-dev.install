@@ -1,0 +1,4 @@
+usr/include/linux-tts/onnxruntime
+usr/lib/*/linux-tts/libonnxruntime.so
+usr/lib/*/linux-tts/pkgconfig/libonnxruntime.pc
+usr/lib/*/linux-tts/cmake/onnxruntime
