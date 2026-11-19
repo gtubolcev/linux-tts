@@ -9,14 +9,17 @@
 # sd_sherpa-onnx looks for them; their espeak-ng-data is a link to
 # /usr/share/sherpa-onnx/piper-espeak-ng-data (the same 19 MB in every
 # tarball, slightly different from the system espeak-ng-data: the one the
-# voices were trained with).
+# voices were trained with). Its Russian rules are rebuilt by ru-dict.sh to
+# honour the stress mark U+0301; this needs espeak-ng and python3.
 set -e
 umask 022
 HERE=$(cd "$(dirname "$0")" && pwd)
 DL=${DL:-/home/grigory/Storage/Claude/piper-voices/dl}
 OUT=${OUT:-/home/grigory/Storage/Claude/piper-voices/debs}
 URL=https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models
-VER=1.0-1~local
+VER=1.1-1~local
+ESPEAK=8593723f10cfd9befd50de447f14bf0a9d2a14a4
+ESPEAK_SHA=41c199da1355deec93eab6065be99d00b938dd452e78f282ab481db91657e4e4
 MAINT="Grigory Tuboltsev <gtubolcev@gmail.com>"
 WORK=${WORK:-/home/grigory/Storage/Claude/piper-voices/work}
 rm -rf "$WORK"
@@ -103,6 +106,15 @@ P=piper-espeak-ng-data
 W=$WORK/$P
 mkdir -p "$W/DEBIAN" "$W/usr/share/sherpa-onnx" "$W/usr/share/doc/$P"
 cp -r "$WORK/espeak-ng-data" "$W/usr/share/sherpa-onnx/piper-espeak-ng-data"
+ET=$DL/rhasspy-espeak-ng-$ESPEAK.tar.gz
+[ -s "$ET" ] || curl -fL --retry 3 -o "$ET" "https://github.com/rhasspy/espeak-ng/archive/$ESPEAK.tar.gz"
+echo "$ESPEAK_SHA  $ET" | sha256sum -c --quiet
+mkdir "$WORK/espeak-src"
+tar -xzf "$ET" -C "$WORK/espeak-src" --strip-components=1 --no-same-owner \
+  "espeak-ng-$ESPEAK/dictsource/ru_rules" "espeak-ng-$ESPEAK/dictsource/ru_list" \
+  "espeak-ng-$ESPEAK/dictsource/ru_emoji" "espeak-ng-$ESPEAK/dictsource/extra/ru_listx"
+sh "$HERE/ru-dict.sh" "$WORK/espeak-src/dictsource" "$HERE/../../sherpa/espeak-ru" \
+  "$W/usr/share/sherpa-onnx/piper-espeak-ng-data"
 find "$W/usr" -type d -exec chmod 755 {} + -o -type f -exec chmod 644 {} +
 cat > "$W/usr/share/doc/$P/copyright" <<'X'
 Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
@@ -112,6 +124,7 @@ Source: https://github.com/rhasspy/espeak-ng
 Files: *
 Copyright: 1995-2014 Jonathan Duddington
  2015-2025 Reece H. Dunn and the espeak-ng contributors
+ 2022 Kirill Kolov
 License: GPL-3+
  On Debian systems the full text of the GNU General Public License version 3
  is in /usr/share/common-licenses/GPL-3.
@@ -127,7 +140,8 @@ Installed-Size: $(du -sk "$W/usr" | cut -f1)
 Description: espeak-ng data for Piper voices
  The pronunciation rules and dictionaries Piper voices were trained with,
  shared by the piper-voice-* packages. They differ slightly from the data
- of the espeak-ng package, so they are kept apart.
+ of the espeak-ng package, so they are kept apart. The Russian rules also
+ honour the stress mark U+0301 after a vowel.
 X
 dpkg-deb --root-owner-group -b "$W" "$OUT/${P}_${VER}_all.deb" >/dev/null
 echo "$P"

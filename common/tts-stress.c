@@ -27,6 +27,7 @@ tts_stress_config_init (TtsStressConfig *c, gboolean enabled, RuStressMark mark)
   c->enabled = enabled;
   c->dictionary = g_strdup (RU_STRESS_DEFAULT_DICTIONARIES);
   c->mark = mark;
+  c->mark_set = FALSE;
 }
 
 void
@@ -46,11 +47,11 @@ tts_stress_config_parse (TtsStressConfig *c, const gchar *key, const gchar *valu
   else if (g_ascii_strcasecmp (key, "TextStressMark") == 0)
     {
       if (g_ascii_strcasecmp (value, "plus") == 0 || g_strcmp0 (value, "+") == 0)
-        c->mark = RU_STRESS_PLUS;
+        c->mark = RU_STRESS_PLUS, c->mark_set = TRUE;
       else if (g_ascii_strcasecmp (value, "acute") == 0)
-        c->mark = RU_STRESS_ACUTE;
+        c->mark = RU_STRESS_ACUTE, c->mark_set = TRUE;
       else if (g_ascii_strcasecmp (value, "none") == 0)
-        c->mark = RU_STRESS_NONE;
+        c->mark = RU_STRESS_NONE, c->mark_set = TRUE;
       /* anything else keeps the module's default */
     }
   else
@@ -100,7 +101,15 @@ is_russian (const gchar *lang)
 gchar *
 tts_stress_apply (TtsStress *s, const gchar *text, const gchar *lang)
 {
+  return tts_stress_apply_mark (s, text, lang, s != NULL ? s->cfg.mark : RU_STRESS_NONE);
+}
+
+gchar *
+tts_stress_apply_mark (TtsStress *s, const gchar *text, const gchar *lang,
+                       RuStressMark voice_mark)
+{
   gchar *marked, *resolved;
+  RuStressMark mark;
 
   if (s == NULL || text == NULL || !is_russian (lang) || strlen (text) > MAX_TEXT
       || !g_utf8_validate (text, -1, NULL))
@@ -120,10 +129,13 @@ tts_stress_apply (TtsStress *s, const gchar *text, const gchar *lang)
     }
   if (s->dict == NULL)
     return g_strdup (text);
-  marked = ru_stress_apply (s->dict, text, s->cfg.mark);
+  mark = s->cfg.mark_set ? s->cfg.mark : voice_mark;
+  if (mark != RU_STRESS_PLUS && mark != RU_STRESS_ACUTE)
+    mark = RU_STRESS_NONE;
+  marked = ru_stress_apply (s->dict, text, mark);
   if (s->resolver == NULL)
     return marked;
-  resolved = s->resolver (marked, s->cfg.mark, s->resolver_data);
+  resolved = s->resolver (marked, mark, s->resolver_data);
   if (resolved == NULL || !g_utf8_validate (resolved, -1, NULL))
     {
       g_free (resolved);

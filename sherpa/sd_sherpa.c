@@ -83,6 +83,7 @@ typedef struct
   int speakers;
   gchar *espeak_voice;  /* Piper: "ru", "en-us" (from the .onnx.json) */
   gboolean letters;     /* Piper "phoneme_type": "text": fed letters, not phonemes */
+  gint reads_acute;     /* Piper: its espeak-ng-data honours U+0301; -1 unknown */
 } Model;
 
 typedef struct
@@ -233,10 +234,11 @@ module_config (const char *configfile)
   cfg_models_dir = g_strdup ("/usr/share/sherpa-onnx/tts");
   tts_norm_config_init (&norm_cfg);
   tts_copy_config_init (&copy_cfg);
-  /* off until the engine is tested with marks */
-  /* Piper reads through espeak-ng, which takes a U+0301 or "+" as a reason
-   * to stress some other syllable (за́мок -> zamˈok); MMS and Supertonic
-   * read letters and know no marks.  So only ё, which they all read right */
+  /* The mark is chosen per voice (stress_mark_for): a Piper voice gets
+   * U+0301 when its espeak-ng-data honours it (piper-espeak-ng-data >= 1.1);
+   * the original data, like espeak-ng < 1.52, takes the mark as a reason to
+   * stress some other syllable (за́мок -> zamˈok), so those voices, MMS and
+   * Supertonic (which read letters) get only ё */
   tts_stress_config_init (&stress_cfg, FALSE, RU_STRESS_NONE);
 
   if (configfile == NULL || !g_file_get_contents (configfile, &contents, NULL, NULL))
@@ -599,18 +601,11 @@ clause_terminator (const char *start, const char *end)
 }
 #endif
 
-/* Text -> IPA phonemes the way Piper voices were trained (piper-phonemize):
- * espeak-ng clause by clause, the punctuation put back from the clause
- * terminator, language switch marks such as "(en)" removed. sherpa-onnx >= 2.0
- * does not phonemize Piper voices itself. Appends the codepoints of every
- * sentence to cps and its length to lens; FALSE if espeak-ng is unusable. */
+/* espeak-ng loaded with the voice's data and set to its language */
 static gboolean
-piper_phonemize (const Model *m, const gchar *text, GArray *cps, GArray *lens)
+piper_espeak (const Model *m)
 {
   static gboolean ready = FALSE;
-  static GRegex *flags = NULL;
-  const void *ptr = text;
-  GString *sentence = g_string_new (NULL);
 
   if (!ready)
     {
@@ -618,10 +613,8 @@ piper_phonemize (const Model *m, const gchar *text, GArray *cps, GArray *lens)
       if (espeak_Initialize (AUDIO_OUTPUT_SYNCHRONOUS, 0, m->dir, 0) < 0)
         {
           ERR ("espeak-ng: cannot load %s/espeak-ng-data", m->dir);
-          g_string_free (sentence, TRUE);
           return FALSE;
         }
-      flags = g_regex_new ("\\([^)]+\\)", 0, 0, NULL);
       ready = TRUE;
     }
   if (g_strcmp0 (espeak_voice_now, m->espeak_voice) != 0)
@@ -630,12 +623,74 @@ piper_phonemize (const Model *m, const gchar *text, GArray *cps, GArray *lens)
           != EE_OK)
         {
           ERR ("espeak-ng: no voice %s", m->espeak_voice);
-          g_string_free (sentence, TRUE);
           return FALSE;
         }
       g_free (espeak_voice_now);
       espeak_voice_now = g_strdup (m->espeak_voice);
     }
+  return TRUE;
+}
+
+static gchar *
+piper_ipa (const gchar *word)
+{
+  const void *ptr = word;
+  const char *ph = espeak_TextToPhonemes (&ptr, espeakCHARS_UTF8, espeakPHONEMES_IPA);
+
+  return g_strdup (ph != NULL ? ph : "");
+}
+
+/* whether the Russian rules of a Piper voice move the stress to a vowel
+ * marked with U+0301; asked once per model */
+static gboolean
+piper_reads_acute (Model *m)
+{
+  if (m->reads_acute < 0)
+    {
+      m->reads_acute = 0;
+      if (piper_espeak (m))
+        {
+          gchar *a = piper_ipa ("за\u0301мок"), *b = piper_ipa ("замо\u0301к");
+
+          m->reads_acute = strcmp (a, b) != 0;
+          DBG ("%s: espeak-ng-data %s the stress mark (%s, %s)", m->name,
+               m->reads_acute ? "honours" : "ignores", a, b);
+          g_free (a);
+          g_free (b);
+        }
+    }
+  return m->reads_acute;
+}
+
+/* the stress mark a voice reads right */
+static RuStressMark
+stress_mark_for (Voice *v)
+{
+  Model *m = v->model;
+
+  if (m->family == FAMILY_PIPER && !m->letters && m->espeak_voice != NULL
+      && g_ascii_strncasecmp (m->espeak_voice, "ru", 2) == 0 && piper_reads_acute (m))
+    return RU_STRESS_ACUTE;
+  return RU_STRESS_NONE;
+}
+
+/* Text -> IPA phonemes the way Piper voices were trained (piper-phonemize):
+ * espeak-ng clause by clause, the punctuation put back from the clause
+ * terminator, language switch marks such as "(en)" removed. sherpa-onnx >= 2.0
+ * does not phonemize Piper voices itself. Appends the codepoints of every
+ * sentence to cps and its length to lens; FALSE if espeak-ng is unusable. */
+static gboolean
+piper_phonemize (const Model *m, const gchar *text, GArray *cps, GArray *lens)
+{
+  static GRegex *flags = NULL;
+  const void *ptr = text;
+  GString *sentence;
+
+  if (!piper_espeak (m))
+    return FALSE;
+  if (flags == NULL)
+    flags = g_regex_new ("\\([^)]+\\)", 0, 0, NULL);
+  sentence = g_string_new (NULL);
 
   while (ptr != NULL)
     {
@@ -738,6 +793,7 @@ add_model (const gchar *parent, const gchar *name)
       }
 
   m = g_new0 (Model, 1);
+  m->reads_acute = -1;
   m->name = g_strdup (name);
   m->dir = dir;
 
@@ -1539,8 +1595,9 @@ module_speak_sync (const char *data, size_t bytes, SPDMessageType msgtype)
         if (!stop_requested)
           {
             gchar *norm_piece = whole ? NULL : tts_norm_text (norm, piece, voice->language);
-            gchar *ready = tts_stress_apply (get_stress (), norm_piece != NULL ? norm_piece : piece,
-                                             voice->language);
+            gchar *ready = tts_stress_apply_mark (get_stress (),
+                                                  norm_piece != NULL ? norm_piece : piece,
+                                                  voice->language, stress_mark_for (voice));
 
             if (!stop_requested)
               {
