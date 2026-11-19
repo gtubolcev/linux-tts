@@ -22,8 +22,8 @@ ln -s sd_sherpa-onnx "$W/$MOD/sd_sherpa-onnx-vulkan-rs"
 {
   echo "# sd_sherpa-onnx-vulkan-rs: the synthesizer sherpa-onnx on the graphics card,"
   echo "# through the onnx-vulkan-rs plugin of onnxruntime (onnxruntime-ep-vulkan);"
-  echo "# hidden without it. Only voices that run there are listed: Piper voices"
-  echo "# and VITS models on characters (MMS). The settings are those of"
+  echo "# hidden without it. Only voices that run there are listed: Piper voices,"
+  echo "# VITS models on characters (MMS) and Supertonic. The settings are those of"
   echo "# sherpa-onnx.conf."
   echo
   sed -e '1,/^$/d' -e 's/^#\(SherpaProvider\) .*/\1 "vulkan"/' \
@@ -45,7 +45,7 @@ Package: $P
 Version: $VER
 Architecture: all
 Maintainer: Grigory Tuboltsev <noreply@localhost>
-Depends: speech-dispatcher-sherpa-onnx (>= 0.1.0~), onnxruntime-ep-vulkan
+Depends: speech-dispatcher-sherpa-onnx (>= 0.1.0~), onnxruntime-ep-vulkan (>= 0.0.1~)
 Replaces: speech-dispatcher-sherpa-onnx (<< 0.1.0~)
 Section: sound
 Priority: optional

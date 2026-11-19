@@ -208,16 +208,19 @@ parse_families (const gchar *value)
 }
 
 /* Whether models of @family are listed: those of Families, and with the
- * Vulkan plugin only the VITS graphs (Piper, MMS).  Supertonic uses Pad mode
- * "edge", which the plugin accepts but fails to run, and an error there ends
- * the process (sherpa-onnx throws through its C API). */
+ * Vulkan plugin the VITS graphs (Piper, MMS) and Supertonic.  Supertonic
+ * needs the Pad modes edge/reflect of onnxruntime-ep-vulkan 0.0.1 (older
+ * plugins accept them but fail to run, and an error there ends the process:
+ * sherpa-onnx throws through its C API); the Vulkan package depends on it.
+ * Pocket is not tried on Vulkan yet. */
 static gboolean
 family_wanted (Family family)
 {
   if (!(cfg_families & (1u << family)))
     return FALSE;
 
-  return !cfg_vulkan || family == FAMILY_PIPER || family == FAMILY_VITS;
+  return !cfg_vulkan || family == FAMILY_PIPER || family == FAMILY_VITS
+         || family == FAMILY_SUPERTONIC;
 }
 
 int

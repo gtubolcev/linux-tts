@@ -45,7 +45,7 @@ strip --strip-unneeded $W$PRIV/libonnxruntime_ep_vulkan.so
 cat /b/ep-license/LICENSE-MIT > $W/usr/share/doc/onnxruntime-ep-vulkan/copyright
 cat > $W/DEBIAN/control <<X
 Package: onnxruntime-ep-vulkan
-Version: 0.0~git8625ef9-1~local
+Version: 0.0.1~git266bb79-1~local
 Architecture: amd64
 Maintainer: Grigory Tuboltsev <gtubolcev@gmail.com>
 Section: libs
@@ -58,7 +58,7 @@ Description: Vulkan execution provider plugin for ONNX Runtime (experimental)
  with a Vulkan driver (AMD, Intel, NVIDIA). sherpa-onnx uses it with the
  provider "vulkan" (sd_sherpa: SherpaGpu 1). One author, started in 2026.
 X
-dpkg-deb --root-owner-group -b $W $OUT/onnxruntime-ep-vulkan_0.0~git8625ef9-1~local_amd64.deb
+dpkg-deb --root-owner-group -b $W $OUT/onnxruntime-ep-vulkan_0.0.1~git266bb79-1~local_amd64.deb
 
 # -------------------------------------------------------------- sherpa-onnx
 dpkg -i $OUT/libonnxruntime-sherpa_*.deb
