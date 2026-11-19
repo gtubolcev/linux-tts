@@ -72,10 +72,10 @@ Description: Speech Dispatcher module for sherpa-onnx voices
 
 Package: speech-dispatcher-sherpa-onnx-vulkan-rs
 Architecture: all
-# the "vulkan" provider is in sherpa-onnx 2.0.1+deps2-2, built against the
+# the "vulkan" provider is in sherpa-onnx 2.0.1+deps2-5, built against the
 # private onnxruntime that the plugin needs
 Depends: speech-dispatcher-sherpa-onnx (>= ${source:Version}),
-         sherpa-onnx (>= 2.0.1+deps2-2~),
+         sherpa-onnx (>= 2.0.1+deps2-5~),
          onnxruntime-ep-vulkan (>= 0.0.1~git8625ef9),
          ${misc:Depends}
 Description: Speech Dispatcher module for sherpa-onnx voices on the graphics card
