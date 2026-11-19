@@ -109,8 +109,9 @@ static int cfg_idle_timeout = 300;          /* s; 0 keeps the model */
  * Piper itself makes 300 ms.  1 keeps the pauses the voice was trained with. */
 static float cfg_silence_scale = 1.0f;
 #ifndef VULKAN_EP_LIBRARY
-/* where the patched sherpa-onnx looks for it: next to its libonnxruntime */
-#define VULKAN_EP_LIBRARY "/usr/lib/x86_64-linux-gnu/sherpa-onnx/libonnxruntime_ep_vulkan.so"
+/* where the patched sherpa-onnx looks for it: next to its libonnxruntime
+ * (meson passes <libdir>/linux-tts) */
+#define VULKAN_EP_LIBRARY "/usr/lib/x86_64-linux-gnu/linux-tts/libonnxruntime_ep_vulkan.so"
 #endif
 static gboolean cfg_vulkan = FALSE;      /* Provider "vulkan" */
 static guint cfg_families = ~0u;          /* Families, a bit per Family */

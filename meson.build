@@ -106,7 +106,9 @@ sherpa = cc.find_library('sherpa-onnx-c-api', has_headers: ['sherpa-onnx/c-api/c
 if get_option('sherpa').require(sherpa.found() and espeak.found(),
     error_message: 'sd_sherpa-onnx needs the sherpa-onnx C API and espeak-ng').allowed()
   # espeak-ng < 1.52 (Ubuntu 24.04) has no espeak_TextToPhonemesWithTerminator
-  sherpa_args = []
+  # the Vulkan plugin sits next to the private libonnxruntime (onnxruntime-tts)
+  sherpa_args = ['-DVULKAN_EP_LIBRARY="@0@"'.format(get_option('prefix') / get_option('libdir')
+                 / 'linux-tts' / 'libonnxruntime_ep_vulkan.so')]
   if cc.has_function('espeak_TextToPhonemesWithTerminator', dependencies: espeak,
                      prefix: '#include <espeak-ng/speak_lib.h>')
     sherpa_args += '-DHAVE_ESPEAK_TERMINATOR'
