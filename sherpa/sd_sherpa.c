@@ -21,14 +21,14 @@
  *   VITS with characters (MMS)          the language from the directory name
  *                                       (mms-ru): one voice, named as the dir
  *
- * The module is installed under four names, each a synthesizer of its own
- * with its configuration: sd_sherpa-onnx (SherpaFamilies "supertonic pocket
- * vits"), sd_piper-sherpa-onnx (PiperFamilies "piper"), and both again with
- * "-vulkan-rs" and Provider "vulkan": the models run on the graphics card
- * through the onnx-vulkan-rs plugin of onnxruntime.  That plugin cannot run
- * Supertonic and Pocket yet, so they are left out there, and without the
- * plugin the -vulkan-rs synthesizers do not start.  Options may carry the
- * prefix "Sherpa" or "Piper".
+ * The module is installed under two names, each a synthesizer of its own
+ * with its configuration: sd_sherpa-onnx (SherpaFamilies "supertonic piper
+ * pocket vits") and the link sd_sherpa-onnx-vulkan-rs with Provider "vulkan":
+ * the models run on the graphics card through the onnx-vulkan-rs plugin of
+ * onnxruntime.  Pocket is not tried with the plugin yet, so it is left out
+ * there, and without the plugin the -vulkan-rs synthesizer does not start.
+ * Options may carry the prefix "Sherpa" or "Piper" (the old synthesizer
+ * piper-sherpa-onnx, PiperFamilies "piper").
  *
  * The text is cut into sentences; each one is synthesized and handed to the
  * speech-dispatcher server at once, so the next one is synthesized while the
