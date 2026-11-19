@@ -417,3 +417,34 @@ except the Azure page:
   Use as a checklist for which SSML our modules should honour, how per-voice user
   dictionaries could look (PLS as an exchange format besides Balabolka `.dic`), and which
   say-as types the normalizer needs as entry points.
+
+## 7. Stress stage: dictionary design and plan (2026-11-19)
+
+How it is usually done:
+- **Lemma + paradigm** is the authoring form. AOT (Sokirko, LGPL) gives each lemma an
+  inflection model and an *accent model* (in effect a Zaliznyak stress scheme); Wiktionary
+  (CC-BY-SA) has Zaliznyak indices whose templates generate all stressed forms. The
+  Zaliznyak dictionary itself is copyrighted. OpenCorpora (CC-BY-SA) has tags, no stress.
+- **All forms in a minimal automaton** is the lookup form: the input is a surface form, so
+  paradigms are compiled into a DAWG/FSA over all forms with paradigm/form ids or directly
+  stress + tags in the leaves (pymorphy2/3: OpenCorpora paradigms → DAWG). Millions of forms
+  fit in a few MB.
+- **FST** (HFST/foma): GiellaLT lang-rus and `udar` (Robert Reynolds) put stress with an FST
+  and resolve homographs with Constraint Grammar. Licence to check.
+- **Neural models** (RUAccent, silero-stress) for out-of-dictionary words and homographs,
+  after the dictionary, not instead of it.
+
+Plan for us:
+1. Runtime stays a plain form lookup in C (mmap'd sorted array or DAWG), no paradigm engine
+   in the modules. Store stress **and** grammatical tags: homographs need the tags
+   (замка: genitive of за́мок and of замо́к).
+2. Paradigms live in the dictionary build pipeline: complete the forms of lemmas that the
+   sources list only partly, guess unknown words by ending (as pymorphy does), give tags.
+   Free sources: AOT (stress + paradigms), Wiktionary (Zaliznyak indices), OpenCorpora (tags).
+3. Jugger-Naut (`_tmp/4pda-jugger/`, no licence: local only unless the authors agree): the
+   user checks `disagree.txt` (2279 JN/Vosk disagreements) to decide the dictionary order;
+   then an optional user stress dictionary looked up before Vosk, converted from the `.dic`.
+4. Fix: Vosk marks secondary stress with 1 too, ru-stress writes two marks
+   (ме́жконфессиона́льными) — keep one.
+5. JN `.rex` rules (553, ~300 homographs) as seed pairs "homograph + context" for our own
+   homograph stage, not run as regexes.
