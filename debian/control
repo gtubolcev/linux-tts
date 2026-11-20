@@ -11,7 +11,8 @@ Build-Depends: debhelper-compat (= 13),
                libonnxruntime-tts-dev,
                libspeechd-dev (>= 0.12~),
                meson,
-               pkgconf
+               pkgconf,
+               python3:any
 Standards-Version: 4.7.0
 Homepage: https://github.com/gtubolcev/linux-tts
 Vcs-Browser: https://github.com/gtubolcev/linux-tts
