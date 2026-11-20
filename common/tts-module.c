@@ -180,6 +180,18 @@ idle_timeout (void)
   return cfg_idle_timeout >= 0 ? cfg_idle_timeout : E->idle_timeout;
 }
 
+int
+tts_idle_timeout (void)
+{
+  return idle_timeout ();
+}
+
+gboolean
+tts_closing (void)
+{
+  return closed;
+}
+
 static int
 first_chunk (void)
 {

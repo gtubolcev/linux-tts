@@ -116,6 +116,11 @@ TtsVoice *tts_voice_add (const gchar *name, const gchar *language, const gchar *
                          gpointer model, gpointer data);
 GPtrArray *tts_voices (void);
 
+/* <Prefix>IdleTimeout, s; 0 never */
+int tts_idle_timeout (void);
+/* TRUE from QUIT on: unload is called for the models still loaded */
+gboolean tts_closing (void);
+
 /* in the worker: TRUE once the message being spoken was stopped or paused */
 gboolean tts_stopped (void);
 
