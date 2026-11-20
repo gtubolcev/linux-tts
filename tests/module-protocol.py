@@ -50,7 +50,7 @@ def unescape(b):
 
 
 class Mod:
-    def __init__(self, conf="", cache=None):
+    def __init__(self, conf="", cache=None, run_files=None):
         self.dir = tempfile.TemporaryDirectory()
         path = os.path.join(self.dir.name, "dummy.conf")
         with open(path, "w") as f:
@@ -59,6 +59,11 @@ class Mod:
         self.err_path = os.path.join(self.dir.name, "stderr")
         # own runtime dir: .load / .state of the test, not of the session
         os.mkdir(os.path.join(self.dir.name, "run"), 0o700)
+        if run_files:
+            os.mkdir(os.path.join(self.dir.name, "run", "linux-tts"), 0o700)
+            for name, text in run_files.items():
+                with open(os.path.join(self.dir.name, "run", "linux-tts", name), "w") as f:
+                    f.write(text)
         env = dict(os.environ, XDG_CACHE_HOME=cache or os.path.join(self.dir.name, "cache"),
                    XDG_RUNTIME_DIR=os.path.join(self.dir.name, "run"))
         self.p = subprocess.Popen([EXE, path], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
@@ -693,6 +698,82 @@ def t_load_request_during_wait(m):
     check(m.said() == ["dummy-ru-female-1|Привет."], m.said())
 
 
+def read_state(m):
+    try:
+        with open(os.path.join(m.dir.name, "run", "linux-tts", "dummy.state")) as f:
+            return f.read().strip()
+    except OSError:
+        return None
+
+
+def wait_state(m, want, secs):
+    """the state file says want (a prefix); every state seen on the way"""
+    seen = []
+    end = time.time() + secs
+    while time.time() < end:
+        st = read_state(m)
+        if not seen or seen[-1] != st:
+            seen.append(st)
+        if st is not None and st.startswith(want):
+            return seen
+        time.sleep(0.02)
+    raise Fail("state never %r: %r" % (want, seen))
+
+
+def t_load_state(m):
+    """the dialog's .load request: loading, ready; a voice that fails;
+    an unknown name loads the default; the file removed unloads"""
+    check(read_state(m) == "idle", "start: %r" % read_state(m))
+    write_load(m, "dummy-en-male-1")
+    seen = wait_state(m, "ready", 5)
+    check("loading" in seen, "no loading on the way: %r" % seen)
+    check("loaded en (1)" in m.stderr(), m.stderr()[-600:])
+    write_load(m, "dummy-de-1")
+    wait_state(m, "failed", 5)
+    check(read_state(m) == "failed bad model", read_state(m))
+    write_load(m, "no-such-voice")
+    wait_state(m, "ready", 5)
+    check("no voice no-such-voice, loading the default one" in m.stderr(), m.stderr()[-600:])
+    # nothing of this was spoken
+    check(m.said() == [], m.said())
+    os.unlink(os.path.join(m.dir.name, "run", "linux-tts", "dummy.load"))
+    wait_state(m, "idle", 5)
+    check(wait_stderr(m, "unloaded en", 3), "not unloaded: " + m.stderr()[-600:])
+    # and speech still works after all that
+    m.speak("Hello.")
+    m.expect("702 END")
+
+
+def t_load_stale(m):
+    """a .load left from before the module started is old news"""
+    time.sleep(2.5)    # the main thread looks every 2 s
+    check("load request" not in m.stderr() and "loaded" not in m.stderr(),
+          "stale request taken: " + m.stderr()[-600:])
+    check(read_state(m) == "idle", read_state(m))
+
+
+def t_load_idle(m):
+    """a loaded voice goes after IdleTimeout even while .load stays"""
+    write_load(m, "dummy-en-female-1")
+    wait_state(m, "ready", 5)
+    wait_state(m, "idle", 4)
+    check("unloaded en (0)" in m.stderr(), m.stderr()[-600:])
+
+
+def t_load_garbage(m):
+    """a .load file of binary junk, huge, or empty: no crash, the default
+    voice ("1") for empty"""
+    path = os.path.join(m.dir.name, "run", "linux-tts", "dummy.load")
+    for data in (b"\xff\xfe\x00\x01\n", b"x" * (1 << 20), b""):
+        with open(path + ".new", "wb") as f:
+            f.write(data)
+        os.replace(path + ".new", path)
+        time.sleep(2.3)
+    wait_state(m, "ready", 5)
+    m.speak("Hello.")
+    m.expect("702 END")
+
+
 def t_config_reload(m):
     """the settings dialog changes the file without restarting the server"""
     path = os.path.join(m.dir.name, "dummy.conf")
@@ -757,6 +838,10 @@ TESTS = [
     (t_preload, 'DummyPreload yes\nDummyVoice "ru" "dummy-ru-female-1"\n'),
     (t_config_reload, ""),
     (t_load_request_during_wait, "DummyLoadMs 3000\n"),
+    (t_load_state, "DummyLoadMs 300\nDummyIdleTimeout 60\n"),
+    (t_load_idle, "DummyIdleTimeout 1\n"),
+    (t_load_stale, ("", {"dummy.load": "dummy-en-female-1\n"})),
+    (t_load_garbage, ""),
     (t_probe_crash, "DummyModelDir @DIR@\n"),
     (t_probe_exit, "DummyModelDir @DIR@\n"),
     (t_probe_killed, "DummyModelDir @DIR@\n"),
@@ -860,7 +945,8 @@ def main():
         name = fn.__name__[2:]
         if want and name not in want:
             continue
-        m = Mod(conf)
+        conf, run_files = conf if isinstance(conf, tuple) else (conf, None)
+        m = Mod(conf, run_files=run_files)
         t0 = time.time()
         try:
             m.start()

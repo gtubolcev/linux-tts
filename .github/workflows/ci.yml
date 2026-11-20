@@ -7,10 +7,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        mode: [full, minimal]
+        mode: [full, minimal, sanitize]
     runs-on: ubuntu-24.04
-    # full needs libonnxruntime-tts-dev and libsherpa-onnx-tts-dev in the PPA
-    continue-on-error: ${{ matrix.mode == 'full' }}
     steps:
       - uses: actions/checkout@v4
       - run: scripts/ci.sh ${{ matrix.mode }}
