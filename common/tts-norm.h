@@ -1,11 +1,11 @@
 /*
  * tts-norm - text normalization for the speech-dispatcher modules
  *
- * Runs the normalizer (ru-normalizr, Python) as a resident helper process
- * and asks it to turn "5 кг" into "пять килограммов" before the engine
+ * Runs the normalizer (ru-normalizr, Python) as a resident helper process,
+ * one per user for all modules, and asks it to turn "5 кг" into "пять килограммов" before the engine
  * sees the text.  The helper is started on the first message, or earlier
- * with tts_norm_start(); it is stopped with tts_norm_stop() when the module
- * unloads its model.
+ * with tts_norm_start(); tts_norm_stop() disconnects when the module unloads
+ * its model, and the helper exits when no module has used it for a while.
  *
  * Every failure falls back to the text as it was: no helper installed, a
  * helper that crashes, hangs, answers garbage or takes longer than the
@@ -34,6 +34,7 @@ typedef struct
   gchar *helper;        /* TextNormalizationHelper (the installed script) */
   int timeout_ms;       /* TextNormalizationTimeout: per request (1500) */
   int start_ms;         /* TextNormalizationStartTimeout: helper load (8000) */
+  int idle_s;           /* TextNormalizationIdleTimeout: helper exits unused (60) */
 } TtsNormConfig;
 
 typedef struct TtsNorm TtsNorm;
@@ -55,7 +56,7 @@ void tts_norm_set_cancel (TtsNorm *n, TtsNormCancel cancel);
 
 /* start the helper now so the first message does not wait for it */
 void tts_norm_start (TtsNorm *n);
-/* stop the helper (idle); the next message starts it again */
+/* let go of the helper (idle); the next message connects again */
 void tts_norm_stop (TtsNorm *n);
 
 /* lang: the voice's language ("ru", "ru-RU", "en"...).  Returns a new
