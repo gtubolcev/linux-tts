@@ -679,8 +679,108 @@ cmp_str (gconstpointer a, gconstpointer b)
   return strcmp (*(const gchar *const *) a, *(const gchar *const *) b);
 }
 
-/* what the files of PATH look like (a file, or a directory and its
- * entries); NULL if it does not exist */
+#define STAMP_DEPTH 4        /* directory levels looked into */
+#define STAMP_ENTRIES 20000  /* entries at most */
+
+static void
+stamp_add (GPtrArray *lines, const gchar *name, const struct stat *st)
+{
+  g_ptr_array_add (lines, g_strdup_printf ("%s %lld %lld.%09ld", name, (long long) st->st_size,
+                                           (long long) st->st_mtim.tv_sec,
+                                           st->st_mtim.tv_nsec));
+}
+
+/* the entries of directory PATH, named REL/..., and of its subdirectories */
+static void
+stamp_dir (GPtrArray *lines, const gchar *path, const gchar *rel, int depth)
+{
+  GDir *dir = g_dir_open (path, 0, NULL);
+  const gchar *name;
+
+  if (dir == NULL)
+    return;
+  while ((name = g_dir_read_name (dir)) != NULL && lines->len < STAMP_ENTRIES)
+    {
+      gchar *f = g_build_filename (path, name, NULL);
+      gchar *r = g_build_filename (rel, name, NULL);
+      struct stat st;
+
+      if (stat (f, &st) == 0)
+        {
+          stamp_add (lines, r, &st);
+          if (S_ISDIR (st.st_mode) && depth > 1)
+            stamp_dir (lines, f, r, depth - 1);
+        }
+      g_free (f);
+      g_free (r);
+    }
+  g_dir_close (dir);
+}
+
+/* what the engine looks like: this program and the libraries it has mapped
+ * for running (sherpa-onnx, onnxruntime, ...) when first asked, and the
+ * engine's own probe_salt (its provider, a plugin): a verdict is kept for
+ * one build of the engine.  Once per process. */
+static const gchar *
+engine_stamp (void)
+{
+  static gchar *result = NULL;
+  GPtrArray *lines;
+  GHashTable *seen;
+  GChecksum *sum;
+  gchar *maps = NULL;
+  struct stat st;
+
+  if (result != NULL)
+    return result;
+  lines = g_ptr_array_new_with_free_func (g_free);
+  seen = g_hash_table_new_full (g_str_hash, g_str_equal, g_free, NULL);
+  if (stat ("/proc/self/exe", &st) == 0)
+    stamp_add (lines, "exe", &st);
+  if (g_file_get_contents ("/proc/self/maps", &maps, NULL, NULL))
+    {
+      gchar **rows = g_strsplit (maps, "\n", -1);
+
+      for (gchar **r = rows; *r != NULL; r++)
+        {
+          /* addresses perms offset dev inode path */
+          gchar **f = g_strsplit_set (*r, " ", 6);
+          const gchar *path = g_strv_length (f) == 6 ? g_strchug (f[5]) : NULL;
+
+          if (path != NULL && path[0] == '/' && strchr (f[1], 'x') != NULL
+              && !g_hash_table_contains (seen, path) && stat (path, &st) == 0)
+            {
+              g_hash_table_add (seen, g_strdup (path));
+              stamp_add (lines, path, &st);
+            }
+          g_strfreev (f);
+        }
+      g_strfreev (rows);
+      g_free (maps);
+    }
+  if (E->probe_salt != NULL)
+    {
+      gchar *salt = E->probe_salt ();
+      g_ptr_array_add (lines, g_strconcat ("salt ", salt != NULL ? salt : "", NULL));
+      g_free (salt);
+    }
+  g_ptr_array_sort (lines, cmp_str);
+  sum = g_checksum_new (G_CHECKSUM_SHA256);
+  for (guint i = 0; i < lines->len; i++)
+    {
+      g_checksum_update (sum, g_ptr_array_index (lines, i), -1);
+      g_checksum_update (sum, (const guchar *) "\n", 1);
+    }
+  result = g_strdup (g_checksum_get_string (sum));
+  g_checksum_free (sum);
+  g_hash_table_destroy (seen);
+  g_ptr_array_free (lines, TRUE);
+  return result;
+}
+
+/* what the files of PATH look like (a file, or a directory and what is in
+ * it, a few levels down) and the engine that loads them; NULL if PATH does
+ * not exist */
 static gchar *
 model_stamp (const gchar *path)
 {
@@ -688,32 +788,17 @@ model_stamp (const gchar *path)
   GPtrArray *lines = g_ptr_array_new_with_free_func (g_free);
   struct stat st;
   gchar *result;
-  GDir *dir;
 
   if (stat (path, &st) != 0)
     {
       g_ptr_array_free (lines, TRUE);
       return NULL;
     }
-  g_ptr_array_add (lines, g_strdup_printf (". %lld %lld.%09ld", (long long) st.st_size,
-                                           (long long) st.st_mtim.tv_sec, st.st_mtim.tv_nsec));
-  if (S_ISDIR (st.st_mode) && (dir = g_dir_open (path, 0, NULL)) != NULL)
-    {
-      const gchar *name;
-
-      while ((name = g_dir_read_name (dir)) != NULL)
-        {
-          gchar *f = g_build_filename (path, name, NULL);
-          if (stat (f, &st) == 0)
-            g_ptr_array_add (lines, g_strdup_printf ("%s %lld %lld.%09ld", name,
-                                                     (long long) st.st_size,
-                                                     (long long) st.st_mtim.tv_sec,
-                                                     st.st_mtim.tv_nsec));
-          g_free (f);
-        }
-      g_dir_close (dir);
-    }
+  stamp_add (lines, ".", &st);
+  if (S_ISDIR (st.st_mode))
+    stamp_dir (lines, path, "", STAMP_DEPTH);
   g_ptr_array_sort (lines, cmp_str);
+  g_ptr_array_add (lines, g_strconcat ("engine ", engine_stamp (), NULL));
   sum = g_checksum_new (G_CHECKSUM_SHA256);
   for (guint i = 0; i < lines->len; i++)
     {

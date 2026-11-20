@@ -109,6 +109,10 @@ typedef struct
    * kept in $XDG_CACHE_HOME/linux-tts/probe-<module>.ini.  NULL here or as
    * the result: no test load. */
   const gchar *(*model_path) (gpointer model);
+  /* what else decides whether a model loads, for the test load's verdict:
+   * the provider, a plugin's version (newly allocated); may be NULL.  The
+   * program and the libraries it runs are taken into account anyway. */
+  gchar *(*probe_salt) (void);
 } TtsEngine;
 
 /* the engine, defined by the module */
