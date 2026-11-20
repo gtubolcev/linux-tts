@@ -14,7 +14,7 @@ Description: Fix leaks and stale state on configuration reload
  The port to 0.12.0~rc2 (noble) keeps only the reset in pulse.c: rc2 plays
  a track in one pulse_play() call, which already reopens the connection.
 Author: Grigory Tuboltsev
-Forwarded: no
+Forwarded: https://github.com/brailcom/speechd/pull/1144 https://github.com/brailcom/speechd/pull/1145 https://github.com/brailcom/speechd/pull/1146
 Last-Update: 2026-11-13
 
 --- a/src/audio/pulse.c

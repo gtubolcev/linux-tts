@@ -11,7 +11,7 @@ Description: Fix leaks and stale state on configuration reload
    restarted) instead of failing forever; guard end/stop/feed against the
    closed connection.
 Author: Grigory Tuboltsev
-Forwarded: no
+Forwarded: https://github.com/brailcom/speechd/pull/1144 https://github.com/brailcom/speechd/pull/1145 https://github.com/brailcom/speechd/pull/1146
 Last-Update: 2026-11-11
 ---
 diff --git a/src/audio/pulse.c b/src/audio/pulse.c
