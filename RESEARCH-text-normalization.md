@@ -569,3 +569,65 @@ Other:
   to try for Supertonic in sherpa: a NumSteps setting.
 - Stress dictionary releases (v3.1.1): russian_accents_{full,compact}.json, in the form
   `{"москва": "москва́"}`, built from RUAccent (MIT, but derived from Zaliznyak's dictionary).
+
+## 9. Other languages: GitHub and web survey (2026-11-20)
+
+Searched GitHub (repos and topics: text normalization/normalisation, inverse TN, num2words,
+number-to-words, tts frontend, names in ru/pl/de/fr/es) and the web. Stars and dates as of
+today. Our licence is GPL-3.0-or-later now, so GPL/LGPL/Apache/MIT sources can all be used.
+
+### Multilingual, written direction (what TTS needs)
+
+| Project | Licence | Languages | What it is |
+|---|---|---|---|
+| NVIDIA/NeMo-text-processing (518★, active) | Apache-2.0 | TN: ar de en es fr hi hu hy it ja ko pt ru rw sv vi zh; ITN also he mr | Pynini WFST grammars, tagger + verbalizer; compiled to .far. Python at runtime, or C++ through Sparrowhawk (google/sparrowhawk, Apache, 2018). The largest free rule set for EU languages. No pl, cs, uk, nl. |
+| wenet-e2e/WeTextProcessing (842★) | Apache-2.0 | zh, en, ja | Same idea, own C++ runtime (OpenFst). sherpa-onnx loads such FSTs through `rule_fsts`/`rule_fars` (used by its Chinese models). |
+| savoirfairelinux/num2words (973★) | LGPL-2.1 | ~60: am ar az be bn ca cs cy da de en eo es eu fa fi fr he hi hu hy id is it ja kn ko kz lt lv nl no pl pt ro ru sk sl sr sv te tg th tr uk vi zh … | Numbers only: cardinal, ordinal, year, currency. Python. Case/gender for Slavic languages is partial. |
+| forzagreen/n2words (113★, active) | MIT | 50 (72 variants) | Same in JS, no deps; easy to port tables to C. |
+| rhasspy/gruut (332★, 2024) | MIT | ar ca cs de en es fa fr it lb nl pt ru sv sw | Tokenizer + "text cleaner": numbers, dates, currency via num2words/babel, then G2P. Good reference for the token classes. |
+| espeak-ng (in our stack) | GPL-3.0 | 100+ | Numbers, ordinals, some abbreviations in `dictsource/*_list`/`*_rules` for every language it speaks. Now licence-compatible: usable as the fallback number reader for any language without own rules. |
+| piercarlo62/fida-normalizer (PyPI, 0.1.x) | MIT | it en fr de es pt nl sv | Young rule-based TTS normalizer: numbers, dates, times, URLs. Not read yet. |
+| google/TextNormalizationCoveringGrammars | Apache-2.0 | en, ru | Thrax covering grammars (paper material, not a full normalizer). |
+| google/language-resources (2021) | Apache-2.0 | af bn es hi is jv km lo my ne si su ta xh zu … | Per-language verbalizer grammars (Festus/Thrax) from Google's low-resource TTS work. |
+
+### Per language (EU, GB, North America first)
+
+- **en**: NeMo en (the most complete), tomaarsen/TTSTextNormalization (MIT, 2022), PolyNorm
+  benchmark (below) for tests.
+- **de, fr, it, es, pt, sv, hu**: NeMo; fida-normalizer for de/fr/it/es/pt/nl/sv; num2words.
+- **nl, da, no, fi, pl, cs, sk, sl, ro, lt, lv, el, bg, hr**: no TN grammars found; numbers
+  only (num2words, n2words, espeak-ng). Polish: `pl_itn` (PyPI) is ITN only (NeMo port);
+  paper W19-3703 on Polish number forms. Czech: a Charles University thesis on number
+  normalization (dspace.cuni.cz 20.500.11956/183077), no package.
+- **uk**: lang-uk/ukrainian-tts-preprocessing (Apache-2.0, 2025; benchmark + data, UNLP 2025
+  paper), robinhad/ukrainian-tts `formatter.py` (MIT, numbers and currency), Yehor's
+  radtts-uk `numerical.py`; `ukr-itn` is ITN only.
+- **ru**: sections 3–7. Also shigabeev/russian_tts_normalization (MIT, regex only, one file),
+  snakers4/russian_stt_text_normalization (GPL-3, seq2seq, 2021).
+- **ga, gd**: kscanne/caighdean (GPL-3), standardisation rather than TN.
+- Outside Europe, for later lists: tr — ozguradmin/ahenk-turkish-tts `trnorm` (Apache, active);
+  vi — soe-vinorm (MIT), VietNormalizer (MIT, arXiv 2603.04145); km — seanghay/tha (Apache,
+  WFST, arXiv 2609.30984); zh — speechio/chinese_text_normalization (MIT), WeText; ja —
+  neologdn (Apache); Indic — indic-num2words (Apache), csebuetnlp/normalizer (bn).
+
+### LLM-based TN
+
+- Apple **PolyNorm** (EMNLP 2025 industry, arXiv 2511.03080): few-shot LLM TN for several
+  languages incl. Polish; releases **PolyNorm-Benchmark** with hard classes (version numbers,
+  serials, coordinates, tickers, addresses). Useful as a test set for our rules.
+- arXiv 2309.13426: GPT few-shot TN ~40 % fewer errors than production rules (large models).
+- No results found for sub-1B models; matches our own finding that RUNorm-class small
+  seq2seq models are the practical neural option (section 3).
+
+### Conclusions for the normalizer (section 5)
+
+1. For de, en, es, fr, it, pt, sv, hu (and ru as a cross-check) the NeMo grammars are the
+   base: compile them to .far once, run them in C++ (Sparrowhawk-style tagger → verbalizer)
+   inside our TN module; no Python at runtime. To check: whether sherpa-onnx `rule_fars` can
+   take NeMo's two-stage grammars directly (probably not: it applies one rewrite FST).
+2. For EU languages without grammars: a small common layer (dates, times, units, currency,
+   abbreviations per language) plus number words from num2words/n2words tables or
+   espeak-ng's `*_list` data. Polish/Czech/Ukrainian need case agreement like Russian; our
+   ru design (section 5) is the template.
+3. uk: start from lang-uk/ukrainian-tts-preprocessing and its benchmark.
+4. Tests: PolyNorm-Benchmark for en/de/fr/es/it/pt/pl.
