@@ -31,7 +31,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/prctl.h>
 #include <sys/socket.h>
+#include <sys/time.h>
 #include <sys/un.h>
 #include <sys/wait.h>
 #include <time.h>
@@ -309,36 +311,20 @@ owner_alive (long owner)
 
 /* A watcher process lives as long as the server and stops it when no module
  * has owned it for SileroIdleTimeout seconds: after the last module released
- * it, or after the owner died without doing so (killed by speech-dispatcher). */
+ * it, or after the owner died without doing so (killed by speech-dispatcher).
+ * It is this program again (SD_SILERO_WATCH="<pid> <serial> <idle>"): after
+ * fork in a threaded process only async-signal-safe calls are allowed, and
+ * the watcher reads files and allocates. */
 static void
-server_watch (void)
+watch_loop (const gchar *arg)
 {
-  pid_t pid = server_pid, child;
-  long long serial = server_serial;
+  int pid = 0, idle = 0;
+  long long serial = 0;
   time_t dead_since = 0;
-  int idle = tts_idle_timeout ();
 
-  /* forked twice, so that init reaps it and not the module */
-  child = fork ();
-  if (child != 0)
-    {
-      if (child > 0)
-        waitpid (child, NULL, 0);
-      return;
-    }
-  if (fork () != 0)
-    _exit (0);
-
-  /* no ties to speech-dispatcher; the server is not our child */
-  server_child = 0;
-  setsid ();
-  {
-    int null = open ("/dev/null", O_RDWR);
-    dup2 (null, STDIN_FILENO);
-    dup2 (null, STDOUT_FILENO);
-    dup2 (null, STDERR_FILENO);
-    closefrom (3);
-  }
+  if (sscanf (arg, "%d %lld %d", &pid, &serial, &idle) != 3 || pid <= 0)
+    _exit (2);
+  prctl (PR_SET_NAME, "silero-watch", 0, 0, 0);
   for (;;)
     {
       State st;
@@ -368,6 +354,42 @@ server_watch (void)
           _exit (0);
         }
     }
+}
+
+
+
+static void
+server_watch (void)
+{
+  gchar *arg = g_strdup_printf ("%d %lld %d", (int) server_pid, server_serial,
+                                tts_idle_timeout ());
+  gchar **envp = g_environ_setenv (g_get_environ (), "SD_SILERO_WATCH", arg, TRUE);
+  char *const argv[] = { (char *) "sd_silero", NULL };
+  pid_t child;
+
+  /* forked twice, so that init reaps it and not the module */
+  child = fork ();
+  if (child == 0)
+    {
+      /* a threaded process: only async-signal-safe calls up to exec */
+      int null;
+
+      if (fork () != 0)
+        _exit (0);
+      /* no ties to speech-dispatcher; the server is not our child */
+      setsid ();
+      null = open ("/dev/null", O_RDWR);
+      dup2 (null, STDIN_FILENO);
+      dup2 (null, STDOUT_FILENO);
+      dup2 (null, STDERR_FILENO);
+      closefrom (3);
+      execve ("/proc/self/exe", argv, envp);
+      _exit (127);
+    }
+  if (child > 0)
+    waitpid (child, NULL, 0);
+  g_strfreev (envp);
+  g_free (arg);
 }
 
 
@@ -416,9 +438,14 @@ server_health (void)
   int fd = server_connect ();
   gboolean ok = FALSE;
 
+  /* a server busy with a long sentence or hung: not ready */
+  struct timeval tv = { 2, 0 };
+
   if (fd < 0)
     return FALSE;
-  if (write (fd, req, sizeof (req) - 1) == (ssize_t) sizeof (req) - 1
+  setsockopt (fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof (tv));
+  setsockopt (fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof (tv));
+  if (send (fd, req, sizeof (req) - 1, MSG_NOSIGNAL) == (ssize_t) sizeof (req) - 1
       && read (fd, buf, sizeof (buf) - 1) > 12)
     ok = strncmp (buf + 9, "200", 3) == 0;
   close (fd);
@@ -483,8 +510,9 @@ server_spawn (void)
 
 
 
+/* stoppable: in the worker, where STOP ends the wait */
 static gboolean
-server_start (void)
+server_start (gboolean stoppable)
 {
   time_t start;
 
@@ -498,6 +526,8 @@ server_start (void)
     {
       if (!server_alive ())
         return FALSE;   /* see silero-server.log with Debug 1 */
+      if (stoppable && tts_stopped ())
+        return FALSE;
       if (server_health ())
         {
           DBG ("silero-server ready after %ld s", (long) (time (NULL) - start));
@@ -518,6 +548,10 @@ server_start (void)
 static void
 silero_setup (void)
 {
+  const gchar *watch = g_getenv ("SD_SILERO_WATCH");
+
+  if (watch != NULL)
+    watch_loop (watch);   /* never returns */
   cfg_server = g_strdup ("/usr/bin/silero-server");
   cfg_version = g_strdup ("v5_6_ru");
   /* Silero reads "+" before the stressed vowel */
@@ -603,7 +637,7 @@ silero_init (gchar **msg)
 static gboolean
 silero_load (gpointer model, GError **error)
 {
-  if (server_start ())
+  if (server_start (FALSE))
     return TRUE;
   g_set_error (error, G_FILE_ERROR, G_FILE_ERROR_FAILED,
                "silero-server did not start (see silero-server.log with Debug 1)");
@@ -651,7 +685,9 @@ write_all (int fd, const char *buf, size_t len)
 {
   while (len > 0)
     {
-      ssize_t n = write (fd, buf, len);
+      /* the server gone: an error, not SIGPIPE (speech-dispatcher ignores
+       * it for its modules, a module run by hand does not) */
+      ssize_t n = send (fd, buf, len, MSG_NOSIGNAL);
       if (n < 0 && errno == EINTR)
         continue;
       if (n <= 0)
@@ -859,8 +895,10 @@ silero_speak (const TtsPiece *p, GError **error)
   gboolean ok;
 
   /* it died since it was loaded: start it again */
-  if (!server_alive () && !server_start ())
+  if ((!server_alive () || !server_ready) && !server_start (TRUE))
     {
+      if (tts_stopped ())
+        return TRUE;
       g_set_error (error, G_FILE_ERROR, G_FILE_ERROR_FAILED, "silero-server is gone");
       return FALSE;
     }
