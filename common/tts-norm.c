@@ -439,8 +439,11 @@ ask (TtsNorm *n, const gchar *text, const gchar *lang)
       g_free (line);
     }
   /* a stopped message: the late answer is skipped by its id */
-  if (result == NULL && !cancelled)
-    fail (n, gone ? "the normalizer helper exited" : "the normalizer did not answer in time");
+  if (result == NULL)
+    {
+      if (!cancelled)
+        fail (n, gone ? "the normalizer helper exited" : "the normalizer did not answer in time");
+    }
   else if (!g_utf8_validate (result, -1, NULL)
            || (*result == '\0' && *g_strstrip (clean) != '\0'))
     {
