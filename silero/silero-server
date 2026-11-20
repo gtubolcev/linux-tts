@@ -27,6 +27,7 @@ SPDX-License-Identifier: GPL-3.0-or-later
 """
 import argparse
 import hashlib
+import importlib.util
 import json
 import os
 import signal
@@ -59,11 +60,21 @@ def check_runtime(pkg, manifest):
                 digest, name = line.rstrip("\n").split("  ", 1)
                 want[name] = digest
     have = set()
+    if os.path.islink(pkg):
+        raise RuntimeError(f"{pkg} is a symbolic link")
     for root, dirs, files in os.walk(pkg):
-        dirs[:] = [d for d in dirs if d != "__pycache__"]
-        for name in files:
-            have.add(os.path.relpath(os.path.join(root, name), pkg))
-    bad = sorted(n for n in have - want.keys() if n.endswith(".py"))
+        # bytecode is never read from there (pycache_prefix in load)
+        dirs[:] = [d for d in dirs if d != "__pycache__"
+                   or os.path.islink(os.path.join(root, d))]
+        for name in dirs + files:
+            path = os.path.join(root, name)
+            if os.path.islink(path):
+                raise RuntimeError(f"{path} is a symbolic link")
+            if name in files:
+                have.add(os.path.relpath(path, pkg))
+    # any other file could be imported: an extension module (.so) wins
+    # over the .py of the same name, a sourceless .pyc is imported too
+    bad = sorted(have - want.keys())
     if bad:
         raise RuntimeError(f"unknown files in {pkg}: {' '.join(bad)}")
     for name, digest in want.items():
@@ -83,10 +94,15 @@ def load(args):
     sys.pycache_prefix = "/nonexistent/silero-server"
     if os.path.isdir(os.path.join(ORT_DIR, "onnxruntime")):
         sys.path.insert(0, ORT_DIR)
-    sys.path.insert(0, args.dir)
+    # the libraries before the package, and the model directory never on
+    # sys.path: a numpy.py or onnxruntime/ there would be imported instead
     import numpy  # noqa: F401  (fail early with a clear message)
     import onnxruntime
     log(f"onnxruntime {onnxruntime.__version__} from {os.path.dirname(onnxruntime.__file__)}")
+    spec = importlib.util.spec_from_file_location(
+        "silero_onnx", os.path.join(pkg, "__init__.py"), submodule_search_locations=[pkg])
+    sys.modules["silero_onnx"] = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(sys.modules["silero_onnx"])
     from silero_onnx import ort as silero_ort
     from silero_onnx.engine import SileroTTS
 
