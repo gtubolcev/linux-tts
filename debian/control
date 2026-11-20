@@ -155,3 +155,43 @@ Description: text normalization for the speech-dispatcher-modules voices
  ("5 кг" -> "пять килограммов") before the voice speaks it. It uses the
  ru_normalizr Python package; without that package, or with
  "TextNormalization no" in a module's .conf, the text is spoken as it is.
+
+Package: linux-tts-ru
+Architecture: all
+Depends: speech-dispatcher-sherpa-onnx (>= ${source:Version}),
+         piper-espeak-ng-data,
+         piper-voice-ru-ru-dmitri-medium,
+         piper-voice-ru-ru-denis-medium,
+         speech-dispatcher-text-normalizer (>= ${source:Version}),
+         speech-dispatcher-ru-normalizr,
+         ${misc:Depends}
+Recommends: xfce4-speech-settings | speech-settings-standalone
+Description: local Russian speech synthesis for the desktop (metapackage)
+ Everything for reading Russian text aloud on this computer, without a
+ network: the sherpa-onnx module of speech-dispatcher, the Piper voices
+ dmitri and denis, and the normalizer that reads numbers, dates, units and
+ abbreviations as words.
+ .
+ speech-dispatcher keeps its default voice (espeak-ng) until you choose
+ "sherpa-onnx" in the speech settings app or as DefaultModule in
+ ~/.config/speech-dispatcher/speechd.conf. The first sentence after a pause
+ waits about a second while the voice loads.
+
+Package: linux-tts-en
+Architecture: all
+Depends: speech-dispatcher-sherpa-onnx (>= ${source:Version}),
+         piper-espeak-ng-data,
+         piper-voice-en-us-ljspeech-medium,
+         piper-voice-en-us-john-medium,
+         piper-voice-en-gb-alba-medium,
+         ${misc:Depends}
+Recommends: xfce4-speech-settings | speech-settings-standalone
+Description: local English speech synthesis for the desktop (metapackage)
+ Everything for reading English text aloud on this computer, without a
+ network: the sherpa-onnx module of speech-dispatcher and the Piper voices
+ ljspeech, john (US) and alba (British).
+ .
+ speech-dispatcher keeps its default voice (espeak-ng) until you choose
+ "sherpa-onnx" in the speech settings app or as DefaultModule in
+ ~/.config/speech-dispatcher/speechd.conf. The first sentence after a pause
+ waits about a second while the voice loads.
