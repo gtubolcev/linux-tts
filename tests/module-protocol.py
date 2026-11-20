@@ -78,8 +78,11 @@ class Mod:
                 raw, buf = buf.split(b"\n", 1)
                 if raw.startswith(b"705-AUDIO\0"):
                     data = unescape(raw[10:])
-                    ok = len(data) % 2 == 0 and (REAL or data == b"\x0a\x7d" * (len(data) // 2))
-                    line = "AUDIO %d" % (len(data) // 2) if ok else "BADAUDIO"
+                    # the dummy's samples are all 0x7d0a (a newline and the
+                    # escape byte); volume and rate change them
+                    same = REAL or data == b"\x0a\x7d" * (len(data) // 2)
+                    line = ("BADAUDIO" if len(data) % 2 else
+                            "AUDIO %d%s" % (len(data) // 2, "" if same else " changed"))
                 elif raw.startswith(b"705"):
                     continue
                 else:
@@ -291,7 +294,25 @@ def t_char_key(m):
     m.expect("702 END")
     m.speak("space", "CHAR")
     m.expect("702 END")
-    check(m.said()[:2] == ["dummy-en-female-1|a", "dummy-en-female-1|shift a"], m.said())
+    m.speak("control_alt_kp-enter", "KEY")
+    m.expect("702 END")
+    m.speak("f12", "KEY")
+    m.expect("702 END")
+    m.set(synthesis_voice="dummy-ru-female-1")
+    m.speak("щ", "CHAR")
+    m.expect("702 END")
+    m.speak(",", "CHAR")
+    m.expect("702 END")
+    m.speak("shift_b", "KEY")
+    m.expect("702 END")
+    m.speak("Ё", "CHAR")
+    m.expect("702 END")
+    check(m.said() == ["dummy-en-female-1|ay", "dummy-en-female-1|shift ay",
+                       "dummy-en-female-1|space",
+                       "dummy-en-female-1|control alt keypad enter",
+                       "dummy-en-female-1|F12",
+                       "dummy-ru-female-1|ща", "dummy-ru-female-1|запятая",
+                       "dummy-ru-female-1|шифт би", "dummy-ru-female-1|ё"], m.said())
 
 
 def t_settings_snapshot(m):
@@ -377,8 +398,40 @@ def t_quiet_volume(m):
     m.set(volume="-100")
     m.speak("Hush.")
     m.expect("702 END")
-    check(any(l == "BADAUDIO" for _, l in m.lines), "volume -100 did not change the samples")
-    m.lines = [x for x in m.lines if x[1] != "BADAUDIO"]
+    check(any(l.endswith(" changed") for _, l in m.lines), "volume -100 did not change the samples")
+
+
+def t_rate(m):
+    # rate 100: 4 times, the model 2 of it, the frame (sonic) the rest
+    def samples(rate):
+        m.set(rate=str(rate))
+        start = len(m.lines)
+        m.speak("Hello world.")
+        m.expect("702 END")
+        return sum(int(e.split()[1]) for e in m.events(start) if e.startswith("AUDIO"))
+    full = samples(0)
+    check(full == 1200, "rate 0: %d" % full)
+    check(samples(-100) == 2400, "rate -100")
+    check(samples(50) == 600, "rate 50 (2 times, all by the model)")
+    fast = samples(100)
+    sonic = "dummy: sonic" in m.stderr()
+    speeds = [l for l in m.stderr().splitlines() if l.startswith("dummy: speed")]
+    check(speeds == ["dummy: speed 0.50", "dummy: speed 2.00",
+                     "dummy: speed %s" % ("2.00" if sonic else "4.00")], speeds)
+    if not sonic:
+        # the model does it all
+        check(fast == 300, "rate 100 without sonic: %d" % fast)
+    else:
+        check(250 <= fast <= 350, "rate 100: %d samples, not ~300" % fast)
+    m.set(rate="0")
+
+
+def t_loud_volume(m):
+    m.set(volume="100")
+    m.speak("Loud.")
+    m.expect("702 END")
+    # the full-scale samples are compressed, not wrapped around
+    check(any(l.endswith(" changed") for _, l in m.lines), "volume 100 did not change the samples")
 
 
 def t_quit(m):
@@ -431,6 +484,8 @@ TESTS = [
     (t_flood, "DummySynthMs 20\n"),
     (t_set_flood_during_speech, "DummySynthMs 50\n"),
     (t_quiet_volume, ""),
+    (t_rate, ""),
+    (t_loud_volume, ""),
     (t_quit, ""),
     (t_quit_during_load, "DummyLoadMs 5000\n"),
     (t_eof_during_speech, "DummySynthMs 100\n"),
@@ -495,7 +550,31 @@ def r_quit_during_load(m):
     check(time.time() - t0 < 3, "QUIT took %.2f s" % (time.time() - t0))
 
 
-REAL_TESTS = [(r_speak, ""), (r_stop_during_load, ""), (r_stop_speak, ""),
+def r_rate(m):
+    # speed 1, 2 (the model), 4 (the model 2, sonic 2); with AudioCopyDir
+    # set the copies are there to listen to
+    def samples(rate):
+        m.set(rate=str(rate))
+        start = len(m.lines)
+        m.speak("Съешь же ещё этих мягких французских булок, да выпей чаю.")
+        m.expect("702 END", 60)
+        return sum(int(e.split()[1]) for e in m.events(start) if e.startswith("AUDIO"))
+    n0, n50, n100 = samples(0), samples(50), samples(100)
+    m.set(rate="0")
+    check(0.35 < n50 / n0 < 0.7 and 0.15 < n100 / n0 < 0.35,
+          "samples %d %d %d" % (n0, n50, n100))
+
+
+def r_char_key(m):
+    for text, kind in (("щ", "CHAR"), (",", "CHAR"), ("control_alt_delete", "KEY")):
+        start = len(m.lines)
+        m.speak(text, kind)
+        m.expect("702 END", 60)
+        n = sum(int(e.split()[1]) for e in m.events(start) if e.startswith("AUDIO"))
+        check(n > 1000, "%s %r: %d samples" % (kind, text, n))
+
+
+REAL_TESTS = [(r_speak, ""), (r_rate, ""), (r_char_key, ""), (r_stop_during_load, ""), (r_stop_speak, ""),
               (r_quit_during_load, ""), (t_quit, ""), (t_eof_during_speech, "")]
 
 

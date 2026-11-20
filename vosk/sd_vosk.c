@@ -233,8 +233,8 @@ vosk_speak (const TtsPiece *p, GError **error)
 {
   VoskModel *m = p->voice->model;
   Speaker *sp = p->voice->data;
-  /* rate -100..100 -> half .. double speed */
-  float speed = (float) pow (2.0, p->settings->rate / 100.0);
+  /* the frame speeds the audio up further */
+  float speed = (float) tts_model_speed (p->settings);
   gsize n = 0;
   float *wav = vosk_synth (m, p->text, sp->sid, speed, &n, NULL, error);
 

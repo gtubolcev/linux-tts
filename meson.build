@@ -42,7 +42,13 @@ if not speechd_module.found()
       dependencies: threads))
 endif
 
-module_deps = [speechd_module, glib, math, threads]
+# rates above ModelMaxSpeed: the audio is sped up with sonic; without it the
+# model does the whole speed
+sonic = cc.find_library('sonic', required: get_option('sonic'), has_headers: ['sonic.h'])
+if sonic.found()
+  sonic = declare_dependency(dependencies: sonic, compile_args: '-DHAVE_SONIC')
+endif
+module_deps = [speechd_module, glib, math, threads, sonic]
 
 # text normalization (ru-normalizr) through a resident Python helper; the
 # modules pass text through unchanged when it or ru_normalizr is missing
@@ -58,7 +64,7 @@ executable('tts-norm-test', 'common/tts-norm-test.c', norm_src, stress_src,
 
 # the common module frame (threads, protocol, text) and its tests with a
 # fake engine
-module_src = files('common/tts-module.c') + norm_src
+module_src = files('common/tts-module.c', 'common/tts-keys.c') + norm_src
 sd_dummy = executable('sd_dummy', 'tests/sd_dummy.c', module_src,
   include_directories: [speechd_inc, shim_inc, common_inc],
   dependencies: module_deps)

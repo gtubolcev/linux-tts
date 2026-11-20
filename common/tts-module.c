@@ -36,6 +36,10 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <math.h>
+#ifdef HAVE_SONIC
+#include <sonic.h>
+#endif
 
 #include "tts-config.h"
 #include "tts-copy.h"
@@ -54,6 +58,8 @@ static GHashTable *cfg_lang_voice = NULL;  /* <Prefix>Voice "<lang>" "<voice>" *
 static int cfg_idle_timeout = -1;          /* -1: the engine's default */
 static int cfg_first_chunk = -1;
 static int cfg_max_models = 0;             /* 0: the engine's */
+static double cfg_max_rate = 4.0;          /* speed at rate 100 */
+static double cfg_model_max_speed = 2.0;   /* what the model does of it */
 static gchar *cfg_preload = NULL;          /* "1", a voice name; NULL: off */
 static TtsNormConfig norm_cfg;
 static TtsCopyConfig copy_cfg;
@@ -259,6 +265,10 @@ module_config (const char *configfile)
         cfg_idle_timeout = MAX (atoi (value), 0);
       else if (is_key (line, "FirstChunk"))
         cfg_first_chunk = MAX (atoi (value), 0);
+      else if (is_key (line, "MaxRate"))
+        cfg_max_rate = CLAMP (g_ascii_strtod (value, NULL), 1.0, 6.0);
+      else if (is_key (line, "ModelMaxSpeed"))
+        cfg_model_max_speed = CLAMP (g_ascii_strtod (value, NULL), 1.0, 6.0);
       else if (is_key (line, "Preload"))
         {
           g_free (cfg_preload);
@@ -741,21 +751,6 @@ tts_split_sentences (const gchar *text, int first)
   return out;
 }
 
-gchar *
-tts_key_text (const gchar *data, SPDMessageType type)
-{
-  gchar *t = g_strstrip (g_strdup (data));
-
-  if (strcmp (t, "space") == 0 || *t == '\0')
-    {
-      g_free (t);
-      return g_strdup (" ");
-    }
-  if (type == SPD_MSGTYPE_KEY)
-    g_strdelimit (t, "_", ' ');
-  return t;
-}
-
 /* ----------------------------------------------------------------- audio */
 
 gboolean
@@ -831,6 +826,67 @@ finish_locked (Msg *m)
   fflush (stdout);
 }
 
+/* rate -100..0 -> 0.5..1 times, 0..100 -> 1..MaxRate times; a screen reader
+ * user listens at 3-4 times */
+static double
+total_speed (int rate)
+{
+  return rate <= 0 ? pow (2.0, rate / 100.0) : pow (cfg_max_rate, rate / 100.0);
+}
+
+double
+tts_model_speed (const TtsSettings *s)
+{
+  double v = total_speed (s->rate);
+
+#ifdef HAVE_SONIC
+  return MIN (v, cfg_model_max_speed);
+#else
+  return v;
+#endif
+}
+
+#ifdef HAVE_SONIC
+/* the audio factor times faster at the same pitch (sonic, made for speech) */
+static gint16 *
+speed_up (const gint16 *in, gsize n, int sample_rate, double factor, gsize *out_n)
+{
+  sonicStream st = sonicCreateStream (sample_rate, 1);
+  gsize cap = (gsize) (n / factor) + 4096, len = 0;
+  gint16 *out;
+  int got;
+
+  if (st == NULL)
+    return NULL;
+  sonicSetSpeed (st, (float) factor);
+  for (gsize i = 0; i < n; i += 1 << 20)
+    sonicWriteShortToStream (st, (short *) in + i, (int) MIN (n - i, (gsize) 1 << 20));
+  sonicFlushStream (st);
+  out = g_new (gint16, cap);
+  while ((got = sonicReadShortFromStream (st, out + len, (int) MIN (cap - len, (gsize) G_MAXINT))) > 0)
+    {
+      len += got;
+      if (len == cap)
+        out = g_renew (gint16, out, cap *= 2);
+    }
+  sonicDestroyStream (st);
+  *out_n = len;
+  return out;
+}
+#endif
+
+/* volume above 0: up to 2 times louder; the peaks are compressed softly
+ * instead of clipped, the models make them near full scale already */
+static gint16
+louder (gint16 x, double gain)
+{
+  double v = x * gain / 32768.0, a = fabs (v);
+
+  if (a > 0.6)
+    a = 0.6 + 0.4 * tanh ((a - 0.6) / 0.4);
+  return (gint16) CLAMP ((v < 0 ? -a : a) * 32767.0, -32768.0, 32767.0);
+}
+
 gboolean
 tts_audio_s16 (const gint16 *samples, gsize n, int sample_rate)
 {
@@ -839,15 +895,23 @@ tts_audio_s16 (const gint16 *samples, gsize n, int sample_rate)
   int volume = current != NULL ? current->s.volume : 0;
   gint16 *scaled = NULL;
 
-  if (volume < 0)
+#ifdef HAVE_SONIC
+  if (current != NULL && n > 0)
     {
-      /* 0 and above keep the level the model made (its peaks are already
-       * near full scale, any boost clips); below 0 it gets quieter */
-      double gain = CLAMP ((volume + 100) / 100.0, 0.0, 1.0);
-      scaled = g_new (gint16, n);
+      double factor = total_speed (current->s.rate) / tts_model_speed (&current->s);
+      gsize m;
+      if (factor > 1.01 && (scaled = speed_up (samples, n, sample_rate, factor, &m)) != NULL)
+        samples = scaled, n = m;
+    }
+#endif
+  if (volume != 0)
+    {
+      /* below 0 quieter, down to silence */
+      double gain = volume < 0 ? CLAMP ((volume + 100) / 100.0, 0.0, 1.0) : 1.0 + volume / 100.0;
+      gint16 *v = scaled != NULL ? scaled : g_new (gint16, n);
       for (gsize i = 0; i < n; i++)
-        scaled[i] = (gint16) (samples[i] * gain);
-      samples = scaled;
+        v[i] = volume < 0 ? (gint16) (samples[i] * gain) : louder (samples[i], gain);
+      samples = scaled = v;
     }
   for (gsize i = 0; i < n; i += chunk)
     {
@@ -971,7 +1035,9 @@ speak_message (Msg *m)
       TTS_DBG ("speaking with %s: %.*s", m->voice->name, (int) MIN (m->bytes, 200), m->data);
       if (m->type == SPD_MSGTYPE_CHAR || m->type == SPD_MSGTYPE_KEY)
         {
-          gchar *text = tts_key_text (m->data, m->type);
+          const gchar *lang = E->text_language != NULL
+                              ? E->text_language (&m->s, m->voice) : m->voice->language;
+          gchar *text = tts_key_text (m->data, m->type, lang);
           gboolean first = TRUE;
           if (wait_model (m->voice->model))
             speak_piece (m, text, &first);

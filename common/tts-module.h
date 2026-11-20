@@ -19,7 +19,7 @@
  *    tts-copy);
  *  - the configuration file: the keys common to all modules
  *    (<Prefix>Voice, <Prefix>IdleTimeout, <Prefix>Preload (1 or a voice),
- *    <Prefix>FirstChunk, <Prefix>MaxModels, Debug, TextNormalization..., AudioCopyDir); the
+ *    <Prefix>FirstChunk, <Prefix>MaxModels, <Prefix>MaxRate, <Prefix>ModelMaxSpeed, Debug, TextNormalization..., AudioCopyDir); the
  *    rest goes to the engine;
  *  - after <Prefix>IdleTimeout seconds without speech the models are
  *    unloaded and the normalizer stopped.
@@ -128,6 +128,12 @@ gboolean tts_stopped (void);
  * message is applied.  FALSE when the message was stopped (the audio was
  * dropped). */
 gboolean tts_audio_float (const float *samples, gsize n, int sample_rate);
+/* the speed the model should synthesize at (its speed / length_scale
+ * parameter): rate -100..0 is 0.5..1 times, 0..100 is 1..<Prefix>MaxRate
+ * times (default 4).  Of that the model does up to <Prefix>ModelMaxSpeed
+ * (default 2, more spoils most models); tts_audio_* speeds the audio up by
+ * the rest at the same pitch (sonic). */
+double tts_model_speed (const TtsSettings *settings);
 gboolean tts_audio_s16 (const gint16 *samples, gsize n, int sample_rate);
 
 /* helpers for the configuration keys */
@@ -157,7 +163,9 @@ void tts_segments_free (GArray *segments);
  * commas.  With first_chunk > 0 the first piece is cut at a comma already
  * after first_chunk characters. */
 GPtrArray *tts_split_sentences (const gchar *text, int first_chunk);
-/* the text of a CHAR or KEY message ("space" -> " ", "shift_a" -> "shift a") */
-gchar *tts_key_text (const gchar *data, SPDMessageType type);
+/* the words for a CHAR or KEY message in the voice's language (tts-keys.c):
+ * CHAR "," -> "comma"/"запятая", KEY "control_alt_delete" -> "контрол альт
+ * делит".  The normalizer does not see them. */
+gchar *tts_key_text (const gchar *data, SPDMessageType type, const gchar *language);
 
 #endif

@@ -229,8 +229,8 @@ cut_point (const gchar *text)
 static gboolean
 speak_text (const gchar *text, const TtsPiece *p, GError **error)
 {
-  /* rate -100..100 -> half .. double speed */
-  float scale = (float) pow (2.0, -p->settings->rate / 100.0);
+  /* the frame speeds the audio up further */
+  float scale = (float) (1.0 / tts_model_speed (p->settings));
   gint64 t0 = g_get_monotonic_time ();
   gchar *prepared;
   gsize n = 0;

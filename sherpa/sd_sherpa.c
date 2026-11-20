@@ -1046,8 +1046,8 @@ speak_sentence (const gchar *text, const TtsPiece *p, GError **error)
   const SherpaOnnxGeneratedAudio *audio;
   gchar *extra = NULL, *lowered = NULL;
   GArray *cps = NULL, *lens = NULL;
-  /* rate -100..100 -> half .. double speed */
-  float speed = (float) pow (2.0, p->settings->rate / 100.0);
+  /* the frame speeds the audio up further */
+  float speed = (float) tts_model_speed (p->settings);
   Voice *v = p->voice->data;
   const SherpaOnnxOfflineTts *tts = v->model->tts;
   gboolean ok = TRUE;
