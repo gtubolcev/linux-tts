@@ -26,6 +26,9 @@
  * writes <module>.state: "loading", "ready", "failed <why>" or "idle", for
  * the dialog to show.  <module> is the name of the configuration file
  * without ".conf".
+ * Test loads: see TtsEngine.model_path.  The loader runs the child and
+ * waits for it (<Prefix>ProbeTimeout, 300 s; 0 turns the test off); a
+ * crash or a timeout is a failed load.
  *
  * Lock order: q_lock and m_lock are never held together; the main thread
  * takes module_stdout_mutex inside q_lock (stop_all) and q_lock inside
@@ -46,7 +49,10 @@
 #include <string.h>
 #include <unistd.h>
 #include <math.h>
+#include <signal.h>
+#include <sys/prctl.h>
 #include <sys/stat.h>
+#include <sys/wait.h>
 #ifdef HAVE_SONIC
 #include <sonic.h>
 #endif
@@ -61,6 +67,14 @@
 #define CONFIG_CHECK_MS 2000
 
 static void take_config (void);
+static void probe_child (void) G_GNUC_NORETURN;
+
+/* in the child: the voice to load (LINUX_TTS_PROBE); NULL in the module */
+static const gchar *probe_voice = NULL;
+/* the configuration file name without ".conf" */
+static gchar *module_base = NULL;
+/* the running child, for close_module; 0: none */
+static volatile pid_t probe_pid = 0;
 
 /* in libspeechd_module, not in its header: prints under module_stdout_mutex */
 void module_send (const char *format, ...);
@@ -75,6 +89,7 @@ static int cfg_max_models = 0;             /* 0: the engine's */
 static double cfg_max_rate = 4.0;          /* speed at rate 100 */
 static double cfg_model_max_speed = 2.0;   /* what the model does of it */
 static gchar *cfg_preload = NULL;          /* "1", a voice name; NULL: off */
+static int cfg_probe_timeout = -1;         /* s; -1: PROBE_TIMEOUT, 0: no test loads */
 static TtsNormConfig norm_cfg;
 static TtsCopyConfig copy_cfg;
 
@@ -287,6 +302,7 @@ reset_scalars (void)
   cfg_max_rate = 4.0;
   cfg_model_max_speed = 2.0;
   cfg_max_models = 0;
+  cfg_probe_timeout = -1;
   g_clear_pointer (&cfg_preload, g_free);
 }
 
@@ -328,6 +344,8 @@ parse_config (gchar *contents, Parsed *c, gboolean engine)
                         && g_ascii_strcasecmp (value, "false") != 0
                         && g_ascii_strcasecmp (value, "off") != 0 ? g_strdup (value) : NULL;
         }
+      else if (is_key (line, "ProbeTimeout"))
+        cfg_probe_timeout = MAX (atoi (value), 0);
       else if (is_key (line, "MaxModels"))
         cfg_max_models = CLAMP (atoi (value), 1, 8);
       else if (is_key (line, "Voice"))
@@ -427,6 +445,7 @@ module_config (const char *configfile)
   tts_copy_config_init (&c.copy);
   if (E->setup != NULL)
     E->setup ();
+  probe_voice = g_getenv ("LINUX_TTS_PROBE");
   if (configfile != NULL)
     {
       gchar *base = g_path_get_basename (configfile);
@@ -438,7 +457,8 @@ module_config (const char *configfile)
       stamp_sys = stamp_of (conf_sys);
       if (g_str_has_suffix (base, ".conf"))
         base[strlen (base) - 5] = '\0';
-      if (*base != '\0' && g_mkdir_with_parents (dir, 0700) == 0)
+      module_base = g_strdup (base);
+      if (probe_voice == NULL && *base != '\0' && g_mkdir_with_parents (dir, 0700) == 0)
         {
           gchar *name = g_strconcat (base, ".load", NULL);
 
@@ -462,6 +482,8 @@ module_config (const char *configfile)
   copy_cfg = c.copy;
   norm_sig = norm_signature (&norm_cfg);
   copy_sig = copy_signature (&copy_cfg);
+  if (probe_voice != NULL)
+    probe_child ();
   return 0;
 }
 
@@ -595,6 +617,236 @@ needs_load_locked (gpointer m)
   return m != NULL && g_queue_find (&loaded, m) == NULL && !failed_recently_locked (m);
 }
 
+/* ------------------------------------------------------------ test loads */
+
+#define PROBE_TIMEOUT 300
+
+
+/* the child: init and load, then _exit (no destructors: an engine that
+ * crashes at exit would look like a broken model).  0 loaded, 2 the load
+ * failed normally, 3 no such voice */
+static void
+probe_child (void)
+{
+  gchar *msg = NULL;
+  GError *error = NULL;
+  TtsVoice *v;
+
+  if (E->init != NULL && !E->init (&msg))
+    _exit (3);
+  v = voice_by_name (probe_voice);
+  if (v == NULL || v->model == NULL || E->load == NULL)
+    _exit (3);
+  if (!E->load (v->model, &error))
+    {
+      fprintf (stderr, "%s: test load of %s: %s\n", E->name, probe_voice,
+               error != NULL ? error->message : "?");
+      _exit (2);
+    }
+  _exit (0);
+}
+
+static int
+cmp_str (gconstpointer a, gconstpointer b)
+{
+  return strcmp (*(const gchar *const *) a, *(const gchar *const *) b);
+}
+
+/* what the files of PATH look like (a file, or a directory and its
+ * entries); NULL if it does not exist */
+static gchar *
+model_stamp (const gchar *path)
+{
+  GChecksum *sum;
+  GPtrArray *lines = g_ptr_array_new_with_free_func (g_free);
+  struct stat st;
+  gchar *result;
+  GDir *dir;
+
+  if (stat (path, &st) != 0)
+    {
+      g_ptr_array_free (lines, TRUE);
+      return NULL;
+    }
+  g_ptr_array_add (lines, g_strdup_printf (". %lld %lld.%09ld", (long long) st.st_size,
+                                           (long long) st.st_mtim.tv_sec, st.st_mtim.tv_nsec));
+  if (S_ISDIR (st.st_mode) && (dir = g_dir_open (path, 0, NULL)) != NULL)
+    {
+      const gchar *name;
+
+      while ((name = g_dir_read_name (dir)) != NULL)
+        {
+          gchar *f = g_build_filename (path, name, NULL);
+          if (stat (f, &st) == 0)
+            g_ptr_array_add (lines, g_strdup_printf ("%s %lld %lld.%09ld", name,
+                                                     (long long) st.st_size,
+                                                     (long long) st.st_mtim.tv_sec,
+                                                     st.st_mtim.tv_nsec));
+          g_free (f);
+        }
+      g_dir_close (dir);
+    }
+  g_ptr_array_sort (lines, cmp_str);
+  sum = g_checksum_new (G_CHECKSUM_SHA256);
+  for (guint i = 0; i < lines->len; i++)
+    {
+      g_checksum_update (sum, g_ptr_array_index (lines, i), -1);
+      g_checksum_update (sum, (const guchar *) "\n", 1);
+    }
+  result = g_strdup (g_checksum_get_string (sum));
+  g_checksum_free (sum);
+  g_ptr_array_free (lines, TRUE);
+  return result;
+}
+
+static gchar *
+probe_cache_path (void)
+{
+  gchar *name = g_strdup_printf ("probe-%s.ini", module_base);
+  gchar *path = g_build_filename (g_get_user_cache_dir (), "linux-tts", name, NULL);
+
+  g_free (name);
+  return path;
+}
+
+static void
+probe_cache_put (const gchar *path, const gchar *stamp, const gchar *result)
+{
+  gchar *file = probe_cache_path ();
+  gchar *dir = g_path_get_dirname (file);
+  GKeyFile *kf = g_key_file_new ();
+
+  g_key_file_load_from_file (kf, file, G_KEY_FILE_KEEP_COMMENTS, NULL);
+  g_key_file_set_string (kf, path, "stamp", stamp);
+  g_key_file_set_string (kf, path, "result", result);
+  if (g_mkdir_with_parents (dir, 0700) == 0)
+    g_key_file_save_to_file (kf, file, NULL);
+  g_key_file_free (kf);
+  g_free (dir);
+  g_free (file);
+}
+
+static void
+probe_setup (gpointer data)
+{
+  /* the child goes with the loader thread that waits for it */
+  prctl (PR_SET_PDEATHSIG, SIGKILL);
+}
+
+/* in the loader, before the first load of M: FALSE (with *error) if the
+ * test load in a child crashed or hung */
+static gboolean
+probe_model (gpointer m, GError **error)
+{
+  int timeout = cfg_probe_timeout >= 0 ? cfg_probe_timeout : PROBE_TIMEOUT;
+  const gchar *path, *voice = NULL;
+  gchar *stamp, *file, *cached = NULL, *cached_stamp = NULL, *result = NULL;
+  gchar **envp, *argv[3];
+  GKeyFile *kf;
+  GPid pid;
+  GError *e = NULL;
+  gint64 t0, end;
+  int status = 0;
+  gboolean ok = TRUE, done = FALSE;
+
+  if (timeout == 0 || E->model_path == NULL || conf_given == NULL || module_base == NULL
+      || (path = E->model_path (m)) == NULL || (stamp = model_stamp (path)) == NULL)
+    return TRUE;
+
+  file = probe_cache_path ();
+  kf = g_key_file_new ();
+  if (g_key_file_load_from_file (kf, file, G_KEY_FILE_NONE, NULL))
+    {
+      cached_stamp = g_key_file_get_string (kf, path, "stamp", NULL);
+      cached = g_key_file_get_string (kf, path, "result", NULL);
+    }
+  g_key_file_free (kf);
+  g_free (file);
+  if (cached != NULL && g_strcmp0 (cached_stamp, stamp) == 0)
+    {
+      ok = strcmp (cached, "ok") == 0;
+      if (!ok)
+        g_set_error (error, G_FILE_ERROR, G_FILE_ERROR_FAILED, "%s (%s; remembered "
+                     "until its files change)", cached, path);
+      goto out;
+    }
+
+  g_mutex_lock (&m_lock);
+  for (guint i = 0; voices != NULL && i < voices->len; i++)
+    if (((TtsVoice *) g_ptr_array_index (voices, i))->model == m)
+      {
+        voice = ((TtsVoice *) g_ptr_array_index (voices, i))->name;
+        break;
+      }
+  g_mutex_unlock (&m_lock);
+  if (voice == NULL)
+    goto out;
+
+  argv[0] = (gchar *) "/proc/self/exe";
+  argv[1] = conf_given;
+  argv[2] = NULL;
+  envp = g_environ_setenv (g_get_environ (), "LINUX_TTS_PROBE", voice, TRUE);
+  /* stdin and stdout /dev/null: the child must not talk to the server */
+  if (!g_spawn_async (NULL, argv, envp, G_SPAWN_DO_NOT_REAP_CHILD | G_SPAWN_STDOUT_TO_DEV_NULL,
+                      probe_setup, NULL, &pid, &e))
+    {
+      TTS_ERR ("no test load of %s: %s", voice, e->message);
+      g_clear_error (&e);
+      g_strfreev (envp);
+      goto out;
+    }
+  g_strfreev (envp);
+  probe_pid = pid;
+  TTS_DBG ("test load of %s (%s) in process %d", voice, path, (int) pid);
+  t0 = g_get_monotonic_time ();
+  end = t0 + (gint64) timeout * G_TIME_SPAN_SECOND;
+  while (!done)
+    {
+      pid_t r = waitpid (pid, &status, WNOHANG);
+
+      if (r == pid || (r < 0 && errno != EINTR))
+        done = TRUE;
+      else if (g_get_monotonic_time () >= end)
+        {
+          kill (pid, SIGKILL);
+          waitpid (pid, &status, 0);
+          probe_pid = 0;
+          TTS_ERR ("test load of %s did not finish in %d s", voice, timeout);
+          g_set_error (error, G_FILE_ERROR, G_FILE_ERROR_FAILED,
+                       "the test load of %s did not finish in %d s", voice, timeout);
+          ok = FALSE;
+          goto out;      /* not remembered: the machine may just be busy */
+        }
+      else
+        g_usleep (100 * 1000);
+    }
+  probe_pid = 0;
+  if (WIFSIGNALED (status))
+    result = g_strdup_printf ("the model crashed the engine (signal %d, %s)", WTERMSIG (status),
+                              g_strsignal (WTERMSIG (status)));
+  else if (WIFEXITED (status) && WEXITSTATUS (status) == 0)
+    result = g_strdup ("ok");
+  TTS_DBG ("test load of %s: status %d in %.1f s", voice, status,
+           (g_get_monotonic_time () - t0) / 1e6);
+  /* exit 2 or 3: the load fails normally here too; nothing to remember */
+  if (result != NULL)
+    {
+      probe_cache_put (path, stamp, result);
+      ok = strcmp (result, "ok") == 0;
+      if (!ok)
+        {
+          TTS_ERR ("test load of %s: %s", voice, result);
+          g_set_error (error, G_FILE_ERROR, G_FILE_ERROR_FAILED, "%s", result);
+        }
+    }
+out:
+  g_free (result);
+  g_free (cached);
+  g_free (cached_stamp);
+  g_free (stamp);
+  return ok;
+}
+
 static gpointer
 loader_main (gpointer data)
 {
@@ -661,7 +913,7 @@ loader_main (gpointer data)
         }
       write_state ("loading\n");
       t0 = g_get_monotonic_time ();
-      ok = E->load (m, &error);
+      ok = probe_model (m, &error) && E->load (m, &error);
       if (ok)
         {
           TTS_DBG ("model loaded in %.1f s", (g_get_monotonic_time () - t0) / 1e6);
@@ -1691,6 +1943,8 @@ static void
 exit_now (gboolean reply)
 {
   TTS_DBG ("quitting while the engine is busy");
+  if (probe_pid > 0)
+    kill (probe_pid, SIGKILL);
   if (reply)
     module_send ("210 OK QUIT\n");
   fflush (stdout);

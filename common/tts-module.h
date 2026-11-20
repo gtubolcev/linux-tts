@@ -98,6 +98,14 @@ typedef struct
   const gchar *(*text_language) (const TtsSettings *s, const TtsVoice *voice);
   /* at QUIT after the worker stopped; may be NULL */
   void (*close) (void);
+  /* the file or directory a model is loaded from; may be NULL.  Before a
+   * model is loaded for the first time (or after its files changed), a
+   * child process (this program again, with LINUX_TTS_PROBE=<voice>) runs
+   * init and load for it, so that a broken model that crashes or hangs the
+   * engine fails the load instead of taking the module down.  The result is
+   * kept in $XDG_CACHE_HOME/linux-tts/probe-<module>.ini.  NULL here or as
+   * the result: no test load. */
+  const gchar *(*model_path) (gpointer model);
 } TtsEngine;
 
 /* the engine, defined by the module */

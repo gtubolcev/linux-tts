@@ -6,6 +6,8 @@
  * DummyLoadMs, a piece takes DummySynthMs and becomes 100 samples per
  * character of the value 0x7d0a (the bytes that need escaping).  A piece
  * with "FAIL" fails.  Every piece is logged to stderr as "dummy: say <text>".
+ * With DummyModelDir the models have files there (en, ru, bad) for the test
+ * loads: a file that starts with "crash" aborts the load, "hang" never ends.
  *
  * Copyright (C) 2026 Grigory Tuboltsev
  * SPDX-License-Identifier: GPL-3.0-or-later
@@ -14,6 +16,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <signal.h>
 #include <unistd.h>
 
 #include "tts-module.h"
@@ -21,6 +24,7 @@
 static int load_ms = 0, synth_ms = 0;
 static char model_en[] = "en", model_ru[] = "ru", model_bad[] = "bad";
 static int loaded_count = 0;
+static gchar *model_dir = NULL;
 
 static gboolean
 dummy_config (const gchar *key, const gchar *value)
@@ -29,6 +33,8 @@ dummy_config (const gchar *key, const gchar *value)
     load_ms = atoi (value);
   else if (g_ascii_strcasecmp (key, "DummySynthMs") == 0)
     synth_ms = atoi (value);
+  else if (g_ascii_strcasecmp (key, "DummyModelDir") == 0)
+    g_free (model_dir), model_dir = g_strdup (value);
   else
     return FALSE;
   return TRUE;
@@ -47,11 +53,34 @@ dummy_init (gchar **msg)
   return TRUE;
 }
 
+static const gchar *
+dummy_model_path (gpointer model)
+{
+  static gchar *paths[3];
+  int i = model == model_en ? 0 : model == model_ru ? 1 : 2;
+
+  if (model_dir == NULL)
+    return NULL;
+  if (paths[i] == NULL)
+    paths[i] = g_build_filename (model_dir, (char *) model, NULL);
+  return paths[i];
+}
+
 static gboolean
 dummy_load (gpointer model, GError **error)
 {
+  gchar *contents = NULL;
+
   /* not interruptible, like ONNX Runtime */
   g_usleep ((gulong) load_ms * 1000);
+  if (model_dir != NULL && g_file_get_contents (dummy_model_path (model), &contents, NULL, NULL))
+    {
+      if (g_str_has_prefix (contents, "crash"))
+        abort ();
+      while (g_str_has_prefix (contents, "hang"))
+        pause ();
+      g_free (contents);
+    }
   if (model == model_bad)
     {
       g_set_error (error, G_FILE_ERROR, G_FILE_ERROR_NOENT, "bad model");
@@ -104,4 +133,5 @@ const TtsEngine tts_engine = {
   .load = dummy_load,
   .unload = dummy_unload,
   .speak = dummy_speak,
+  .model_path = dummy_model_path,
 };
