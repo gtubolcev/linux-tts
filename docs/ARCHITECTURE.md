@@ -53,6 +53,32 @@ replaced by the Piper voices of `sherpa-onnx`.
 | `sd_silero` | Silero v5 (user-installed, non-commercial) | silero-tts-onnx | ONNX Runtime (Python) | no |
 | `sd_rhvoice`, espeak-ng | RHVoice voices, espeak-ng | built in | no neural network | not needed |
 
+## The module frame
+
+All five modules are built on `common/tts-module.c`; an engine file
+(`sherpa/sd_sherpa.c`, `vosk/sd_vosk.c`, ...) only fills a `TtsEngine`:
+its configuration keys, its voices, how to load a model and how to speak one
+piece of text. The frame does the rest the same way for everyone:
+
+- three threads. The main thread only reads speech-dispatcher's commands:
+  SPEAK queues the message, STOP and PAUSE answer at once. A worker speaks the
+  queue; a loader loads the models (`<Prefix>MaxModels`, the one used longest
+  ago goes; all of them after `<Prefix>IdleTimeout` s without speech);
+- the events: every message gets one `701 BEGIN` and one of `702`/`703`/`704`,
+  index marks (`700`) in order, nothing of a message after its final event;
+- the text: SSML with its marks, CHAR/KEY, the normalizer, the stress stage
+  (per engine), the sentence splitter with `<Prefix>FirstChunk`, the audio
+  copy;
+- the common keys: `<Prefix>Voice`, `<Prefix>Preload` (1 or a voice),
+  `<Prefix>IdleTimeout`, `<Prefix>FirstChunk`, `<Prefix>MaxModels`, `Debug`.
+
+`tests/sd_dummy.c` is a fake engine; `tests/module-protocol.py` checks the
+protocol against it in `meson test` (also under ASan), and with
+`--real MODULE "CONF"` against a real module and model.
+
+silero's model is its server: loading starts or adopts silero-server, the idle
+unload stops it, QUIT leaves it running for the next module.
+
 ## One module, two synthesizers
 
 speech-dispatcher starts a synthesizer `<name>` as the program
