@@ -1,0 +1,415 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Grigory Tuboltsev <gtubolcev@gmail.com>
+Date: Wed, 18 Nov 2026 20:32:56 +0100
+Subject: [PATCH] =?UTF-8?q?fix(numerals):=20=D1=80=D0=BE=D0=B4=D0=B8=D1=82?=
+ =?UTF-8?q?=D0=B5=D0=BB=D1=8C=D0=BD=D1=8B=D0=B9=20=D0=BF=D1=80=D0=B8=20?=
+ =?UTF-8?q?=D0=BE=D1=82=D1=80=D0=B8=D1=86=D0=B0=D0=BD=D0=B8=D0=B8=20=D0=BD?=
+ =?UTF-8?q?=D0=B0=D0=BB=D0=B8=D1=87=D0=B8=D1=8F=20=D0=B8=20=D0=B2=20=D0=B3?=
+ =?UTF-8?q?=D1=80=D1=83=D0=BF=D0=BF=D0=B5=20=D1=81=20=D1=87=D0=B8=D1=81?=
+ =?UTF-8?q?=D0=BB=D0=BE=D0=BC=20=D0=BD=D0=B0=201?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+«нет 5 рублей» → «нет пяти рублей», «не хватает 2 голосов» → «двух
+голосов» (новое правило negated-existence). «Делегаты 31 страны» →
+«тридцати одной страны»: число на 1 при существительном в родительном
+и вершине слева читается группой в родительном; существительные-номера
+(век, съезд, дивизия…) исключены. «21 века» и «стоит 21 книга»
+записаны в known gaps.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_0189a4focDKPAbyh6UsPZ3Vz
+---
+ CHANGELOG.md                           | 14 +++++
+ docs/SPEED_OBSERVATIONS.md             | 16 +++++
+ src/ru_normalizr/numerals/_helpers.py  | 47 ++++++++++++++
+ src/ru_normalizr/numerals/cardinals.py | 64 ++++++++++++++++++--
+ tests/test_case_rules.py               |  6 ++
+ tests/test_known_gap_fixes.py          | 84 +++++++++++++++++++++++++-
+ tests/test_known_gaps.py               | 22 +++++++
+ 7 files changed, 246 insertions(+), 7 deletions(-)
+
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+index 2140a9c..03e7811 100644
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -6,6 +6,20 @@ The format is based on Keep a Changelog, and this project follows Semantic Versi
+ 
+ ## Unreleased
+ 
++### Fixed
++- Отрицание наличия ставит количество в родительный: «У него нет 5 рублей» —
++  «нет пяти рублей», «не хватает 2 голосов» — «не хватает двух голосов»,
++  «не было 3 ящиков» — «не было трёх ящиков». Правило `negated-existence`
++  срабатывает на «нет», «нету» и на «не» перед «быть», «остаться», «хватать»,
++  «найтись» и подобными глаголами прямо перед числом, если справа стоит слово
++  в родительном. Ответ «Нет, 5 рублей…» за запятой не затрагивается.
++- Числа на 1 при существительном в родительном единственного и вершине слева
++  читаются в родительном всей группой: «Делегаты 31 страны» — «тридцати одной
++  страны», «Представители 21 крупнейшей экономики» — «двадцати одной
++  крупнейшей экономики». То же для чисел на 2–4 с определением во
++  множественном. Существительные-«номера» (век, год, съезд, дивизия и т. п.)
++  исключены: «21 века» остаётся открытым дефектом порядкового чтения.
++
+ ## [1.3.0] - 2026-10-12
+ 
+ ### Added
+diff --git a/docs/SPEED_OBSERVATIONS.md b/docs/SPEED_OBSERVATIONS.md
+index c81b176..41240bf 100644
+--- a/docs/SPEED_OBSERVATIONS.md
++++ b/docs/SPEED_OBSERVATIONS.md
+@@ -1439,3 +1439,19 @@ c202bec + сохранение «с», после: 1338,57 мс; 186 766 сим
+ дереве сделан отдельно от тестов и полного корпуса; загрузка CPU 2,93 %:
+ 1351,53 мс; **184 976 символов/с**; peak RSS 85,1 МБ. Порог пройден,
+ скорость выше исходных 181 892 символов/с. Команда та же, что приведена выше.
++
++## 18 ноября 2026 — отрицание наличия и группа в родительном
++
++Замеры на другой машине (контейнер `--cpus=3`, Python 3.12), поэтому
++абсолютные числа ниже прежних и с порогом 180 000 прямо не сравниваются;
++сравнивается пара до/после в одинаковых условиях. Порядок: после, до
++(`git stash`), снова после.
++
++```text
++python scripts/benchmark.py --real-only --mode tts --samples 1 --warmups 1 --prefix-chars 250000 --book benchmarks/corpus/03_karamzin_history_of_russian_state.txt
++после:  1930,41 мс; 129 506 символов/с
++до:     1904,20 мс; 131 289 символов/с
++после:  1903,71 мс; 131 323 символов/с
++```
++
++Разница в пределах шума, замедления нет.
+diff --git a/src/ru_normalizr/numerals/_helpers.py b/src/ru_normalizr/numerals/_helpers.py
+index d294889..b46146f 100644
+--- a/src/ru_normalizr/numerals/_helpers.py
++++ b/src/ru_normalizr/numerals/_helpers.py
+@@ -105,6 +105,23 @@ GENITIVE_QUANTITY_GOVERNORS = {
+     "стоимость",
+     "цена",
+ }
++#: Отрицание, которое ставит количество в родительный: «нет 5 рублей»,
++#: «не хватает 2 голосов». Предикативы стоят прямо перед числом, глаголы —
++#: после «не».
++NEGATED_GENITIVE_PREDICATIVES = frozenset({"нет", "нету"})
++NEGATED_GENITIVE_VERB_LEMMAS = frozenset(
++    {
++        "быть",
++        "набираться",
++        "набраться",
++        "найтись",
++        "оставаться",
++        "остаться",
++        "существовать",
++        "хватать",
++        "хватить",
++    }
++)
+ #: Parameter nouns whose following measurement is an apposition naming the
+ #: value: «при температуре 660 °C» is «температура = 660 °C». The parameter, not
+ #: the measurement, is what the preposition governs, so the measurement stays
+@@ -1415,6 +1432,35 @@ def _rule_genitive_quantity_governor(ctx: NumeralContext) -> str | None:
+     return None
+ 
+ 
++def _rule_negated_existence(ctx: NumeralContext) -> str | None:
++    """Отрицание наличия ставит количество в родительный.
++
++    «У него нет 5 рублей» → «нет пяти рублей», «не хватает 2 голосов» →
++    «не хватает двух голосов». Справа обязано стоять слово в родительном:
++    «Нет, 5 рублей он вернул» запятой отделяет ответ, и «нет» там не управляет.
++    """
++    left = ctx.word(-1)
++    if not left or not ctx.raw(-1).isalpha():
++        return None
++    if left not in NEGATED_GENITIVE_PREDICATIVES:
++        if ctx.word(-2) != "не" or not ctx.raw(-2).isalpha():
++            return None
++        if not any(
++            p.normal_form in NEGATED_GENITIVE_VERB_LEMMAS
++            for p in top_scoring_verb_parses(parse_word(left))
++        ):
++            return None
++    right = ctx.word(1)
++    if not right:
++        return None
++    if not any(
++        p.tag.POS in {"NOUN", "ADJF", "PRTF"} and p.tag.case == "gent"
++        for p in parse_word(right)
++    ):
++        return None
++    return "gent"
++
++
+ def _rule_locative_quantity_head(ctx: NumeralContext) -> str | None:
+     """«в возрасте 25 лет» → «в возрасте двадцати пяти лет».
+ 
+@@ -1743,6 +1789,7 @@ CASE_RULES: tuple[CaseRule, ...] = (
+     CaseRule("numbering-head", _rule_numbering_head),
+     CaseRule("label-noun-head", _rule_label_noun_head),
+     CaseRule("genitive-quantity-governor", _rule_genitive_quantity_governor),
++    CaseRule("negated-existence", _rule_negated_existence),
+     CaseRule("locative-quantity-head", _rule_locative_quantity_head),
+     CaseRule("measure-parameter-head", _rule_measure_parameter_head),
+     CaseRule("oblique-noun-before-bare-number", _rule_oblique_noun_before_bare_number),
+diff --git a/src/ru_normalizr/numerals/cardinals.py b/src/ru_normalizr/numerals/cardinals.py
+index a9d1e88..019b172 100644
+--- a/src/ru_normalizr/numerals/cardinals.py
++++ b/src/ru_normalizr/numerals/cardinals.py
+@@ -164,6 +164,17 @@ def _animate_counted_noun(tokens: list[str], index: int) -> bool:
+ 
+ 
+ _ROUBLE_UNIT_LEMMAS = frozenset({"рубль", "гривна"})
++#: Существительные, при которых число на 1 в родительном обычно порядковое:
++#: «Москва 21 века», «делегаты 21 съезда», «солдаты 41 дивизии». Счётное
++#: чтение группы в родительном («двадцати одного века») для них не выбирается.
++_SEQUENCE_NOUN_LEMMAS = frozenset(
++    {
++        "армия", "батальон", "бригада", "век", "выпуск", "глава", "год", "день",
++        "дивизия", "квартал", "класс", "корпус", "курс", "номер", "пункт", "полк",
++        "раунд", "рота", "сезон", "созыв", "столетие", "съезд", "том", "тур",
++        "тысячелетие", "этаж",
++    }
++)
+ 
+ 
+ def _money_amount_precedes(tokens: list[str], index: int) -> bool:
+@@ -625,13 +636,20 @@ def _handle_adjective_and_noun(site: _NumberSite) -> Outcome | None:
+     )
+     if p_noun is None or resolve_unit_info(adj_token) is not None:
+         return None
+-    if noun_number_form(site.value) == "one" and not _counted_one_form_agrees(
++    genitive_group = _one_group_is_genitive(site, clean_noun) or _paucal_group_is_genitive(
+         site, clean_noun
++    )
++    if (
++        noun_number_form(site.value) == "one"
++        and not genitive_group
++        and not _counted_one_form_agrees(site, clean_noun)
+     ):
+         return None
+     is_anim = "anim" in p_noun.tag
+     num_words = site.rendered(
+-        paucal_accusative_case(site.value, site.case, animate=is_anim),
++        paucal_accusative_case(
++            site.value, "gent" if genitive_group else site.case, animate=is_anim
++        ),
+         p_noun.tag.gender,
+         is_anim,
+     )
+@@ -844,6 +862,35 @@ def _paucal_group_is_genitive(site: _NumberSite, alias: str) -> bool:
+         "NOUN" in p.tag and p.tag.case == "gent" and "plur" in p.tag for p in parses
+     ):
+         return False
++    return _has_noun_head_on_the_left(site)
++
++
++def _one_group_is_genitive(site: _NumberSite, alias: str) -> bool:
++    """Существительное в родительном единственного при числе на 1 (кроме 11).
++
++    Счётная форма при таком числе — падеж самого числа: «двадцать один дом».
++    Родительный единственного при именительном числе счётной формой быть не
++    может, и при существительном слева вся группа стоит в родительном:
++    «представители 21 страны» → «представители двадцати одной страны».
++    """
++    if noun_number_form(site.value) != "one" or site.case == "gent":
++        return False
++    if not word_is_known(alias):
++        return False
++    parses = parse_word(alias)
++    if any(
++        "NOUN" in p.tag and "sing" in p.tag and p.tag.case in {"nomn", "accs"} for p in parses
++    ):
++        return False
++    if not any("NOUN" in p.tag and p.tag.case == "gent" and "sing" in p.tag for p in parses):
++        return False
++    if any(p.normal_form in _SEQUENCE_NOUN_LEMMAS for p in parses if "NOUN" in p.tag):
++        return False
++    return _has_noun_head_on_the_left(site)
++
++
++def _has_noun_head_on_the_left(site: _NumberSite) -> bool:
++    """Слева от числа — существительное, которому группа служит определением."""
+     # Вершина слева и делает группу несогласованным определением: без неё
+     # («прошло 22 суток») родительный числительного взяться неоткуда.
+     if site.idx == 0:
+@@ -872,8 +919,11 @@ def _handle_counted_noun(site: _NumberSite, unit: _UnitAtSite) -> Outcome | None
+     mismatch = _ordinal_for_mismatched_noun(site, unit.alias, p_noun)
+     if mismatch is not None:
+         return mismatch
+-    if noun_number_form(site.value) == "one" and not _counted_one_form_agrees(
+-        site, unit.alias
++    genitive_group = _one_group_is_genitive(site, unit.alias)
++    if (
++        noun_number_form(site.value) == "one"
++        and not genitive_group
++        and not _counted_one_form_agrees(site, unit.alias)
+     ):
+         return None
+     noun_token = unit.noun_token
+@@ -902,7 +952,11 @@ def _handle_counted_noun(site: _NumberSite, unit: _UnitAtSite) -> Outcome | None
+             and apposition.tag.number == "plur"
+         ):
+             is_anim = False
+-    counted_case = "gent" if _paucal_group_is_genitive(site, unit.alias) else site.case
++    counted_case = (
++        "gent"
++        if genitive_group or _paucal_group_is_genitive(site, unit.alias)
++        else site.case
++    )
+     num_words = site.rendered(
+         paucal_accusative_case(site.value, counted_case, animate=is_anim),
+         TIME_WORDS.get(unit.alias, p_noun.tag.gender),
+diff --git a/tests/test_case_rules.py b/tests/test_case_rules.py
+index d862c1c..b75ec6a 100644
+--- a/tests/test_case_rules.py
++++ b/tests/test_case_rules.py
+@@ -186,6 +186,12 @@ RULE_CASES = (
+         "Итоговая сумма четырёх тысяч пятисот рублей устроила обе стороны сделки.",
+         id="genitive_quantity_governor",
+     ),
++    pytest.param(
++        "negated-existence",
++        "Мне не хватает 2 голосов, чтобы пройти во второй тур.",
++        "Мне не хватает двух голосов, чтобы пройти во второй тур.",
++        id="negated_existence",
++    ),
+     pytest.param(
+         "locative-quantity-head",
+         "Он ушёл на пенсию в возрасте 25 лет и занялся садом.",
+diff --git a/tests/test_known_gap_fixes.py b/tests/test_known_gap_fixes.py
+index 394797a..3f4bfab 100644
+--- a/tests/test_known_gap_fixes.py
++++ b/tests/test_known_gap_fixes.py
+@@ -174,6 +174,84 @@ PAUCAL_MODIFIER_CASES = (
+     ),
+ )
+ 
++NEGATED_EXISTENCE_CASES = (
++    # Отрицание наличия ставит количество в родительный.
++    pytest.param(
++        "У него нет 5 рублей на проезд.",
++        "У него нет пяти рублей на проезд.",
++        id="net_before_count",
++    ),
++    pytest.param(
++        "Нет 22 писем от него, хотя обещал.",
++        "Нет двадцати двух писем от него, хотя обещал.",
++        id="net_at_sentence_start",
++    ),
++    pytest.param(
++        "На складе не было 3 ящиков с гвоздями.",
++        "На складе не было трёх ящиков с гвоздями.",
++        id="ne_bylo_before_count",
++    ),
++    pytest.param(
++        "Не осталось 4 билетов на вечерний сеанс.",
++        "Не осталось четырёх билетов на вечерний сеанс.",
++        id="ne_ostalos_before_count",
++    ),
++    pytest.param(
++        "У нас нет 1 книги из комплекта.",
++        "У нас нет одной книги из комплекта.",
++        id="net_before_one_takes_noun_gender",
++    ),
++    # Без отрицания или за запятой падеж прежний.
++    pytest.param(
++        "У него было 5 рублей на проезд.",
++        "У него было пять рублей на проезд.",
++        id="affirmative_byt_keeps_nominative",
++    ),
++    pytest.param(
++        "Нет, 5 рублей он так и не вернул.",
++        "Нет, пять рублей он так и не вернул.",
++        id="net_as_answer_does_not_govern",
++    ),
++)
++
++
++@pytest.mark.parametrize(("source", "expected"), NEGATED_EXISTENCE_CASES)
++def test_negated_existence(check_tts: CheckTts, source: str, expected: str) -> None:
++    check_tts(source, expected)
++
++
++GENITIVE_GROUP_CASES = (
++    # Число на 1 при существительном в родительном единственного и вершине
++    # слева: вся группа — несогласованное определение в родительном.
++    pytest.param(
++        "Представители 21 крупнейшей экономики мира собрались в Москве.",
++        "Представители двадцати одной крупнейшей экономики мира собрались в Москве.",
++        id="one_form_with_adjective",
++    ),
++    pytest.param(
++        "Делегаты 31 страны подписали соглашение.",
++        "Делегаты тридцати одной страны подписали соглашение.",
++        id="one_form_bare_noun",
++    ),
++    pytest.param(
++        "Представители 22 крупнейших экономик мира собрались в Москве.",
++        "Представители двадцати двух крупнейших экономик мира собрались в Москве.",
++        id="paucal_with_adjective",
++    ),
++    # Счётная форма согласована — родительного нет.
++    pytest.param(
++        "Он прочитал 21 книгу за лето.",
++        "Он прочитал двадцать одну книгу за лето.",
++        id="agreeing_one_form_unchanged",
++    ),
++)
++
++
++@pytest.mark.parametrize(("source", "expected"), GENITIVE_GROUP_CASES)
++def test_genitive_group(check_tts: CheckTts, source: str, expected: str) -> None:
++    check_tts(source, expected)
++
++
+ RANGE_AGREEMENT_CASES = (
+     # Левая граница диапазона согласуется с существительным, стоящим после
+     # правой границы.
+@@ -4611,10 +4689,12 @@ COORDINATED_SERIES_HEAD_CASES = (
+         "Пришли три и пять участников.",
+         id="series_before_a_counted_genitive_stays_nominative",
+     ),
++    # «Не хватило» — отрицание наличия: родительный приходит от него, а не от
++    # счётного существительного, и ряд читается в родительном целиком.
+     pytest.param(
+         "Не хватило 3 и 5 участников.",
+-        "Не хватило три и пять участников.",
+-        id="series_under_genitive_government_stays_nominative",
++        "Не хватило трёх и пяти участников.",
++        id="series_under_negated_existence_takes_genitive",
+     ),
+     pytest.param(
+         "Цена — 3 и 5 рублей.",
+diff --git a/tests/test_known_gaps.py b/tests/test_known_gaps.py
+index 05b56b8..ea6ef14 100644
+--- a/tests/test_known_gaps.py
++++ b/tests/test_known_gaps.py
+@@ -64,6 +64,28 @@ HANDWRITTEN_GAP_CASES = (
+             reason="structured mathematical expression grammar is not generic prose normalization",
+         ),
+     ),
++    # Число на 1 при существительном-«номере» в родительном («21 века») —
++    # порядковое, но ветка порядковых для чисел на 1 закрыта.
++    pytest.param(
++        "Москва 21 века сильно изменилась.",
++        "Москва двадцать первого века сильно изменилась.",
++        id="one_form_before_century_genitive_is_ordinal",
++        marks=pytest.mark.xfail(
++            strict=True,
++            reason="one-form numbers never take the ordinal reading before a genitive noun",
++        ),
++    ),
++    # Непереходное «стоит» прочитано переходным «стоить» — число уходит в
++    # винительный при подлежащем «книга».
++    pytest.param(
++        "На полке стоит 21 книга.",
++        "На полке стоит двадцать одна книга.",
++        id="intransitive_stoit_read_as_stoit_price",
++        marks=pytest.mark.xfail(
++            strict=True,
++            reason="«стоит» is parsed as transitive «стоить» and forces the accusative",
++        ),
++    ),
+ )
+ 
+ 

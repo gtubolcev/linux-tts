@@ -1,0 +1,20 @@
+Source: speech-dispatcher-ru-normalizr
+Section: python
+Priority: optional
+Maintainer: Grigory Tuboltsev <gtubolcev@gmail.com>
+Build-Depends: debhelper-compat (= 13), python3, python3-num2words, python3-roman
+Standards-Version: 4.7.0
+Homepage: https://github.com/NickZaitsev/ru-normalizr
+Rules-Requires-Root: no
+
+Package: speech-dispatcher-ru-normalizr
+Architecture: all
+Depends: python3 (>= 3.10), python3-num2words (>= 0.5.13), python3-num2words (<< 0.6),
+         python3-roman, ${misc:Depends}
+Enhances: speech-dispatcher-text-normalizer
+Description: Russian text normalizer for the speech-dispatcher modules
+ ru-normalizr turns numbers, dates, units and abbreviations of Russian text
+ into words before a voice reads it. This package keeps it and the libraries
+ Ubuntu lacks (pymorphy3 with its Russian dictionary, eng_to_ipa,
+ phonenumbers) in a private directory for tts-normalize, outside the system
+ Python.

@@ -1,0 +1,224 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Grigory Tuboltsev <gtubolcev@gmail.com>
+Date: Wed, 18 Nov 2026 21:31:51 +0100
+Subject: [PATCH] =?UTF-8?q?fix(numerals):=20=D1=82=D0=B2=D0=BE=D1=80=D0=B8?=
+ =?UTF-8?q?=D1=82=D0=B5=D0=BB=D1=8C=D0=BD=D1=8B=D0=B9=20=D0=BF=D0=BE=20?=
+ =?UTF-8?q?=D1=81=D1=83=D1=89=D0=B5=D1=81=D1=82=D0=B2=D0=B8=D1=82=D0=B5?=
+ =?UTF-8?q?=D0=BB=D1=8C=D0=BD=D0=BE=D0=BC=D1=83=20=D0=B2=20=D1=82=D0=B2?=
+ =?UTF-8?q?=D0=BE=D1=80=D0=B8=D1=82=D0=B5=D0=BB=D1=8C=D0=BD=D0=BE=D0=BC=20?=
+ =?UTF-8?q?=D1=81=D0=BF=D1=80=D0=B0=D0=B2=D0=B0?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Правило instrumental-group: «допил 2 большими глотками» — «двумя»,
+«излучаемое 2 телами» — «двумя телами», «с этими 2!» — «с этими двумя».
+Форма -ами/-ями однозначна и сильнее глагола или причастия слева.
+ficbook 20 000: ещё +70 совпадений, новых расхождений нет. В эталоне
+книг одно изменение — исправление («тремястами ратниками»).
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_0189a4focDKPAbyh6UsPZ3Vz
+---
+ CHANGELOG.md                          |  7 ++++
+ docs/SPEED_OBSERVATIONS.md            | 14 ++++++++
+ src/ru_normalizr/numerals/_helpers.py | 34 ++++++++++++++++++
+ tests/data/golden_corpus_hashes.json  |  8 ++---
+ tests/test_case_rules.py              |  6 ++++
+ tests/test_known_gap_fixes.py         | 51 +++++++++++++++++++++++++++
+ 6 files changed, 116 insertions(+), 4 deletions(-)
+
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+index f633ad5..824e92d 100644
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -41,6 +41,13 @@ The format is based on Keep a Changelog, and this project follows Semantic Versi
+   («Дорога 5 часов») и дополнение перед переходным глаголом («Кошка 5 котят
+   родила») не затрагиваются. На 20 000 фраз ficbook: +35 совпадений с
+   эталоном, ни одного нового расхождения.
++- Новое правило `instrumental-group`: существительное в творительном
++  множественного справа (с определениями) ставит число в творительный и
++  перевешивает глагол или причастие слева: «допил 2 большими глотками» —
++  «двумя большими глотками», «излучаемое 2 телами» — «двумя телами», «с
++  казаками и 300 ратниками» — «тремястами». Указательное «этими/теми» без
++  существительного справа делает то же: «с этими 2!» — «с этими двумя». На
++  20 000 фраз ficbook ещё +70 совпадений, новых расхождений нет.
+ 
+ ## [1.3.0] - 2026-10-12
+ 
+diff --git a/docs/SPEED_OBSERVATIONS.md b/docs/SPEED_OBSERVATIONS.md
+index fe362d8..c19da14 100644
+--- a/docs/SPEED_OBSERVATIONS.md
++++ b/docs/SPEED_OBSERVATIONS.md
+@@ -1484,3 +1484,17 @@ python scripts/benchmark.py --real-only --mode tts --samples 1 --warmups 1 --pre
+ ```
+ 
+ Замедление около 0,2 %, в пределах шума.
++
++## 18 ноября 2026 — творительный группы справа
++
++Та же машина и контейнер. Два прогона до (`git stash`) и два после.
++
++```text
++python scripts/benchmark.py --real-only --mode tts --samples 1 --warmups 1 --prefix-chars 250000 --book benchmarks/corpus/03_karamzin_history_of_russian_state.txt
++до:     1815,51 мс; 137 702 символов/с
++до:     1818,47 мс; 137 478 символов/с
++после:  1811,58 мс; 138 001 символов/с
++после:  1818,92 мс; 137 444 символов/с
++```
++
++Разница в пределах шума.
+diff --git a/src/ru_normalizr/numerals/_helpers.py b/src/ru_normalizr/numerals/_helpers.py
+index b3dea5e..71f7c5d 100644
+--- a/src/ru_normalizr/numerals/_helpers.py
++++ b/src/ru_normalizr/numerals/_helpers.py
+@@ -1413,6 +1413,39 @@ def _rule_numbering_head(ctx: NumeralContext) -> str | None:
+     return None
+ 
+ 
++def _is_ablt_plur_only(word: str, pos: set[str]) -> bool:
++    parses = [p for p in parse_word(word) if p.tag.POS in pos]
++    return bool(parses) and all(
++        p.tag.case == "ablt" and p.tag.number == "plur" for p in parses
++    )
++
++
++def _rule_instrumental_group(ctx: NumeralContext) -> str | None:
++    """Творительный множественного рядом с числом задаёт ему творительный.
++
++    «допил 2 большими глотками» → «двумя большими глотками», «излучаемое 2
++    телами» → «двумя телами»: форма на -ами/-ями однозначна и сильнее
++    глагола или причастия слева. Без существительного справа то же делает
++    указательное слева: «с этими 2!» → «с этими двумя».
++    """
++    offset = 1
++    while offset <= 3 and ctx.raw(offset).isalpha():
++        word = ctx.word(offset)
++        if _is_ablt_plur_only(word, {"NOUN"}):
++            if ctx.raw(offset)[:1].isupper() and offset == 1:
++                return None
++            return "ablt"
++        if not _is_ablt_plur_only(word, {"ADJF", "PRTF"}):
++            break
++        offset += 1
++    if not ctx.raw(-1).isalpha() or ctx.word(-1) not in {"этими", "теми", "всеми", "обоими"}:
++        return None
++    right = ctx.parse(1) if ctx.raw(1).isalpha() else None
++    if right is not None and right.tag.POS in {"NOUN", "ADJF", "PRTF"}:
++        return None
++    return "ablt"
++
++
+ def _rule_label_noun_head(ctx: NumeralContext) -> str | None:
+     """Существительное-ярлык слева оставляет число именительным: «рейс 213»."""
+     left_noun = ctx.parse(-1)
+@@ -1969,6 +2002,7 @@ CASE_RULES: tuple[CaseRule, ...] = (
+     CaseRule("range-right-boundary", _rule_range_right_boundary),
+     CaseRule("fresh-quantity-after-dash", _rule_fresh_quantity_after_dash),
+     CaseRule("range-start-governed-by-left", _rule_range_start_governed_by_left),
++    CaseRule("instrumental-group", _rule_instrumental_group),
+     CaseRule("label-prefix", _rule_label_prefix),
+     CaseRule("numbering-head", _rule_numbering_head),
+     CaseRule("label-noun-head", _rule_label_noun_head),
+diff --git a/tests/data/golden_corpus_hashes.json b/tests/data/golden_corpus_hashes.json
+index 2cc0e83..135fd75 100644
+--- a/tests/data/golden_corpus_hashes.json
++++ b/tests/data/golden_corpus_hashes.json
+@@ -58,14 +58,14 @@
+       "02_russian_army_and_navy_modern": {
+         "input_chars": 200000,
+         "input_sha256": "49f5d3583207cd9df7192529771c1d2d607ac8aa3c59c14c9fd3424929f4c7a7",
+-        "output_chars": 206376,
+-        "output_sha256": "5773f98d7b016d919f1f758680002aac2cbf83908726b82e712a85289b10a6e6"
++        "output_chars": 206380,
++        "output_sha256": "75ddf80f506bcd41c47436335c671e26aa3ea4b5116018079d8c3c6070a5f761"
+       },
+       "02b_russian_army_and_navy_pre_reform": {
+         "input_chars": 200000,
+         "input_sha256": "bc12ab1181324e99addb01816b3473fbc5e8207d1d6e85e921119e24aaa8eb18",
+-        "output_chars": 206170,
+-        "output_sha256": "aa5a88eb241f626d01505b366154d795ad5955d8fedcf1fa96f0fa9d8bcdc7e6"
++        "output_chars": 206174,
++        "output_sha256": "e03b168a58f3740ad18728ea32f8cddabbf4403d157427dd7d0ec9408f2402f6"
+       },
+       "03_karamzin_history_of_russian_state": {
+         "input_chars": 200000,
+diff --git a/tests/test_case_rules.py b/tests/test_case_rules.py
+index a513e0a..f25713d 100644
+--- a/tests/test_case_rules.py
++++ b/tests/test_case_rules.py
+@@ -204,6 +204,12 @@ RULE_CASES = (
+         "Мнение десяти экспертов совпало.",
+         id="noun_head_genitive",
+     ),
++    pytest.param(
++        "instrumental-group",
++        "Он допил чай 2 большими глотками.",
++        "Он допил чай двумя большими глотками.",
++        id="instrumental_group",
++    ),
+     pytest.param(
+         "locative-quantity-head",
+         "Он ушёл на пенсию в возрасте 25 лет и занялся садом.",
+diff --git a/tests/test_known_gap_fixes.py b/tests/test_known_gap_fixes.py
+index 44698f3..42aa75d 100644
+--- a/tests/test_known_gap_fixes.py
++++ b/tests/test_known_gap_fixes.py
+@@ -427,6 +427,57 @@ def test_genitive_governor(check_tts: CheckTts, source: str, expected: str) -> N
+     check_tts(source, expected)
+ 
+ 
++INSTRUMENTAL_GROUP_CASES = (
++    # Творительный множественного (-ами/-ями) справа однозначен и сильнее
++    # глагола или причастия слева; «этими/теми» без существительного — тоже.
++    pytest.param(
++        "Он допил чай 2 большими глотками.",
++        "Он допил чай двумя большими глотками.",
++        id="after_verb_with_adjective",
++    ),
++    pytest.param(
++        "Он подпёр лицо 2 маленькими ладошками.",
++        "Он подпёр лицо двумя маленькими ладошками.",
++        id="after_object",
++    ),
++    pytest.param(
++        "Тепло, излучаемое 2 телами.",
++        "Тепло, излучаемое двумя телами.",
++        id="after_participle",
++    ),
++    pytest.param(
++        "Командующие 4 армиями собрались.",
++        "Командующие четырьмя армиями собрались.",
++        id="after_substantive",
++    ),
++    pytest.param(
++        "Отправили с казаками и 300 ратниками.",
++        "Отправили с казаками и тремястами ратниками.",
++        id="coordinated_hundreds",
++    ),
++    pytest.param(
++        "Я не могу понять, что с этими 2!",
++        "Я не могу понять, что с этими двумя!",
++        id="demonstrative_without_noun",
++    ),
++    pytest.param(
++        "Канда наблюдал за этими 2, которых ненавидел.",
++        "Канда наблюдал за этими двумя, которых ненавидел.",
++        id="za_demonstrative_without_noun",
++    ),
++    pytest.param(
++        "Глава 2 Чудесами полна.",
++        "Глава вторая Чудесами полна.",
++        id="capitalized_word_is_not_counted",
++    ),
++)
++
++
++@pytest.mark.parametrize(("source", "expected"), INSTRUMENTAL_GROUP_CASES)
++def test_instrumental_group(check_tts: CheckTts, source: str, expected: str) -> None:
++    check_tts(source, expected)
++
++
+ GENITIVE_GROUP_CASES = (
+     # Число на 1 при существительном в родительном единственного и вершине
+     # слева: вся группа — несогласованное определение в родительном.

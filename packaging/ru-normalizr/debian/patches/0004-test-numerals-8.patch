@@ -1,0 +1,38 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Grigory Tuboltsev <gtubolcev@gmail.com>
+Date: Wed, 18 Nov 2026 21:26:59 +0100
+Subject: [PATCH] =?UTF-8?q?test(numerals):=20=C2=AB8=20=D1=80=D0=B0=D0=B7?=
+ =?UTF-8?q?=20=D0=B7=D0=B0=20=D0=B4=D0=B5=D0=BD=D1=8C=C2=BB=20=E2=80=94=20?=
+ =?UTF-8?q?=D1=82=D0=BE=D0=BB=D1=8C=D0=BA=D0=BE=20=D1=87=D1=82=D0=B5=D0=BD?=
+ =?UTF-8?q?=D0=B8=D0=B5=20=D0=BF=D0=BE=20=D1=83=D0=BC=D0=BE=D0=BB=D1=87?=
+ =?UTF-8?q?=D0=B0=D0=BD=D0=B8=D1=8E,=20=D0=BF=D0=BE=D1=80=D1=8F=D0=B4?=
+ =?UTF-8?q?=D0=BA=D0=BE=D0=B2=D0=BE=D0=B5=20=D0=BD=D0=B5=20=D1=80=D0=B5?=
+ =?UTF-8?q?=D1=88=D0=B5=D0=BD=D0=BE?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_0189a4focDKPAbyh6UsPZ3Vz
+---
+ tests/test_known_gap_fixes.py | 4 +++-
+ 1 file changed, 3 insertions(+), 1 deletion(-)
+
+diff --git a/tests/test_known_gap_fixes.py b/tests/test_known_gap_fixes.py
+index 4dff7fe..44698f3 100644
+--- a/tests/test_known_gap_fixes.py
++++ b/tests/test_known_gap_fixes.py
+@@ -412,10 +412,12 @@ GENITIVE_GOVERNOR_CASES = (
+         "Кошка пять котят родила.",
+         id="object_before_transitive_stays",
+     ),
++    # «8 раз за день» бывает и «восьмой раз»: без смысла текста не решить,
++    # тест фиксирует только количественное чтение по умолчанию.
+     pytest.param(
+         "Он меняет местоположение 8 раз за день.",
+         "Он меняет местоположение восемь раз за день.",
+-        id="frequency_stays",
++        id="frequency_default_cardinal",
+     ),
+ )
+ 
