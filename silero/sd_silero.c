@@ -2,7 +2,7 @@
  * sd_silero - speech-dispatcher output module for Silero TTS (Russian)
  *
  * The model is run by silero-server (ONNX Runtime on the CPU), a resident
- * process on a free localhost port, started the first time the module has to
+ * process on a Unix socket in $XDG_RUNTIME_DIR, started the first time the module has to
  * speak and stopped after SileroIdleTimeout seconds without speech.  The
  * server outlives the module: speech-dispatcher restarts its modules on every
  * reload, and a new module adopts the running server (state file in
@@ -21,19 +21,18 @@
  * SPDX-License-Identifier: MIT
  */
 
-#include <arpa/inet.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <glib.h>
 #include <glib/gstdio.h>
 #include <math.h>
-#include <netinet/in.h>
 #include <poll.h>
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/socket.h>
+#include <sys/un.h>
 #include <sys/wait.h>
 #include <time.h>
 #include <unistd.h>
@@ -72,7 +71,7 @@ static int server_token;
 
 /* server; used by the loader, and by the worker only while it is loaded */
 static pid_t server_pid = 0;
-static int server_port = 0;
+static long long server_serial = 0;   /* names its socket */
 static gboolean server_ready = FALSE;
 static pid_t server_child = 0;   /* server_pid when we forked it */
 
@@ -95,6 +94,16 @@ state_path (void)
 
 
 
+/* $XDG_RUNTIME_DIR/sd_silero-<serial>.sock: a new name for every server, so
+ * that a module never talks to a dying one; the directory is the user's (0700) */
+static void
+sock_path (long long serial, char *buf, size_t size)
+{
+  g_snprintf (buf, size, "%s/sd_silero-%lld.sock", g_get_user_runtime_dir (), serial);
+}
+
+
+
 /* "<version> <dir>": what the server was started with */
 static gchar *
 server_model (void)
@@ -104,14 +113,14 @@ server_model (void)
 
 
 
-/* pid port threads owner released, then the model (server_model) on the second line;
+/* pid serial threads owner released, then the model (server_model) on the second line;
  * owner 0 = no module uses the server, released = when the last one let go. */
 static void
 state_write (long owner, long released)
 {
   gchar *path = state_path ();
   gchar *model = server_model ();
-  gchar *text = g_strdup_printf ("%d %d %d %ld %ld\n%s\n", server_pid, server_port,
+  gchar *text = g_strdup_printf ("%d %lld %d %ld %ld\n%s\n", server_pid, server_serial,
                                  wanted_threads (), owner, released, model);
 
   if (!g_file_set_contents_full (path, text, -1, G_FILE_SET_CONTENTS_CONSISTENT, 0600, NULL))
@@ -126,7 +135,8 @@ state_write (long owner, long released)
 typedef struct
 {
   pid_t pid;
-  int port, threads;
+  long long serial;
+  int threads;
   long owner, released;
   gchar model[1024];
 } State;
@@ -141,7 +151,7 @@ state_read (State *st)
   if (g_file_get_contents (path, &text, NULL, NULL))
     {
       int pid;
-      ok = sscanf (text, "%d %d %d %ld %ld\n%1023[^\n]", &pid, &st->port, &st->threads,
+      ok = sscanf (text, "%d %lld %d %ld %ld\n%1023[^\n]", &pid, &st->serial, &st->threads,
                    &st->owner, &st->released, st->model) == 6;
       st->pid = pid;
     }
@@ -190,14 +200,19 @@ pid_is_server (pid_t pid)
 
 
 static void
-kill_server (pid_t pid)
+kill_server (pid_t pid, long long serial)
 {
+  char sock[512];
+
   kill (pid, SIGTERM);
   for (int i = 0; i < 50 && pid_is_server (pid); i++)
     g_usleep (100000);
   if (pid_is_server (pid))
     kill (pid, SIGKILL);
   waitpid (pid, NULL, WNOHANG);
+  /* it removes the socket itself, unless killed */
+  sock_path (serial, sock, sizeof (sock));
+  unlink (sock);
 }
 
 
@@ -208,7 +223,7 @@ server_stop (void)
   if (server_pid <= 0)
     return;
   DBG ("stopping silero-server (pid %d)", server_pid);
-  kill_server (server_pid);
+  kill_server (server_pid, server_serial);
   server_pid = 0;
   server_ready = FALSE;
   state_remove ();
@@ -252,18 +267,25 @@ server_adopt (void)
   model = server_model ();
   same = st.threads == wanted_threads () && strcmp (st.model, model) == 0;
   g_free (model);
+  if (same)
+    {
+      /* a server of an older version listened on a TCP port */
+      char sock[512];
+      sock_path (st.serial, sock, sizeof (sock));
+      same = g_file_test (sock, G_FILE_TEST_EXISTS);
+    }
   if (!same)
     {
       DBG ("silero-server %d runs with other settings, stopping it", st.pid);
-      kill_server (st.pid);
+      kill_server (st.pid, st.serial);
       state_remove ();
       return FALSE;
     }
   server_pid = st.pid;
-  server_port = st.port;
+  server_serial = st.serial;
   server_ready = FALSE;   /* it may still be loading */
   state_write (getpid (), 0);
-  DBG ("adopted silero-server pid %d port %d", server_pid, server_port);
+  DBG ("adopted silero-server pid %d (sd_silero-%lld.sock)", server_pid, server_serial);
   return TRUE;
 }
 
@@ -292,6 +314,7 @@ static void
 server_watch (void)
 {
   pid_t pid = server_pid, child;
+  long long serial = server_serial;
   time_t dead_since = 0;
   int idle = tts_idle_timeout ();
 
@@ -340,7 +363,7 @@ server_watch (void)
         since = dead_since != 0 ? dead_since : (dead_since = time (NULL));
       if (time (NULL) - since >= idle)
         {
-          kill_server (pid);
+          kill_server (pid, serial);
           state_remove ();
           _exit (0);
         }
@@ -365,38 +388,16 @@ server_release (void)
 
 
 static int
-free_port (void)
-{
-  struct sockaddr_in addr = { 0 };
-  socklen_t len = sizeof (addr);
-  int fd, port = -1;
-
-  fd = socket (AF_INET, SOCK_STREAM, 0);
-  if (fd < 0)
-    return -1;
-  addr.sin_family = AF_INET;
-  addr.sin_addr.s_addr = htonl (INADDR_LOOPBACK);
-  if (bind (fd, (struct sockaddr *) &addr, sizeof (addr)) == 0
-      && getsockname (fd, (struct sockaddr *) &addr, &len) == 0)
-    port = ntohs (addr.sin_port);
-  close (fd);
-  return port;
-}
-
-
-
-static int
 server_connect (void)
 {
-  struct sockaddr_in addr = { 0 };
+  struct sockaddr_un addr = { 0 };
   int fd;
 
-  fd = socket (AF_INET, SOCK_STREAM | SOCK_CLOEXEC, 0);
+  addr.sun_family = AF_UNIX;
+  sock_path (server_serial, addr.sun_path, sizeof (addr.sun_path));
+  fd = socket (AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0);
   if (fd < 0)
     return -1;
-  addr.sin_family = AF_INET;
-  addr.sin_port = htons (server_port);
-  addr.sin_addr.s_addr = htonl (INADDR_LOOPBACK);
   if (connect (fd, (struct sockaddr *) &addr, sizeof (addr)) != 0)
     {
       close (fd);
@@ -410,7 +411,7 @@ server_connect (void)
 static gboolean
 server_health (void)
 {
-  static const char req[] = "GET /v2/health HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n";
+  static const char req[] = "GET /v2/health HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n";
   char buf[64] = "";
   int fd = server_connect ();
   gboolean ok = FALSE;
@@ -429,19 +430,21 @@ server_health (void)
 static gboolean
 server_spawn (void)
 {
-  gchar threads[16], port[16];
+  gchar threads[16];
+  char sock[sizeof (((struct sockaddr_un *) 0)->sun_path)];
   gchar *log = tts_debug ? g_build_filename (g_get_user_runtime_dir (), "silero-server.log", NULL)
                          : NULL;
 
-  server_port = free_port ();
-  if (server_port <= 0)
+  server_serial = g_get_real_time ();
+  sock_path (server_serial, sock, sizeof (sock));
+  if (strlen (sock) + 1 >= sizeof (sock))
     {
       g_free (log);
-      ERR ("no free port");
+      ERR ("the path of the socket is too long: %s", sock);
       return FALSE;
     }
+  unlink (sock);
   g_snprintf (threads, sizeof (threads), "%d", wanted_threads ());
-  g_snprintf (port, sizeof (port), "%d", server_port);
 
   server_pid = fork ();
   if (server_pid < 0)
@@ -465,7 +468,7 @@ server_spawn (void)
       dup2 (out, STDERR_FILENO);
       closefrom (3);
       execl (cfg_server, cfg_server, "--dir", cfg_dir, "--version", cfg_version,
-             "--host", "127.0.0.1", "--port", port, "--threads", threads, (char *) NULL);
+             "--socket", sock, "--threads", threads, (char *) NULL);
       _exit (127);
     }
 
@@ -474,7 +477,7 @@ server_spawn (void)
   server_ready = FALSE;
   state_write (getpid (), 0);
   server_watch ();
-  DBG ("started silero-server pid %d port %d", server_pid, server_port);
+  DBG ("started silero-server pid %d on %s", server_pid, sock);
   return TRUE;
 }
 
@@ -776,7 +779,7 @@ generate (const gchar *text, const TtsPiece *p, GByteArray *pcm, int *sample_rat
     body = g_strdup_printf ("{\"text\": \"%s\", \"speaker\": \"%s\", \"rate\": %s, \"pitch\": %s}",
                             esc, (const gchar *) p->voice->data, rate, pitch);
   }
-  req = g_strdup_printf ("POST /v2/generate HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n"
+  req = g_strdup_printf ("POST /v2/generate HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n"
                          "Content-Type: application/json\r\nContent-Length: %zu\r\n\r\n", strlen (body));
   g_free (esc);
 

@@ -93,7 +93,10 @@ protocol against it in `meson test` (also under ASan), and with
 `--real MODULE "CONF"` against a real module and model.
 
 silero's model is its server: loading starts or adopts silero-server, the idle
-unload stops it, QUIT leaves it running for the next module.
+unload stops it, QUIT leaves it running for the next module. It listens on
+`$XDG_RUNTIME_DIR/sd_silero-<serial>.sock` (HTTP, user only; no TCP port that
+web pages or other users could reach) and imports the downloaded runtime
+`silero_onnx` only if its files match the sha256 list of the known release.
 
 ## One module, two synthesizers
 
