@@ -717,12 +717,17 @@ server_connect (void)
 static void
 process_input (void)
 {
-  if (module_process (STDIN_FILENO, 0) == 0)
-    {
-      /* QUIT while we wait: finish the message, module_loop then quits */
-      quit_requested = TRUE;
-      stop_requested = 1;
-    }
+  struct pollfd fd = { STDIN_FILENO, POLLIN, 0 };
+
+  while (!quit_requested && poll (&fd, 1, 0) > 0 && (fd.revents & (POLLIN | POLLHUP)))
+    if (module_process (STDIN_FILENO, 0) == 0 || (fd.revents & (POLLHUP | POLLERR)))
+      {
+        /* QUIT while we speak, or the server is gone (the pipe stays
+         * readable at its end, so polling again would spin): stop the
+         * message, module_loop then quits */
+        quit_requested = TRUE;
+        stop_requested = 1;
+      }
 }
 
 
@@ -1094,7 +1099,7 @@ reader_fill (Reader *r)
 
       if (poll (fds, 2, 200) < 0 && errno != EINTR)
         return -1;
-      if (fds[1].revents & POLLIN)
+      if (fds[1].revents & (POLLIN | POLLHUP | POLLERR))
         process_input ();
       if (stop_requested)
         return -1;

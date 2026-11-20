@@ -85,6 +85,7 @@ typedef struct
   gchar *espeak_voice;  /* Piper: "ru", "en-us" (from the .onnx.json) */
   gboolean letters;     /* Piper "phoneme_type": "text": fed letters, not phonemes */
   gint reads_acute;     /* Piper: its espeak-ng-data honours U+0301; -1 unknown */
+  gboolean broken;      /* failed to load: not tried again until the module restarts */
 } Model;
 
 typedef struct
@@ -110,10 +111,10 @@ static int cfg_idle_timeout = 300;          /* s; 0 keeps the model */
  * examples use 0.2, which left Piper voices 60 ms at a full stop where
  * Piper itself makes 300 ms.  1 keeps the pauses the voice was trained with. */
 static float cfg_silence_scale = 1.0f;
+/* VULKAN_EP_LIBRARY: where the patched sherpa-onnx looks for the plugin,
+ * next to its libonnxruntime; meson passes <libdir>/linux-tts/... */
 #ifndef VULKAN_EP_LIBRARY
-/* where the patched sherpa-onnx looks for it: next to its libonnxruntime
- * (meson passes <libdir>/linux-tts) */
-#define VULKAN_EP_LIBRARY "/usr/lib/x86_64-linux-gnu/linux-tts/libonnxruntime_ep_vulkan.so"
+#error "VULKAN_EP_LIBRARY comes from meson"
 #endif
 static gboolean cfg_vulkan = FALSE;      /* Provider "vulkan" */
 static guint cfg_families = ~0u;          /* Families, a bit per Family */
@@ -602,22 +603,68 @@ clause_terminator (const char *start, const char *end)
 }
 #endif
 
-/* espeak-ng loaded with the voice's data and set to its language */
+/* the espeak-ng-data of the piper-espeak-ng-data package, which the Piper
+ * voices were trained on */
+#ifndef PIPER_ESPEAK_DATA
+#define PIPER_ESPEAK_DATA "/usr/share/sherpa-onnx/piper-espeak-ng-data"
+#endif
+
+/* The espeak-ng-data a Piper model is read with, resolved: the voice's own
+ * copy for the voices of the system; for downloaded ones the shared copy
+ * whenever it is installed, as their own dictionaries are not trusted
+ * (espeak-ng had overflows in its dictionary loading). */
+static gchar *
+piper_espeak_data (const Model *m)
+{
+  gchar *user = g_build_filename (g_get_user_data_dir (), "sherpa-onnx", "tts", "", NULL);
+  gchar *own = g_build_filename (m->dir, "espeak-ng-data", NULL);
+  gchar *path;
+
+  if (g_str_has_prefix (m->dir, user) && g_file_test (PIPER_ESPEAK_DATA, G_FILE_TEST_IS_DIR))
+    path = realpath (PIPER_ESPEAK_DATA, NULL);
+  else
+    path = realpath (own, NULL);
+  g_free (own);
+  g_free (user);
+  if (path == NULL)
+    return NULL;
+  /* realpath's memory belongs to malloc */
+  own = g_strdup (path);
+  free (path);
+  return own;
+}
+
+/* espeak-ng loaded with the voice's data and set to its language; loaded
+ * again when a voice with other data comes */
 static gboolean
 piper_espeak (const Model *m)
 {
-  static gboolean ready = FALSE;
+  static gchar *data_now = NULL;  /* the espeak-ng-data loaded, resolved */
+  gchar *data = piper_espeak_data (m);
 
-  if (!ready)
+  if (data == NULL)
     {
-      /* the espeak-ng-data shipped with the voice: the one it was trained on */
-      if (espeak_Initialize (AUDIO_OUTPUT_SYNCHRONOUS, 0, m->dir, 0) < 0)
+      ERR ("espeak-ng: no espeak-ng-data for %s", m->dir);
+      return FALSE;
+    }
+  if (g_strcmp0 (data, data_now) != 0)
+    {
+      if (data_now != NULL)
+        espeak_Terminate ();
+      g_clear_pointer (&data_now, g_free);
+      g_clear_pointer (&espeak_voice_now, g_free);
+      /* espeak-ng >= 1.51 takes the espeak-ng-data directory itself */
+      if (espeak_Initialize (AUDIO_OUTPUT_SYNCHRONOUS, 0, data, 0) < 0)
         {
-          ERR ("espeak-ng: cannot load %s/espeak-ng-data", m->dir);
+          ERR ("espeak-ng: cannot load %s", data);
+          g_free (data);
           return FALSE;
         }
-      ready = TRUE;
+      DBG ("espeak-ng: data %s", data);
+      data_now = data;
     }
+  else
+    g_free (data);
   if (g_strcmp0 (espeak_voice_now, m->espeak_voice) != 0)
     {
       if (espeak_SetVoiceByName (m->espeak_voice != NULL ? m->espeak_voice : "en-us")
@@ -1076,7 +1123,9 @@ load_model (Model *m)
   g_ptr_array_free (keep, TRUE);
   if (tts == NULL)
     {
-      ERR ("cannot load the model %s", m->dir);
+      ERR ("cannot load the model %s; its voices answer with an error "
+           "until the module restarts", m->dir);
+      m->broken = TRUE;
       return FALSE;
     }
   slot->model = m;
@@ -1367,9 +1416,11 @@ process_input (void)
   struct pollfd fd = { STDIN_FILENO, POLLIN, 0 };
 
   while (!quit_requested && poll (&fd, 1, 0) > 0 && (fd.revents & (POLLIN | POLLHUP)))
-    if (module_process (STDIN_FILENO, 0) == 0)
+    if (module_process (STDIN_FILENO, 0) == 0 || (fd.revents & (POLLHUP | POLLERR)))
       {
-        /* QUIT while we speak: finish the message, module_loop then quits */
+        /* QUIT while we speak, or the server is gone (the pipe stays
+         * readable at its end, so polling again would spin): stop the
+         * message, module_loop then quits */
         quit_requested = TRUE;
         stop_requested = 1;
       }
@@ -1574,12 +1625,21 @@ module_speak_sync (const char *data, size_t bytes, SPDMessageType msgtype)
       module_report_event_end ();
       return;
     }
+  voice = pick_voice ();
+  if (voice->model->broken)
+    {
+      /* an error rather than an empty end: speechd then tries the fallback
+       * synthesizer, and the client does not take silence for speech.  The
+       * first message after a failed load has already been accepted. */
+      g_free (text);
+      module_speak_error ();
+      return;
+    }
   if (!copy_made)
     copy = tts_copy_new (&copy_cfg), copy_made = TRUE;
   module_speak_ok ();
   module_report_event_begin ();
 
-  voice = pick_voice ();
   /* the helper loads while the model does */
   tts_norm_start (get_norm ());
   ok = load_model (voice->model);
