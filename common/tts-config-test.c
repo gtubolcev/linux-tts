@@ -37,6 +37,8 @@ main (void)
 
   g_unlink (sysf); g_unlink (usrf); g_unlink (other);
   g_rmdir (sys); g_rmdir (usr); g_rmdir (tmp);
+  g_free (sysf); g_free (usrf); g_free (other);
+  g_free (sys); g_free (usr); g_free (tmp);
   if (!fail)
     g_print ("ok\n");
   return fail;

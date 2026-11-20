@@ -59,8 +59,10 @@ install_data('common/tts-normalize.py', rename: 'tts-normalize',
   install_dir: module_dir, install_mode: 'rwxr-xr-x')
 test('tts-config', executable('tts-config-test', 'common/tts-config-test.c', 'common/tts-config.c',
   include_directories: common_inc, dependencies: glib))
-executable('tts-norm-test', 'common/tts-norm-test.c', norm_src, stress_src,
+tts_norm_test = executable('tts-norm-test', 'common/tts-norm-test.c', norm_src, stress_src,
   include_directories: common_inc, dependencies: glib)
+test('norm-helper', find_program('tests/norm-helper.py'),
+  args: [tts_norm_test, files('common/tts-normalize.py')], timeout: 120)
 
 # the common module frame (threads, protocol, text) and its tests with a
 # fake engine

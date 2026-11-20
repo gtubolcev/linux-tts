@@ -69,6 +69,11 @@ piece of text. The frame does the rest the same way for everyone:
 - the text: SSML with its marks, CHAR/KEY, the normalizer, the stress stage
   (per engine), the sentence splitter with `<Prefix>FirstChunk`, the audio
   copy;
+- the normalizer (`common/tts-norm.c`): one `tts-normalize` per user and
+  helper path, `$XDG_RUNTIME_DIR/tts-normalize-<hash>.sock`; the first module
+  that finds nobody there starts it detached, a lock file keeps a second one
+  from staying, it exits `TextNormalizationIdleTimeout` s (60) after the last
+  connection; every failure reads the text as it is, counted in the log;
 - CHAR and KEY (`common/tts-keys.c`): the letter, punctuation or key name as
   words of the voice's language (ru, de, en; "control_alt_delete" ->
   "контрол альт делит"), past the normalizer;

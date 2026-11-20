@@ -347,8 +347,8 @@ static gchar *norm_sig = NULL, *copy_sig = NULL;
 static gchar *
 norm_signature (const TtsNormConfig *c)
 {
-  return g_strdup_printf ("%d\x1f%s\x1f%s\x1f%d\x1f%d", c->enabled, c->python ? c->python : "",
-                          c->helper ? c->helper : "", c->timeout_ms, c->start_ms);
+  return g_strdup_printf ("%d\x1f%s\x1f%s\x1f%d\x1f%d\x1f%d", c->enabled, c->python ? c->python : "",
+                          c->helper ? c->helper : "", c->timeout_ms, c->start_ms, c->idle_s);
 }
 
 static gchar *

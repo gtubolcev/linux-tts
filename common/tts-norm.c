@@ -1,8 +1,12 @@
 /*
  * tts-norm - text normalization for the speech-dispatcher modules
  *
- * The helper talks lines over a socket (a socket, not a pipe: a write to
- * a dead helper must not kill the module with SIGPIPE):
+ * One helper per user serves all modules: it listens on
+ * $XDG_RUNTIME_DIR/tts-normalize-<hash of python and helper>.sock, and the
+ * first module that finds nobody there starts it (detached; it exits by
+ * itself when no module has been connected for TextNormalizationIdleTimeout
+ * seconds).  It talks lines over that socket (a socket, not a pipe: a write
+ * to a dead helper must not kill the module with SIGPIPE):
  *   helper -> module   "READY" once loaded, or "ERROR<TAB>message" and exit
  *   module -> helper   "<id><TAB><lang><TAB><text>"
  *   helper -> module   "<id><TAB><text>"
@@ -21,9 +25,8 @@
 #include <signal.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/prctl.h>
 #include <sys/socket.h>
-#include <sys/wait.h>
+#include <sys/un.h>
 #include <unistd.h>
 
 #ifndef TTS_NORM_HELPER
@@ -39,14 +42,17 @@
 struct TtsNorm
 {
   TtsNormConfig cfg;
-  GPid pid;                     /* 0: not running */
-  int fd;
+  gboolean active;              /* connecting or connected */
+  int fd;                       /* -1 until connected */
+  gboolean spawned;             /* we started the helper for this connection */
   gboolean ready;
-  gint64 started;               /* monotonic, when spawned */
+  gint64 started;               /* monotonic, when we began to connect */
   gint64 retry_after;           /* monotonic; 0: may start */
   guint64 next_id;
   GString *in;                  /* bytes read, not yet a whole line */
   TtsNormCancel cancel;
+  gchar *sock;                  /* the helper's socket */
+  guint requests, timeouts;     /* for the log: how often the text went unnormalized */
 };
 
 void
@@ -64,6 +70,7 @@ tts_norm_config_init (TtsNormConfig *c)
   c->helper = g_strdup (TTS_NORM_HELPER);
   c->timeout_ms = 1500;
   c->start_ms = 8000;
+  c->idle_s = 60;
 }
 
 void
@@ -93,6 +100,8 @@ tts_norm_config_parse (TtsNormConfig *c, const gchar *key, const gchar *value)
     c->timeout_ms = CLAMP (atoi (value), 50, 60000);
   else if (g_ascii_strcasecmp (key, "TextNormalizationStartTimeout") == 0)
     c->start_ms = CLAMP (atoi (value), 100, 120000);
+  else if (g_ascii_strcasecmp (key, "TextNormalizationIdleTimeout") == 0)
+    c->idle_s = CLAMP (atoi (value), 1, 86400);
   else
     return FALSE;
   return TRUE;
@@ -111,6 +120,15 @@ tts_norm_new (const TtsNormConfig *c)
   n->cfg.helper = g_strdup (c->helper);
   n->fd = -1;
   n->in = g_string_new (NULL);
+  {
+    /* modules configured with another helper get their own */
+    gchar *key = g_strconcat (c->python, "\n", c->helper, NULL);
+    gchar *hash = g_compute_checksum_for_string (G_CHECKSUM_SHA256, key, -1);
+    hash[12] = '\0';
+    n->sock = g_strdup_printf ("%s/tts-normalize-%s.sock", g_get_user_runtime_dir (), hash);
+    g_free (hash);
+    g_free (key);
+  }
   return n;
 }
 
@@ -122,58 +140,87 @@ tts_norm_free (TtsNorm *n)
   tts_norm_stop (n);
   tts_norm_config_clear (&n->cfg);
   g_string_free (n->in, TRUE);
+  g_free (n->sock);
   g_free (n);
-}
-
-static void
-child_setup (gpointer data)
-{
-  /* the helper dies with the module, even if the module is killed */
-  prctl (PR_SET_PDEATHSIG, SIGTERM);
 }
 
 void
 tts_norm_stop (TtsNorm *n)
 {
-  if (n == NULL || n->pid == 0)
+  if (n == NULL || !n->active)
     return;
-  /* closing the socket ends the helper's loop; TERM in case it is busy */
-  close (n->fd);
+  /* the helper stays for the other modules and exits when idle */
+  if (n->fd >= 0)
+    close (n->fd);
   n->fd = -1;
-  kill (n->pid, SIGTERM);
-  for (int i = 0; i < 50; i++)
-    {
-      pid_t r = waitpid (n->pid, NULL, WNOHANG);
-      if (r == n->pid || (r < 0 && errno == ECHILD))
-        goto reaped;
-      g_usleep (10000);
-    }
-  kill (n->pid, SIGKILL);
-  waitpid (n->pid, NULL, 0);
-reaped:
-  n->pid = 0;
+  n->active = FALSE;
   n->ready = FALSE;
   g_string_truncate (n->in, 0);
 }
+
+
 
 /* stop and do not start again for a while */
 static void
 fail (TtsNorm *n, const gchar *why)
 {
-  g_printerr ("tts-norm: %s; text goes to the engine unnormalized for %d s\n",
-              why, (int) (RETRY_AFTER_US / G_TIME_SPAN_SECOND));
+  g_printerr ("tts-norm: %s; text goes to the engine unnormalized for %d s"
+              " (failure %u; %u requests so far)\n",
+              why, (int) (RETRY_AFTER_US / G_TIME_SPAN_SECOND), n->timeouts + 1, n->requests);
+  n->timeouts++;
   tts_norm_stop (n);
   n->retry_after = g_get_monotonic_time () + RETRY_AFTER_US;
 }
 
+static int
+connect_helper (TtsNorm *n)
+{
+  struct sockaddr_un addr = { 0 };
+  int fd;
+
+  addr.sun_family = AF_UNIX;
+  if (g_strlcpy (addr.sun_path, n->sock, sizeof (addr.sun_path)) >= sizeof (addr.sun_path))
+    return -1;
+  fd = socket (AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0);
+  if (fd < 0)
+    return -1;
+  if (connect (fd, (struct sockaddr *) &addr, sizeof (addr)) != 0)
+    {
+      close (fd);
+      return -1;
+    }
+  return fd;
+}
+
+
+
+/* starts the helper, detached: it outlives this module and serves the others */
+static gboolean
+spawn_helper (TtsNorm *n)
+{
+  GError *error = NULL;
+  gchar idle[16];
+  gchar *argv[] = { n->cfg.python, "-I", n->cfg.helper, "--socket", n->sock, "--idle", idle, NULL };
+
+  g_snprintf (idle, sizeof (idle), "%d", n->cfg.idle_s);
+  /* without G_SPAWN_DO_NOT_REAP_CHILD glib forks twice: init reaps it */
+  if (!g_spawn_async (NULL, argv, NULL,
+                      G_SPAWN_SEARCH_PATH | G_SPAWN_STDIN_FROM_DEV_NULL
+                      | G_SPAWN_STDOUT_TO_DEV_NULL, NULL, NULL, NULL, &error))
+    {
+      fail (n, error->message);
+      g_error_free (error);
+      return FALSE;
+    }
+  return TRUE;
+}
+
+
+
 void
 tts_norm_start (TtsNorm *n)
 {
-  GError *error = NULL;
-  int sv[2];
-  gchar *argv[] = { n != NULL ? n->cfg.python : NULL, "-I", n != NULL ? n->cfg.helper : NULL, NULL };
-
-  if (n == NULL || n->pid != 0)
+  if (n == NULL || n->active)
     return;
   if (n->retry_after != 0 && g_get_monotonic_time () < n->retry_after)
     return;
@@ -183,29 +230,51 @@ tts_norm_start (TtsNorm *n)
       n->retry_after = g_get_monotonic_time () + RETRY_AFTER_US;
       return;
     }
-  if (socketpair (AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0, sv) != 0)
+  if (strlen (n->sock) >= sizeof (((struct sockaddr_un *) 0)->sun_path))
     {
-      fail (n, g_strerror (errno));
+      fail (n, "the path of $XDG_RUNTIME_DIR is too long for a socket");
       return;
     }
-  if (!g_spawn_async_with_pipes_and_fds (NULL, (const gchar * const *) argv, NULL,
-                                         G_SPAWN_SEARCH_PATH | G_SPAWN_DO_NOT_REAP_CHILD,
-                                         child_setup, NULL, sv[1], sv[1], -1, NULL, NULL, 0,
-                                         &n->pid, NULL, NULL, NULL, &error))
+  n->fd = connect_helper (n);
+  n->spawned = FALSE;
+  if (n->fd < 0)
     {
-      close (sv[0]);
-      close (sv[1]);
-      n->pid = 0;
-      fail (n, error->message);
-      g_error_free (error);
-      return;
+      if (!spawn_helper (n))
+        return;
+      n->spawned = TRUE;
     }
-  close (sv[1]);
-  n->fd = sv[0];
+  n->active = TRUE;
   n->ready = FALSE;
   n->started = g_get_monotonic_time ();
   g_string_truncate (n->in, 0);
 }
+
+
+
+/* until the helper we started listens; FALSE at the deadline or when the
+ * message is stopped (*cancelled) */
+static gboolean
+wait_connected (TtsNorm *n, gint64 deadline, gboolean *cancelled)
+{
+  *cancelled = FALSE;
+  while (n->fd < 0)
+    {
+      n->fd = connect_helper (n);
+      if (n->fd >= 0)
+        break;
+      if (g_get_monotonic_time () >= deadline)
+        return FALSE;
+      if (n->cancel != NULL && n->cancel ())
+        {
+          *cancelled = TRUE;
+          return FALSE;
+        }
+      g_usleep (50000);
+    }
+  return TRUE;
+}
+
+
 
 /* One line without the "\n", or NULL at the deadline, when the message
  * is stopped (*cancelled) or when the helper is gone (*gone). */
@@ -271,11 +340,24 @@ wait_ready (TtsNorm *n)
   gint64 deadline = n->started + (gint64) n->cfg.start_ms * 1000;
   gboolean gone, cancelled;
 
+  if (!wait_connected (n, deadline, &cancelled))
+    {
+      if (!cancelled)
+        fail (n, "the normalizer helper did not start in time");
+      return FALSE;
+    }
   while (!n->ready)
     {
       gchar *line = read_line (n, deadline, &gone, &cancelled);
       if (line == NULL)
         {
+          if (gone && !n->spawned)
+            {
+              /* it was exiting (idle) as we connected: start a new one */
+              tts_norm_stop (n);
+              tts_norm_start (n);
+              return n->active && wait_ready (n);
+            }
           if (gone)
             fail (n, "the normalizer helper exited while loading");
           else if (!cancelled)
@@ -344,6 +426,7 @@ ask (TtsNorm *n, const gchar *text, const gchar *lang)
   gchar *result = NULL;
   gboolean gone = FALSE, cancelled = FALSE;
 
+  n->requests++;
   if (!send_all (n->fd, req, strlen (req)))
     gone = TRUE;
   while (!gone && !cancelled && result == NULL)
@@ -386,7 +469,7 @@ tts_norm_text (TtsNorm *n, const gchar *text, const gchar *lang)
         break;
     }
   tts_norm_start (n);
-  if (n->pid != 0 && wait_ready (n))
+  if (n->active && wait_ready (n))
     out = ask (n, text, "ru");
   return out != NULL ? out : g_strdup (text);
 }
