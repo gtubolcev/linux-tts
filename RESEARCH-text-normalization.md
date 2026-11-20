@@ -699,3 +699,9 @@ Port plan:
    after each pass.
 5. tts-norm.c calls it in-process. tts-normalize.py and the helper protocol go once parity
    holds. The "enable normalization" switch stays.
+
+**Per-language normalizers (user, 2026-11-21):** tts-norm.c chooses a normalizer for each voice
+language from a table (language → backend). Russian uses the C port of ru_normalizr. The other
+languages use zt until something better is found. Candidates are WeTextProcessing for zh and
+our own fixes for uk. Each language can be switched, measured and replaced on its own. A
+language with no backend gets the text unchanged.
