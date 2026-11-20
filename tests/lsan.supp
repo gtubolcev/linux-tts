@@ -1,0 +1,3 @@
+# libspeechd_module main() keeps the "INIT" line (speech-dispatcher <= 0.12.1;
+# speechd-module/module_main.c, our copy for older releases, frees it)
+leak:module_readline

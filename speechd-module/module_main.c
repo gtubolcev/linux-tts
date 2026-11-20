@@ -57,9 +57,11 @@ int main(int argc, char *argv[])
 	line = module_readline(STDIN_FILENO, 1);
 	if (strcmp(line, "INIT\n") != 0) {
 		fprintf(stderr, "ERROR: Server did not start with INIT\n");
+		free(line);
 		module_close();
 		exit(3);
 	}
+	free(line);
 
 	/* Initialize module */
 	ret = module_init(&msg);
