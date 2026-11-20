@@ -22,18 +22,24 @@ override_dh_auto_configure:
 	  -DSHERPA_ONNX_ENABLE_TESTS=OFF -DSHERPA_ONNX_ENABLE_BINARY=ON \
 	  -DSHERPA_ONNX_BUILD_C_API_EXAMPLES=OFF
 
-# cmake installs to /usr/lib, copies onnxruntime next to the libraries and
-# writes a .pc with an rpath: move the libraries to the multiarch dir, drop
-# the copies, write our own .pc, point the rpath to the private onnxruntime
+# cmake installs to /usr: move everything into the private paths beside
+# the onnxruntime of libonnxruntime-tts (a distribution sherpa-onnx can sit
+# beside it), drop the onnxruntime copies and cmake's .pc, write our own
+# .pc, point the RUNPATH to the private directory
+PRIV = $(LIBDIR)/linux-tts
 override_dh_auto_install:
 	dh_auto_install
 	cd debian/tmp && rm -f usr/lib/libonnxruntime* usr/sherpa-onnx.pc \
-	  && mkdir -p $(LIBDIR)/pkgconfig \
-	  && mv usr/lib/libsherpa-onnx-*.so $(LIBDIR)/
-	sed -e 's|@LIBDIR@|$(LIBDIR)|' -e 's|@VERSION@|$(DEB_VERSION_UPSTREAM)|' \
-	  debian/sherpa-onnx.pc.in > debian/tmp/$(LIBDIR)/pkgconfig/sherpa-onnx.pc
-	patchelf --set-rpath $(ORTDIR) debian/tmp/usr/bin/* debian/tmp/$(LIBDIR)/*.so
-	install -m755 debian/sherpa-say debian/tmp/usr/bin/
+	  && mkdir -p $(PRIV)/pkgconfig $(PRIV)/sherpa-onnx usr/include/linux-tts \
+	  && mv usr/lib/libsherpa-onnx-*.so $(PRIV)/ \
+	  && mv usr/bin $(PRIV)/sherpa-onnx/bin \
+	  && mv usr/include/sherpa-onnx usr/include/linux-tts/
+	sed -e 's|@LIBDIR@|$(PRIV)|' -e 's|@VERSION@|$(DEB_VERSION_UPSTREAM)|' \
+	  debian/sherpa-onnx.pc.in > debian/tmp/$(PRIV)/pkgconfig/sherpa-onnx.pc
+	patchelf --set-rpath $(ORTDIR) debian/tmp/$(PRIV)/sherpa-onnx/bin/* debian/tmp/$(PRIV)/*.so
+	mkdir -p debian/tmp/usr/bin
+	sed 's|@BINDIR@|/$(PRIV)/sherpa-onnx/bin|' debian/sherpa-say > debian/tmp/usr/bin/sherpa-say
+	chmod 755 debian/tmp/usr/bin/sherpa-say
 
 override_dh_shlibdeps:
 	dh_shlibdeps -l$(ORTDIR)

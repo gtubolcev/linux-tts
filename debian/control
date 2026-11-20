@@ -7,7 +7,7 @@ Build-Depends: debhelper-compat (= 13),
                libespeak-ng-dev,
                libglib2.0-dev (>= 2.70),
                libjson-glib-dev,
-               libsherpa-onnx-dev,
+               libsherpa-onnx-tts-dev,
                libonnxruntime-tts-dev,
                libspeechd-dev (>= 0.12~),
                meson,
@@ -54,8 +54,9 @@ Description: Speech Dispatcher module for TeraTTSv2 voices
 
 Package: speech-dispatcher-sherpa-onnx
 Architecture: any
-# libsherpa-onnx-c-api.so has no versioned soname, so no shlibs entry
-Depends: sherpa-onnx (>= 2.0.1), speech-dispatcher (>= 0.12~), ${misc:Depends}, ${shlibs:Depends}
+# the C API of sherpa-onnx has no stable ABI (its config structs grow with
+# each release): exactly the version built against, from debian/rules
+Depends: libsherpa-onnx-tts (= ${sherpa:Version}), speech-dispatcher (>= 0.12~), ${misc:Depends}, ${shlibs:Depends}
 Recommends: speech-dispatcher-text-normalizer, sherpa-onnx-tts-supertonic-3 | sherpa-onnx-tts-pocket
 Suggests: speech-dispatcher-piper-sherpa-onnx
 Breaks: speech-dispatcher-sherpa (<< 0.1.0+git20261114~)
@@ -72,10 +73,8 @@ Description: Speech Dispatcher module for sherpa-onnx voices
 
 Package: speech-dispatcher-sherpa-onnx-vulkan-rs
 Architecture: all
-# the "vulkan" provider is in sherpa-onnx 2.0.1+deps2-5, built against the
-# private onnxruntime that the plugin needs
 Depends: speech-dispatcher-sherpa-onnx (>= ${source:Version}),
-         sherpa-onnx (>= 2.0.1+deps2-5~),
+         libsherpa-onnx-tts (= ${sherpa:Version}),
          onnxruntime-ep-vulkan (>= 0.0.1~git8625ef9),
          ${misc:Depends}
 Description: Speech Dispatcher module for sherpa-onnx voices on the graphics card

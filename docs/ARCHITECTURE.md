@@ -150,7 +150,8 @@ does not know or does worse (the Russian stress dictionaries).
 
 ```
 sd_sherpa-onnx as sherpa-onnx-vulkan-rs
-  -> sherpa-onnx, provider "vulkan"             (packaging/sherpa-onnx/debian/patches)
+  -> sherpa-onnx, provider "vulkan"             (packaging/sherpa-onnx-tts/debian/patches)
+                                                libsherpa-onnx-tts, same directory
   -> ONNX Runtime 1.32, private copy            libonnxruntime-tts:
                                                   /usr/lib/x86_64-linux-gnu/linux-tts/
   -> libonnxruntime_ep_vulkan.so (onnx-vulkan-rs) onnxruntime-ep-vulkan, same directory
@@ -163,6 +164,10 @@ sd_sherpa-onnx as sherpa-onnx-vulkan-rs
   ONNX Runtime 1.32 (packaging/onnxruntime-tts) in a private directory, and
   sherpa-onnx, `sd_vosk`, `sd_kokoro` and `sd_teratts` are built against it
   (RUNPATH); Ubuntu's libonnxruntime stays untouched for other programs.
+  sherpa-onnx itself is private the same way (libsherpa-onnx-tts, headers
+  in /usr/include/linux-tts): its C API passes config structs that grow
+  with each release, so the modules depend on the exact version they were
+  built against, and a distribution sherpa-onnx can be installed beside it.
   `silero-server` uses the Python module of the same release
   (python3-onnxruntime-tts, in /usr/lib/python3/linux-tts, off Python's
   search path; noble has no python3-onnxruntime at all).

@@ -1,3 +1,15 @@
+sherpa-onnx-tts (2.0.1+deps2-6) resolute; urgency=medium
+
+  * Rename to sherpa-onnx-tts and move out of the public paths, so that a
+    distribution sherpa-onnx can be installed beside it: the libraries in
+    the new libsherpa-onnx-tts in /usr/lib/<triplet>/linux-tts (beside the
+    private onnxruntime), headers in /usr/include/linux-tts with
+    libsherpa-onnx-tts-dev, the tools in /usr/lib/<triplet>/linux-tts/
+    sherpa-onnx/bin with the new package sherpa-say (/usr/bin/sherpa-say).
+    The C API has no stable ABI: the modules depend on the exact version.
+
+ -- Grigory Tuboltsev <gtubolcev@gmail.com>  Fri, 20 Nov 2026 03:00:00 +0100
+
 sherpa-onnx (2.0.1+deps2-5) resolute; urgency=medium
 
   * Build against the private onnxruntime 1.32 of libonnxruntime-tts
