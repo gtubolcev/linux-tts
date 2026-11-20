@@ -84,6 +84,9 @@ Description: Speech Dispatcher module for sherpa-onnx voices on the graphics car
  plugin of onnxruntime (onnx-vulkan-rs), for Piper voices, MMS models and
  Supertonic on any graphics card with a Vulkan driver. Settings in
  /etc/speech-dispatcher/modules/sherpa-onnx-vulkan-rs.conf.
+ .
+ Experimental: the plugin is young and has one author; no other package
+ recommends this one.
 
 Package: speech-dispatcher-piper-sherpa-onnx
 Architecture: all

@@ -27,6 +27,29 @@ cmake --build build -j4
 DESTDIR=$PWD/stage cmake --install build
 ```
 
+## Distribution packages we rebuild
+
+speech-dispatcher (`+fixN`) and rhvoice (`+voiceN`) are the only packages the PPA carries
+under a distribution package name, an explicit exception to "never replace distro
+packages": our version is the Ubuntu one plus a suffix, so a newer Ubuntu upload (SRU,
+security) wins in apt and the patch is gone. `scripts/check-distro-versions.py` compares
+both with Ubuntu's archive (also -proposed) per series and says when to rebuild; run it
+daily (`packaging/systemd/` has a `systemd --user` timer). The lasting fix is upstream:
+reload-leaks is in speechd master (an SRU request is enough), RHVoiceVoice is not
+upstream yet.
+
+## onnxruntime 1.32 is frozen
+
+github.com/microsoft/onnxruntime is gone since 2026-11-17; `onnxruntime-tts/make-source.sh`
+builds the orig tarball from the Software Heritage snapshot and GitHub forks, all of them
+checked by hash. The tarball `onnxruntime-tts_1.32.0+deps.orig.tar.xz` (sha256
+`4631ad375988e5dbfe90cbf39990757e515b67242e759645e8d740b71be63844`, 258 MB) is kept by
+Launchpad with the PPA source, on the build machine under
+`/mnt/storage1/Grigory/claude-archive/onnxruntime-tts-1.32.0/` and on the laptop under
+`~/Storage/Claude/archive/`. There is no newer ORT until a living upstream or successor
+fork appears; security fixes for the .onnx parser do not come from anywhere, so models
+stay untrusted input. Plan B is the ggml path, which the project moves to anyway.
+
 ## Model licences (what may go into a PPA)
 
 | Model package | Licence | PPA |
