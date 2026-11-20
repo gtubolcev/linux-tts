@@ -1,7 +1,9 @@
 # Piper voices packaged as piper-voice-<lang>-<region>-<name>-<quality>.
 # key (the sherpa-onnx release asset vits-piper-<key>.tar.bz2)   licence (SPDX)
 # Only free licences; the rest of the 182 voices come from the downloader in
-# xfce4-speech-settings. Left out: uk_UA-ukrainian_tts-medium (phoneme_type
+# xfce4-speech-settings. Left out: de_DE-kerstin-low and fr_FR-gilles-low (labelled
+# CC0, but fine-tuned from en_US ryan, whose RyanSpeech data is CC BY-NC-SA 4.0);
+# uk_UA-ukrainian_tts-medium (phoneme_type
 # "text", not supported by sd_sherpa yet).
 ru_RU-dmitri-medium     CC0-1.0
 ru_RU-denis-medium      CC0-1.0
@@ -9,9 +11,7 @@ en_US-ljspeech-medium   public-domain
 en_US-john-medium       public-domain
 en_GB-alba-medium       CC-BY-4.0
 de_DE-thorsten-medium   CC0-1.0
-de_DE-kerstin-low       CC0-1.0
 fr_FR-siwis-medium      CC-BY-4.0
-fr_FR-gilles-low        CC0-1.0
 es_ES-davefx-medium     CC0-1.0
 it_IT-paola-medium      CC0-1.0
 pl_PL-gosia-medium      CC0-1.0

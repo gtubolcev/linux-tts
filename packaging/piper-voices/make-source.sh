@@ -20,7 +20,7 @@ DIST=${1:-resolute}
 DL=${DL:-/home/grigory/Storage/Claude/piper-voices/dl}
 OUT=${OUT:-/home/grigory/Storage/Claude/piper-voices/ppa}
 URL=https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models
-UPSTREAM=1.1
+UPSTREAM=1.2
 # the espeak-ng fork whose data the voices were trained with
 ESPEAK=8593723f10cfd9befd50de447f14bf0a9d2a14a4
 ESPEAK_SHA=41c199da1355deec93eab6065be99d00b938dd452e78f282ab481db91657e4e4
@@ -122,6 +122,8 @@ piper-voices ($VERSION~$DIST) $DIST; urgency=medium
 
   * Piper voices with free licences for sd_sherpa-onnx.
   * The Russian rules honour the stress mark U+0301.
+  * Drop de_DE-kerstin-low and fr_FR-gilles-low: fine-tuned from en_US ryan,
+    whose training data is CC BY-NC-SA 4.0.
 
  -- $MAINT  $(date -R)
 X
