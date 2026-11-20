@@ -1,5 +1,5 @@
 #!/usr/bin/python3 -I
-"""silero-server: a small localhost HTTP server for sd_silero.
+"""silero-server: a small HTTP server on a Unix socket for sd_silero.
 
 It keeps a Silero TTS model (ONNX, run by the silero-tts-onnx runtime)
 loaded, so speech-dispatcher does not load it for every message.
@@ -10,22 +10,31 @@ loaded, so speech-dispatcher does not load it for every message.
                       "rate": float (1 = normal), "pitch": float (1 = normal)}
                      -> float32 mono PCM, X-Audio-Sample-Rate header
 
+The socket (--socket) is created for the user only; sd_silero puts it in
+$XDG_RUNTIME_DIR. No TCP port: web pages and other users cannot reach it.
+
 The model and the runtime are not part of this program; they are
 installed with their licences into a directory given by --dir:
 
   <dir>/silero_onnx/   the runtime (python package)
   <dir>/models/        the ONNX files of the model version
 
+The runtime is code from the internet, so it is imported only if its files
+are the ones listed in --manifest (sha256 of a known release).
+
 Copyright (C) 2026 Grigory Tuboltsev
 SPDX-License-Identifier: MIT
 """
 import argparse
+import hashlib
 import json
 import os
+import signal
+import socketserver
 import sys
 import threading
 import time
-from http.server import BaseHTTPRequestHandler, HTTPServer
+from http.server import BaseHTTPRequestHandler
 from xml.sax.saxutils import escape
 
 engine = None
@@ -34,14 +43,44 @@ SAMPLE_RATE = 48000
 # the onnxruntime of python3-onnxruntime-tts (the release the other modules
 # use), off Python's search path; the distribution's one otherwise
 ORT_DIR = "/usr/lib/python3/linux-tts"
+MANIFEST = "/usr/share/speech-dispatcher-silero/silero_onnx.sha256"
 
 
 def log(*a):
     print("silero-server:", *a, file=sys.stderr, flush=True)
 
 
+def check_runtime(pkg, manifest):
+    """Raises unless pkg holds exactly the files of the manifest."""
+    want = {}
+    with open(manifest, encoding="utf-8") as f:
+        for line in f:
+            if line.strip() and not line.startswith("#"):
+                digest, name = line.rstrip("\n").split("  ", 1)
+                want[name] = digest
+    have = set()
+    for root, dirs, files in os.walk(pkg):
+        dirs[:] = [d for d in dirs if d != "__pycache__"]
+        for name in files:
+            have.add(os.path.relpath(os.path.join(root, name), pkg))
+    bad = sorted(n for n in have - want.keys() if n.endswith(".py"))
+    if bad:
+        raise RuntimeError(f"unknown files in {pkg}: {' '.join(bad)}")
+    for name, digest in want.items():
+        with open(os.path.join(pkg, name), "rb") as f:
+            if hashlib.sha256(f.read()).hexdigest() != digest:
+                raise RuntimeError(f"{pkg}/{name} is not the file of the known release "
+                                   f"(see {manifest})")
+
+
 def load(args):
     global engine
+    pkg = os.path.join(args.dir, "silero_onnx")
+    if args.manifest:
+        check_runtime(pkg, args.manifest)
+    # compile the checked sources; never use .pyc files lying next to them
+    sys.dont_write_bytecode = True
+    sys.pycache_prefix = "/nonexistent/silero-server"
     if os.path.isdir(os.path.join(ORT_DIR, "onnxruntime")):
         sys.path.insert(0, ORT_DIR)
     sys.path.insert(0, args.dir)
@@ -86,6 +125,9 @@ def to_ssml(text, rate, pitch):
 
 class Handler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
+
+    def address_string(self):
+        return "local"
 
     def log_message(self, fmt, *a):
         if self.server.verbose:
@@ -157,13 +199,29 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--dir", required=True, help="runtime + models directory")
     ap.add_argument("--version", default="v5_6_ru")
-    ap.add_argument("--host", default="127.0.0.1")
-    ap.add_argument("--port", type=int, required=True)
+    ap.add_argument("--socket", required=True, help="path of the Unix socket to create")
+    ap.add_argument("--manifest", default=MANIFEST,
+                    help="sha256 list of the runtime files; empty = do not check")
     ap.add_argument("--threads", type=int, default=2)
     ap.add_argument("--verbose", action="store_true")
     args = ap.parse_args()
 
-    httpd = HTTPServer((args.host, args.port), Handler)
+    # the socket is the user's only: no group or other access from the start
+    os.umask(0o077)
+    try:
+        os.unlink(args.socket)
+    except FileNotFoundError:
+        pass
+    httpd = socketserver.UnixStreamServer(args.socket, Handler)
+
+    def stop(_sig, _frame, code=0):
+        try:
+            os.unlink(args.socket)
+        except OSError:
+            pass
+        os._exit(code)
+
+    signal.signal(signal.SIGTERM, stop)
     httpd.verbose = args.verbose
     httpd.version = args.version
     # answer /v2/health with 503 while the model loads
@@ -172,11 +230,11 @@ def main():
         load(args)
     except BaseException as e:   # noqa: BLE001
         log(f"cannot load the model from {args.dir}: {type(e).__name__}: {e}")
-        sys.exit(1)
+        stop(None, None, 1)
     try:
         threading.Event().wait()
     except KeyboardInterrupt:
-        pass
+        stop(None, None)
 
 
 if __name__ == "__main__":

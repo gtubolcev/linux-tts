@@ -164,4 +164,6 @@ if get_option('silero').allowed()
     install: true, install_dir: module_dir)
   install_data('silero/silero.conf', install_dir: conf_dir)
   install_data('silero/silero-server', install_dir: get_option('bindir'), install_mode: 'rwxr-xr-x')
+  install_data('silero/silero_onnx.sha256',
+               install_dir: get_option('datadir') / 'speech-dispatcher-silero')
 endif

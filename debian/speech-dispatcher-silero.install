@@ -1,3 +1,4 @@
 usr/lib/speech-dispatcher-modules/sd_silero
 etc/speech-dispatcher/modules/silero.conf
 usr/bin/silero-server
+usr/share/speech-dispatcher-silero/silero_onnx.sha256
