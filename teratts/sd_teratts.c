@@ -292,6 +292,15 @@ teratts_close (void)
 
 
 
+/* the model's files, for the test load in a child process */
+static const gchar *
+teratts_model_path (gpointer key)
+{
+  return model_dir;
+}
+
+
+
 const TtsEngine tts_engine = {
   .name = "sd_teratts",
   .prefix = "Teratts",
@@ -302,6 +311,7 @@ const TtsEngine tts_engine = {
   .init = teratts_init,
   .load = teratts_load,
   .unload = teratts_unload,
+  .model_path = teratts_model_path,
   .speak = teratts_speak,
   .text_language = teratts_text_language,
   .close = teratts_close,

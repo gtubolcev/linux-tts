@@ -424,6 +424,15 @@ kokoro_close (void)
 
 
 
+/* the model's files, for the test load in a child process */
+static const gchar *
+kokoro_model_path (gpointer model)
+{
+  return ((Model *) model)->onnx;
+}
+
+
+
 const TtsEngine tts_engine = {
   .name = "sd_kokoro",
   .prefix = "Kokoro",
@@ -435,6 +444,7 @@ const TtsEngine tts_engine = {
   .init = kokoro_init,
   .load = kokoro_load,
   .unload = kokoro_unload,
+  .model_path = kokoro_model_path,
   .speak = kokoro_speak,
   .close = kokoro_close,
 };

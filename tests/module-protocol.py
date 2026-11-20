@@ -54,10 +54,12 @@ class Mod:
         self.dir = tempfile.TemporaryDirectory()
         path = os.path.join(self.dir.name, "dummy.conf")
         with open(path, "w") as f:
-            f.write("TextNormalization no\nDebug 1\n" + REAL_CONF + conf)
+            f.write("TextNormalization no\nDebug 1\n" + REAL_CONF
+                    + conf.replace("@DIR@", self.dir.name))
         self.err_path = os.path.join(self.dir.name, "stderr")
+        env = dict(os.environ, XDG_CACHE_HOME=os.path.join(self.dir.name, "cache"))
         self.p = subprocess.Popen([EXE, path], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-                                  stderr=open(self.err_path, "wb"))
+                                  stderr=open(self.err_path, "wb"), env=env)
         self.lines = []      # (time, line); audio as "AUDIO n"
         self.cond = threading.Condition()
         self.pos = 0
@@ -259,6 +261,98 @@ def t_failed_model(m):
     m.speak("Hello.")
     m.expect("702 END")
     check(m.said() == ["dummy-en-female-1|Hello."], m.said())
+
+
+def write_models(m, **models):
+    for name, text in models.items():
+        with open(os.path.join(m.dir.name, name), "w") as f:
+            f.write(text)
+
+
+def children(pid):
+    out = []
+    for t in os.listdir("/proc/%d/task" % pid):
+        with open("/proc/%d/task/%s/children" % (pid, t)) as f:
+            out += f.read().split()
+    return out
+
+
+def probe_cache(m):
+    try:
+        with open(os.path.join(m.dir.name, "cache", "linux-tts", "probe-dummy.ini")) as f:
+            return f.read()
+    except OSError:
+        return ""
+
+
+def t_probe_crash(m):
+    """a model that crashes the engine fails in the test load, not in the module"""
+    write_models(m, en="ok", ru="crash")
+    m.speak("Hello.")
+    m.expect("702 END")
+    check("result=ok" in probe_cache(m), "no ok in the cache: " + probe_cache(m))
+    m.set(synthesis_voice="dummy-ru-female-1")
+    m.speak("Привет.")
+    m.expect("702 END")
+    check("crashed the engine (signal 6" in m.stderr(), m.stderr()[-800:])
+    check("crashed the engine" in probe_cache(m), probe_cache(m))
+    check("loaded ru" not in m.stderr(), "ru loaded in the module")
+    m.set(synthesis_voice="dummy-en-female-1")
+    m.speak("Again.")
+    m.expect("702 END")
+    check(m.said() == ["dummy-en-female-1|Hello.", "dummy-en-female-1|Again."], m.said())
+    check(m.stderr().count("test load of dummy-en-female-1 (") == 1, "en tested twice")
+
+
+def t_probe_cached(m):
+    """a remembered result is used without a test load; changed files are tested again"""
+    write_models(m, en="ok")
+    os.makedirs(os.path.join(m.dir.name, "cache", "linux-tts"), exist_ok=True)
+    with open(os.path.join(m.dir.name, "cache", "linux-tts", "probe-dummy.ini"), "w") as f:
+        f.write("[%s]\nstamp=nothing\nresult=ok\n" % os.path.join(m.dir.name, "en"))
+    m.speak("Hello.")
+    m.expect("702 END")
+    check("test load of dummy-en-female-1 (" in m.stderr(), "old stamp not tested")
+    m.set(synthesis_voice="dummy-ru-female-1")
+    write_models(m, ru="ok")
+    m.speak("Привет.")
+    m.expect("702 END")
+    m.set(synthesis_voice="dummy-en-female-1")
+    m.speak("Again.")     # en was unloaded for ru (one model): loads again, from the cache
+    m.expect("702 END")
+    check(m.stderr().count("test load of dummy-en-female-1 (") == 1, m.stderr()[-800:])
+
+
+def t_probe_hang(m):
+    """a test load that hangs is killed after ProbeTimeout; the module goes on"""
+    write_models(m, en="ok", ru="hang")
+    m.set(synthesis_voice="dummy-ru-female-1")
+    t0 = time.time()
+    m.speak("Привет.")
+    m.expect("702 END", 5)
+    check(time.time() - t0 < 3, "took %.1f s" % (time.time() - t0))
+    check("did not finish in 1 s" in m.stderr(), m.stderr()[-800:])
+    check(children(m.p.pid) == [], "child left: %s" % children(m.p.pid))
+    check(os.path.join(m.dir.name, "ru") + "]" not in probe_cache(m), "timeout remembered")
+    m.set(synthesis_voice="dummy-en-female-1")
+    m.speak("Hello.")
+    m.expect("702 END", 5)
+    check(m.said() == ["dummy-en-female-1|Hello."], m.said())
+
+
+def t_probe_quit(m):
+    """QUIT during a test load kills the child"""
+    write_models(m, en="hang")
+    m.speak("Hello.")
+    m.expect("701 BEGIN")
+    time.sleep(0.5)
+    kids = children(m.p.pid)
+    check(len(kids) == 1, "children %s" % kids)
+    m.cmd("QUIT\n", "210 OK QUIT", 4)
+    m.p.wait(4)
+    time.sleep(0.2)
+    check(not os.path.exists("/proc/" + kids[0]) or "Z" in open("/proc/%s/stat" % kids[0]).read().split()[2],
+          "child %s still runs" % kids[0])
 
 
 def t_synth_failure(m):
@@ -525,6 +619,10 @@ TESTS = [
     (t_eof_during_speech, "DummySynthMs 100\n"),
     (t_preload, 'DummyPreload yes\nDummyVoice "ru" "dummy-ru-female-1"\n'),
     (t_config_reload, ""),
+    (t_probe_crash, "DummyModelDir @DIR@\n"),
+    (t_probe_cached, "DummyModelDir @DIR@\n"),
+    (t_probe_hang, "DummyModelDir @DIR@\nDummyProbeTimeout 1\n"),
+    (t_probe_quit, "DummyModelDir @DIR@\n"),
 ]
 
 

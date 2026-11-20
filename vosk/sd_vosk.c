@@ -247,6 +247,15 @@ vosk_speak (const TtsPiece *p, GError **error)
 
 
 
+/* the model's files, for the test load in a child process */
+static const gchar *
+vosk_path (gpointer model)
+{
+  return vosk_model_dir (model);
+}
+
+
+
 const TtsEngine tts_engine = {
   .name = "sd_vosk",
   .prefix = "Vosk",
@@ -257,5 +266,6 @@ const TtsEngine tts_engine = {
   .init = vosk_init,
   .load = vosk_load,
   .unload = vosk_unload,
+  .model_path = vosk_path,
   .speak = vosk_speak,
 };

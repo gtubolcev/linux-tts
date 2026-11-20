@@ -1155,6 +1155,15 @@ sherpa_close (void)
 
 
 
+/* the model's files, for the test load in a child process */
+static const gchar *
+sherpa_model_path (gpointer model)
+{
+  return ((Model *) model)->dir;
+}
+
+
+
 const TtsEngine tts_engine = {
   .name = "sd_sherpa-onnx",
   .prefix = "Sherpa",
@@ -1167,6 +1176,7 @@ const TtsEngine tts_engine = {
   .init = sherpa_init,
   .load = sherpa_load,
   .unload = sherpa_unload,
+  .model_path = sherpa_model_path,
   .speak = sherpa_speak,
   .close = sherpa_close,
 };
