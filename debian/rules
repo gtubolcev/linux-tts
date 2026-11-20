@@ -16,3 +16,9 @@ override_dh_auto_configure:
 
 override_dh_shlibdeps:
 	dh_shlibdeps -l$(ORTDIR)
+
+# the exact version of the private sherpa-onnx (no stable ABI), for
+# Depends: libsherpa-onnx-tts (= ${sherpa:Version})
+SHERPA_VERSION := $(shell dpkg-query -W -f='$${Version}' libsherpa-onnx-tts-dev)
+override_dh_gencontrol:
+	dh_gencontrol -- -Vsherpa:Version=$(SHERPA_VERSION)

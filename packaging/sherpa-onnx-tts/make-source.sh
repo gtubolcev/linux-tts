@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Builds the sherpa-onnx source package for the PPA:
-#   packaging/sherpa-onnx/make-source.sh [codename]
+# Builds the sherpa-onnx-tts source package (sherpa-onnx in private paths) for the PPA:
+#   packaging/sherpa-onnx-tts/make-source.sh [codename]
 # The orig tarball is the release with the tarballs of its CMake
 # dependencies at the top (checked against deps.txt, whose checksums are
 # those in the release's cmake/*.cmake), so the build needs no network.
@@ -11,7 +11,7 @@ VER=2.0.1
 DIST=${1:-$VERSION_CODENAME}
 PPA=${PPA:-ppa:gtubolcev/linux-tts}
 HERE=$(cd "$(dirname "$0")" && pwd)
-WORK=$(dirname "$(dirname "$HERE")")/_build/sherpa-onnx
+WORK=$(dirname "$(dirname "$HERE")")/_build/sherpa-onnx-tts
 CACHE=${CACHE:-$WORK/cache}
 mkdir -p "$CACHE"
 fetch() { # file url sha256
@@ -24,7 +24,7 @@ while read -r f url sum; do fetch "$f" "$url" "$sum"; done < "$HERE/deps.txt"
 
 # +deps2: the first orig tarball had all its times at 1970, which
 # Launchpad rejects in the .debs; the name of a rejected orig is taken
-ORIG=sherpa-onnx_$VER+deps2.orig.tar.xz
+ORIG=sherpa-onnx-tts_$VER+deps2.orig.tar.xz
 rm -rf "$WORK/$DIST"; mkdir -p "$WORK/$DIST"; cd "$WORK/$DIST"
 tar xf "$CACHE/sherpa-onnx-$VER.tar.gz"
 S=sherpa-onnx-$VER

@@ -1,0 +1,48 @@
+Source: sherpa-onnx-tts
+Section: sound
+Priority: optional
+Maintainer: Grigory Tuboltsev <gtubolcev@gmail.com>
+Build-Depends: debhelper-compat (= 13), cmake, libonnxruntime-tts-dev, patchelf
+Standards-Version: 4.7.2
+Homepage: https://github.com/k2-fsa/sherpa-onnx
+Rules-Requires-Root: no
+
+Package: libsherpa-onnx-tts
+Section: libs
+Architecture: amd64
+Depends: ${shlibs:Depends}, ${misc:Depends}
+Breaks: sherpa-onnx (<< 2.0.1+deps2-6~)
+Description: local speech synthesis and recognition (sherpa-onnx) - private build
+ sherpa-onnx runs speech models with ONNX Runtime: text to speech
+ (VITS/Piper, Matcha, Kokoro, Kitten, Pocket TTS, Supertonic, ZipVoice),
+ speech recognition, VAD, speaker diarization.
+ .
+ This is the build the speech-dispatcher modules of linux-tts use, in the
+ private directory /usr/lib/<triplet>/linux-tts beside its onnxruntime and
+ with the "vulkan" provider. Its C API has no stable ABI, so the modules
+ depend on this exact version.
+
+Package: libsherpa-onnx-tts-dev
+Section: libdevel
+Architecture: amd64
+Depends: libsherpa-onnx-tts (= ${binary:Version}), libonnxruntime-tts-dev, ${misc:Depends}
+Description: local speech synthesis and recognition (sherpa-onnx) - headers
+ sherpa-onnx runs speech models with ONNX Runtime.
+ .
+ Headers of the C and C++ API in /usr/include/linux-tts and sherpa-onnx.pc
+ in /usr/lib/<triplet>/linux-tts/pkgconfig, for the private build in
+ libsherpa-onnx-tts.
+
+Package: sherpa-say
+Architecture: amd64
+Depends: libsherpa-onnx-tts (= ${binary:Version}), ${shlibs:Depends}, ${misc:Depends}
+Recommends: pulseaudio-utils | alsa-utils
+Breaks: sherpa-onnx (<< 2.0.1+deps2-6~)
+Replaces: sherpa-onnx (<< 2.0.1+deps2-6~)
+Description: speak a text with a sherpa-onnx model
+ sherpa-say MODEL [-l LANG] [-v VOICE] TEXT speaks with a sherpa-onnx text
+ to speech model directory (or a name under /usr/share/sherpa-onnx/tts); the
+ model family is detected from its files. OUT=file.wav saves instead.
+ .
+ The command line tools of sherpa-onnx (sherpa-onnx-offline-tts and others)
+ come along in /usr/lib/<triplet>/linux-tts/sherpa-onnx/bin.

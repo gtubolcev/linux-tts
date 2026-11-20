@@ -104,7 +104,13 @@ if get_option('teratts').require(onnx_ok, error_message: 'sd_teratts needs json-
 endif
 
 # -------------------------------------------------------------- sherpa
-sherpa = cc.find_library('sherpa-onnx-c-api', has_headers: ['sherpa-onnx/c-api/c-api.h'], required: false)
+# the private build of sherpa-onnx-tts (its .pc is under
+# /usr/lib/<triplet>/linux-tts/pkgconfig, on PKG_CONFIG_PATH in debian/rules);
+# a plain library in the default paths for local builds
+sherpa = dependency('sherpa-onnx', required: false)
+if not sherpa.found()
+  sherpa = cc.find_library('sherpa-onnx-c-api', has_headers: ['sherpa-onnx/c-api/c-api.h'], required: false)
+endif
 # Supertonic, Piper, Pocket TTS and MMS in one module; espeak-ng turns the
 # text of Piper voices into phonemes
 if get_option('sherpa').require(sherpa.found() and espeak.found(),

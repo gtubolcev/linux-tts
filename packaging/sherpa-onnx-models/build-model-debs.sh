@@ -28,7 +28,7 @@ Version: $ver
 Architecture: all
 Maintainer: Grigory Tuboltsev <gtubolcev@gmail.com>
 Installed-Size: $(du -sk "$P" | cut -f1)
-Recommends: sherpa-onnx (>= 2.0)
+Recommends: sherpa-say
 Section: $section
 Priority: optional
 Homepage: https://github.com/k2-fsa/sherpa-onnx/releases/tag/tts-models

@@ -84,7 +84,7 @@ Architecture: amd64
 Maintainer: Grigory Tuboltsev <gtubolcev@gmail.com>
 Section: sound
 Priority: optional
-Depends: libc6, libglib2.0-0t64, libespeak-ng1, speech-dispatcher (>= 0.12), sherpa-onnx (>= 2.0.1)
+Depends: libc6, libglib2.0-0t64, libespeak-ng1, speech-dispatcher (>= 0.12), libsherpa-onnx-tts
 Recommends: sherpa-onnx-tts-supertonic-3 | sherpa-onnx-tts-pocket | sherpa-onnx-tts-mms-ru
 Suggests: onnxruntime-ep-vulkan, speech-dispatcher-piper-sherpa-onnx
 Replaces: speech-dispatcher-sherpa

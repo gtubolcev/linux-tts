@@ -42,6 +42,6 @@ else
   set -- --vits-model="$(f '*.onnx')" --vits-tokens="$M/tokens.txt"
 fi
 DIR=$(mktemp -d); trap 'rm -r "$DIR"' EXIT
-sherpa-onnx-offline-tts --num-threads="$THREADS" --sid="$SID" --speed="$SPEED" "$@" --output-filename="$DIR/out.wav" "$TEXT" 2>&1 \
+@BINDIR@/sherpa-onnx-offline-tts --num-threads="$THREADS" --sid="$SID" --speed="$SPEED" "$@" --output-filename="$DIR/out.wav" "$TEXT" 2>&1 \
   | grep -E "^Real-time|rror" | grep -v "^Schema error" >&2 || true
 if [ -n "$OUT" ]; then cp "$DIR/out.wav" "$OUT"; else paplay "$DIR/out.wav" 2>/dev/null || aplay -q "$DIR/out.wav"; fi
