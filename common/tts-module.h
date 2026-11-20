@@ -76,6 +76,9 @@ typedef struct
                               * loaded at once (0 means 1) */
   int idle_timeout;          /* default of <Prefix>IdleTimeout, s; 0 never */
   int first_chunk;           /* default of <Prefix>FirstChunk, characters */
+  int max_piece;             /* longest piece given to speak(), characters;
+                              * 0: TTS_MAX_PIECE.  Longer ones are cut at a
+                              * comma or space (tts_cut_point) */
 
   /* before the configuration is read: the defaults; may be NULL */
   void (*setup) (void);
@@ -171,6 +174,11 @@ void tts_segments_free (GArray *segments);
  * commas.  With first_chunk > 0 the first piece is cut at a comma already
  * after first_chunk characters. */
 GPtrArray *tts_split_sentences (const gchar *text, int first_chunk);
+#define TTS_MAX_PIECE 400
+/* where to cut a text before character limit: after the last comma-like
+ * mark (, : ; —) past limit/2, else at the last space, else at limit; an
+ * offset in characters, > 0 */
+glong tts_cut_point (const gchar *text, glong limit);
 /* the words for a CHAR or KEY message in the voice's language (tts-keys.c):
  * CHAR "," -> "comma"/"запятая", KEY "control_alt_delete" -> "контрол альт
  * делит".  The normalizer does not see them. */

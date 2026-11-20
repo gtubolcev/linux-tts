@@ -1215,11 +1215,12 @@ tts_split_sentences (const gchar *text, int first)
   GPtrArray *out = g_ptr_array_new_with_free_func (g_free);
   GString *cur = g_string_new (NULL);
 
+  gchar *valid = NULL;
+
+  /* the text from the server is UTF-8; anything else is split as well,
+   * not given to the engine as one piece */
   if (!g_utf8_validate (text, -1, NULL))
-    {
-      g_ptr_array_add (out, g_utf8_make_valid (text, -1));
-      text = "";
-    }
+    text = valid = g_utf8_make_valid (text, -1);
   for (const gchar *p = text; *p != '\0'; p = g_utf8_next_char (p))
     {
       gunichar c = g_utf8_get_char (p);
@@ -1253,7 +1254,29 @@ tts_split_sentences (const gchar *text, int first)
   if (*cur->str != '\0')
     g_ptr_array_add (out, g_strdup (cur->str));
   g_string_free (cur, TRUE);
+  g_free (valid);
   return out;
+}
+
+glong
+tts_cut_point (const gchar *text, glong limit)
+{
+  glong space = -1, mark = -1, i = 0;
+
+  for (const gchar *p = text; *p != '\0' && i < limit; p = g_utf8_next_char (p), i++)
+    if (*p == ' ')
+      {
+        space = i;
+        if (i > 0)
+          {
+            gunichar prev = g_utf8_get_char (g_utf8_prev_char (p));
+            if (prev == ',' || prev == ':' || prev == ';' || prev == 0x2014)
+              mark = i;
+          }
+      }
+  if (mark > limit / 2)
+    return mark;
+  return space > 0 ? space : MAX (limit, 1);
 }
 
 /* ----------------------------------------------------------------- audio */
@@ -1468,7 +1491,7 @@ get_norm (void)
 }
 
 static void
-speak_piece (Msg *m, const gchar *text, gboolean *first)
+speak_one (Msg *m, const gchar *text, gboolean *first)
 {
   TtsPiece piece = { text, m->voice, &m->s, m->type, *first };
   GError *error = NULL;
@@ -1483,6 +1506,41 @@ speak_piece (Msg *m, const gchar *text, gboolean *first)
   else
     TTS_DBG ("%.2f s: %s", (g_get_monotonic_time () - t0) / 1e6, text);
   *first = FALSE;
+}
+
+static gboolean
+longer_than (const gchar *text, glong n)
+{
+  for (; *text != '\0'; text = g_utf8_next_char (text))
+    if (n-- == 0)
+      return TRUE;
+  return FALSE;
+}
+
+/* a text without sentence marks (a table, a log, base64) would go to the
+ * engine in one call: memory and time grow with it, and STOP waits for the
+ * call to return */
+static void
+speak_piece (Msg *m, const gchar *text, gboolean *first)
+{
+  glong max = E->max_piece > 0 ? E->max_piece : TTS_MAX_PIECE;
+  gchar *rest = NULL;
+
+  while (longer_than (text, max) && !tts_stopped ())
+    {
+      const gchar *cut = g_utf8_offset_to_pointer (text, tts_cut_point (text, max));
+      gchar *part = g_strstrip (g_strndup (text, cut - text));
+      gchar *next = g_strstrip (g_strdup (cut));
+
+      if (*part != '\0')
+        speak_one (m, part, first);
+      g_free (part);
+      g_free (rest);
+      text = rest = next;
+    }
+  if (*text != '\0' && !tts_stopped ())
+    speak_one (m, text, first);
+  g_free (rest);
 }
 
 static void

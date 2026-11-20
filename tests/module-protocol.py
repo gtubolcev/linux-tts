@@ -200,6 +200,32 @@ def t_marks(m):
     check(m.said()[1].endswith("|Two, & three."), m.said())
 
 
+def t_long_piece(m):
+    """a text without sentence marks reaches the engine in pieces of at most
+    400 characters, cut at commas or spaces, nothing lost"""
+    words = " ".join("w%d" % i for i in range(1500))
+    text = "Start, " + words.replace("w700 ", "w700, ") + " end"
+    m.speak("<speak>%s</speak>" % text)
+    m.expect("702 END", 20)
+    said = [l.split("|", 1)[1] for l in m.said()]
+    check(len(said) > 10 and max(len(x) for x in said) <= 400, [len(x) for x in said])
+    check(" ".join(said) == text, said[:3])
+    check(any(x.endswith("w700,") for x in said), [x[-8:] for x in said])
+
+
+def t_bad_utf8(m):
+    """invalid UTF-8 is split into sentences as well, not given as one piece"""
+    body = b"<speak>One \xff two. Three \xfe four. " + b"x " * 300 + b"</speak>"
+    m.send("SPEAK\n")
+    m.expect("202 ")
+    m.p.stdin.write(body + b"\n.\n")
+    m.p.stdin.flush()
+    m.expect("702 END", 10)
+    said = [l.split("|", 1)[1] for l in m.said()]
+    check(len(said) >= 4 and said[0].startswith("One") and said[0].endswith("two.")
+          and max(len(x) for x in said) <= 400, said)
+
+
 def t_bad_mark(m):
     """a mark name with a newline would fake "702 END"; it is dropped"""
     m.speak('<speak>One.<mark name="a\n702 END"/> Two.<mark name="ok"/></speak>')
@@ -667,6 +693,8 @@ TESTS = [
     (t_empty, ""),
     (t_marks, ""),
     (t_bad_mark, ""),
+    (t_long_piece, ""),
+    (t_bad_utf8, ""),
     (t_entities_utf8, ""),
     (t_stop, "DummySynthMs 100\n"),
     (t_stop_speak_one_write, "DummySynthMs 100\n"),

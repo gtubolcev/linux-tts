@@ -197,32 +197,6 @@ teratts_text_language (const TtsSettings *s, const TtsVoice *v)
 
 
 
-/* where to cut a text that is too long: the last comma-like mark before the
- * middle, else the last space before it, else the middle */
-static glong
-cut_point (const gchar *text)
-{
-  glong n = g_utf8_strlen (text, -1), half = n / 2, space = -1, mark = -1, i = 0;
-
-  for (const gchar *p = text; *p != '\0' && i < half; p = g_utf8_next_char (p), i++)
-    {
-      gunichar c = g_utf8_get_char (p);
-      if (c == ' ')
-        {
-          space = i;
-          if (i > 0)
-            {
-              gunichar prev = g_utf8_get_char (g_utf8_prev_char (p));
-              if (prev == ',' || prev == ':' || prev == ';' || prev == 0x2014)
-                mark = i;
-            }
-        }
-    }
-  if (mark > n / 4)
-    return mark;
-  return space > 0 ? space : MAX (half, 1);
-}
-
 
 
 /* in the worker */
@@ -238,7 +212,7 @@ speak_text (const gchar *text, const TtsPiece *p, GError **error)
 
   if (g_utf8_strlen (text, -1) > MAX_CHARS)
     {
-      const gchar *mid = g_utf8_offset_to_pointer (text, cut_point (text));
+      const gchar *mid = g_utf8_offset_to_pointer (text, tts_cut_point (text, g_utf8_strlen (text, -1) / 2));
       gchar *first = g_strndup (text, mid - text);
       gchar *rest = g_strdup (mid);
       gboolean ok = speak_text (g_strstrip (first), p, error);
