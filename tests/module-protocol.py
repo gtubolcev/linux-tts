@@ -50,7 +50,7 @@ def unescape(b):
 
 
 class Mod:
-    def __init__(self, conf=""):
+    def __init__(self, conf="", cache=None):
         self.dir = tempfile.TemporaryDirectory()
         path = os.path.join(self.dir.name, "dummy.conf")
         with open(path, "w") as f:
@@ -59,7 +59,7 @@ class Mod:
         self.err_path = os.path.join(self.dir.name, "stderr")
         # own runtime dir: .load / .state of the test, not of the session
         os.mkdir(os.path.join(self.dir.name, "run"), 0o700)
-        env = dict(os.environ, XDG_CACHE_HOME=os.path.join(self.dir.name, "cache"),
+        env = dict(os.environ, XDG_CACHE_HOME=cache or os.path.join(self.dir.name, "cache"),
                    XDG_RUNTIME_DIR=os.path.join(self.dir.name, "run"))
         self.p = subprocess.Popen([EXE, path], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                                   stderr=open(self.err_path, "wb"), env=env)
@@ -386,6 +386,45 @@ def t_probe_cached(m):
     m.speak("Again.")     # en was unloaded for ru (one model): loads again, from the cache
     m.expect("702 END")
     check(m.stderr().count("test load of dummy-en-female-1 (") == 1, m.stderr()[-800:])
+
+
+def t_probe_subdir(m):
+    """a change deeper in a model's directory (espeak-ng-data/...) tests it again"""
+    write_models(m, en="ok")
+    os.makedirs(os.path.join(m.dir.name, "ru", "data", "voices"))
+    write_models(m, **{"ru/data/voices/x": "1"})
+    m.set(synthesis_voice="dummy-ru-female-1")
+    m.speak("Привет.")
+    m.expect("702 END")
+    m.set(synthesis_voice="dummy-en-female-1")
+    m.speak("Hello.")     # unloads ru (one model)
+    m.expect("702 END")
+    write_models(m, **{"ru/data/voices/x": "22"})
+    m.set(synthesis_voice="dummy-ru-female-1")
+    m.speak("Ещё.")
+    m.expect("702 END")
+    check(m.stderr().count("test load of dummy-ru-female-1 (") == 2, m.stderr()[-800:])
+
+
+def t_probe_engine(m):
+    """the verdict is kept for one engine: the same engine takes it from the
+    cache, another salt (provider, plugin) tests again"""
+    write_models(m, en="ok")
+    cache = os.path.join(m.dir.name, "cache")
+    m.speak("Hello.")
+    m.expect("702 END")
+    m.close()
+    counts = []
+    for salt in ("a", "a", "b"):
+        n = Mod("DummyModelDir %s\nDummySalt %s\n" % (m.dir.name, salt), cache=cache)
+        try:
+            n.start()
+            n.speak("Hello.")
+            n.expect("702 END")
+            counts.append(n.stderr().count("test load of dummy-en-female-1 ("))
+        finally:
+            n.close()
+    check(counts == [1, 0, 1], counts)
 
 
 def t_probe_hang(m):
@@ -722,6 +761,8 @@ TESTS = [
     (t_probe_exit, "DummyModelDir @DIR@\n"),
     (t_probe_killed, "DummyModelDir @DIR@\n"),
     (t_probe_cached, "DummyModelDir @DIR@\n"),
+    (t_probe_subdir, "DummyModelDir @DIR@\n"),
+    (t_probe_engine, "DummyModelDir @DIR@\n"),
     (t_probe_hang, "DummyModelDir @DIR@\nDummyProbeTimeout 1\n"),
     (t_probe_quit, "DummyModelDir @DIR@\n"),
 ]

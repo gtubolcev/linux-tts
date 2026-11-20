@@ -27,6 +27,7 @@ static int load_ms = 0, synth_ms = 0;
 static char model_en[] = "en", model_ru[] = "ru", model_bad[] = "bad";
 static int loaded_count = 0;
 static gchar *model_dir = NULL;
+static gchar *salt = NULL;
 
 static gboolean
 dummy_config (const gchar *key, const gchar *value)
@@ -37,6 +38,8 @@ dummy_config (const gchar *key, const gchar *value)
     synth_ms = atoi (value);
   else if (g_ascii_strcasecmp (key, "DummyModelDir") == 0)
     g_free (model_dir), model_dir = g_strdup (value);
+  else if (g_ascii_strcasecmp (key, "DummySalt") == 0)
+    g_free (salt), salt = g_strdup (value);
   else
     return FALSE;
   return TRUE;
@@ -128,6 +131,12 @@ dummy_speak (const TtsPiece *p, GError **error)
   return TRUE;
 }
 
+static gchar *
+dummy_probe_salt (void)
+{
+  return g_strdup (salt);
+}
+
 const TtsEngine tts_engine = {
   .name = "sd_dummy",
   .prefix = "Dummy",
@@ -140,4 +149,5 @@ const TtsEngine tts_engine = {
   .unload = dummy_unload,
   .speak = dummy_speak,
   .model_path = dummy_model_path,
+  .probe_salt = dummy_probe_salt,
 };

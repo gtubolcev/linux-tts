@@ -43,6 +43,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
 #include <unistd.h>
 
 #include <espeak-ng/speak_lib.h>
@@ -911,6 +912,43 @@ wanted_threads (void)
 
 
 
+static gboolean synthesize (Voice *v, const gchar *text, float speed, gboolean send,
+                            GError **error);
+
+/* A short synthesis right after the load: a model the provider accepts but
+ * cannot run (an old Vulkan plugin, see family_wanted) then fails in the
+ * test load in a child process instead of taking the module down at the
+ * first message, and the first piece does not pay for the warm-up (0.6 s
+ * for Supertonic on the CPU, 0.1 s for Piper and MMS).  Not Pocket TTS: it
+ * runs only on the CPU, and the test costs it more than a second. */
+static gboolean
+warm_up (Model *m, GError **error)
+{
+  gint64 t0 = g_get_monotonic_time ();
+  gboolean ok = TRUE;
+
+  if (m->family == FAMILY_POCKET)
+    return TRUE;
+
+  for (guint i = 0; i < voices->len; i++)
+    {
+      Voice *v = g_ptr_array_index (voices, i);
+      if (v->model != m)
+        continue;
+      ok = synthesize (v, "a", 1.0f, FALSE, error);
+      break;
+    }
+  if (!ok)
+    {
+      g_prefix_error (error, "%s: the test synthesis failed: ", m->dir);
+      SherpaOnnxDestroyOfflineTts (m->tts);
+      m->tts = NULL;
+    }
+  else
+    DBG ("test synthesis of %s in %.2f s", m->name, (g_get_monotonic_time () - t0) / 1e6);
+  return ok;
+}
+
 /* in the loader thread */
 static gboolean
 sherpa_load (gpointer model, GError **error)
@@ -981,7 +1019,7 @@ sherpa_load (gpointer model, GError **error)
     }
   DBG ("loaded %s (%s, %s, %d threads)", m->name, family_names[m->family],
        cfg_vulkan ? "vulkan" : "cpu", wanted_threads ());
-  return TRUE;
+  return warm_up (m, error);
 }
 
 
@@ -1039,16 +1077,14 @@ send_pause (gunichar last, Voice *v)
 
 
 
+/* TEXT in voice V at SPEED; the audio goes to speech-dispatcher if SEND */
 static gboolean
-speak_sentence (const gchar *text, const TtsPiece *p, GError **error)
+synthesize (Voice *v, const gchar *text, float speed, gboolean send, GError **error)
 {
   SherpaOnnxGenerationConfig g;
   const SherpaOnnxGeneratedAudio *audio;
   gchar *extra = NULL, *lowered = NULL;
   GArray *cps = NULL, *lens = NULL;
-  /* the frame speeds the audio up further */
-  float speed = (float) tts_model_speed (p->settings);
-  Voice *v = p->voice->data;
   const SherpaOnnxOfflineTts *tts = v->model->tts;
   gboolean ok = TRUE;
 
@@ -1103,7 +1139,8 @@ speak_sentence (const gchar *text, const TtsPiece *p, GError **error)
   audio = SherpaOnnxOfflineTtsGenerateWithConfig (tts, text, &g, progress_cb, NULL);
   if (audio != NULL)
     {
-      tts_audio_float (audio->samples, audio->n, audio->sample_rate);
+      if (send)
+        tts_audio_float (audio->samples, audio->n, audio->sample_rate);
       SherpaOnnxDestroyOfflineTtsGeneratedAudio (audio);
     }
   else if (!tts_stopped ())
@@ -1139,7 +1176,8 @@ sherpa_speak (const TtsPiece *p, GError **error)
   if (stress_stage == NULL && stress_cfg.enabled)
     stress_stage = tts_stress_new (&stress_cfg);
   ready = tts_stress_apply_mark (stress_stage, p->text, v->language, stress_mark_for (v));
-  ok = speak_sentence (ready, p, error);
+  /* the frame speeds the audio up further */
+  ok = synthesize (v, ready, (float) tts_model_speed (p->settings), TRUE, error);
   g_free (ready);
   return ok;
 }
@@ -1154,6 +1192,21 @@ sherpa_close (void)
 }
 
 
+
+/* the provider and the Vulkan plugin (loaded only with the first model),
+ * for the verdict of the test load */
+static gchar *
+sherpa_probe_salt (void)
+{
+  struct stat st;
+
+  if (!cfg_vulkan)
+    return g_strdup ("cpu");
+  if (stat (VULKAN_EP_LIBRARY, &st) != 0)
+    return g_strdup ("vulkan none");
+  return g_strdup_printf ("vulkan %lld %lld.%09ld", (long long) st.st_size,
+                          (long long) st.st_mtim.tv_sec, st.st_mtim.tv_nsec);
+}
 
 /* the model's files, for the test load in a child process */
 static const gchar *
@@ -1177,6 +1230,7 @@ const TtsEngine tts_engine = {
   .load = sherpa_load,
   .unload = sherpa_unload,
   .model_path = sherpa_model_path,
+  .probe_salt = sherpa_probe_salt,
   .speak = sherpa_speak,
   .close = sherpa_close,
 };
