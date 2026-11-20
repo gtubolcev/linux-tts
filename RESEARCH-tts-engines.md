@@ -712,6 +712,48 @@ Measured (protocol test, busy laptop): "Кафе на углу открылос�
 Next steps (also in xfce4-speech-settings/PLAN.md): Ukrainian through Piper / sherpa
 (no new code); ask alex73 about the data, then export the be model to ONNX.
 
+## ru-speech-bench (meshoklv, read 2026-11-21)
+https://github.com/meshoklv/ru-speech-bench (MIT, last commit 9a08cff, 2026-10-22): hands-on cards for 21
+Russian speech engines measured in September 2026 for a phone voice agent: licence with source and date,
+install, hardware, numbers, pitfalls. Local copy: `_tmp/web/ru-speech-bench-src`. Hardware: Xeon E5-2695 v2
+without AVX2 (close to the user's laptop class) and an RTX 3090 Ti. What matters for us:
+
+- **Piper voice licences.** The bench says all four Russian voices were fine-tuned from en_US lessac (Blizzard
+  2013 data, "research purposes" only). Checked on rhasspy/piper-voices on 2026-11-21: that held for the
+  voices as we package them, but OHF retrained them in November 2026 from new bases: denis (2026-11-09) and
+  dmitri (2026-11-12) now come from `rdh` (nl_BE, CC0) and `hifi_tts_92` (Hi-Fi TTS reader 92, CC BY 4.0).
+  The new models need Piper >= 1.5 (MRD and SDP, `vowel_clusters` in the config that merge diphthongs into
+  single phoneme ids); whether sherpa-onnx's piper front end handles `vowel_clusters` is unchecked.
+  Our packaging/piper-voices takes the sherpa-onnx `vits-piper-*` assets, converted from the old models.
+  Base models of our packaged voices per current cards: hifi_tts_92 (dmitri, alba, siwis, paola, gosia),
+  rdh (denis, thorsten, davefx, darkman), from scratch (ljspeech, issai), Kristin (john, public domain),
+  **en_US ryan** (kerstin-low, gilles-low): RyanSpeech is **CC BY-NC-SA 4.0**, so those two are fine-tunes of a
+  non-commercial voice under a CC0 label. ruslan is CC BY-NC-SA itself, irina "Unknown" (both already left
+  out).
+- **Piper's own Russian front end** (espeak-ng, no normalizer): `15 750 рублей` loses "тысяч", `14:00` and
+  `25-го` stay unexpanded, `3 сентября` gets a cardinal, homographs have fixed stress. Same cases our
+  normalizer must cover (they are in the normbench set).
+- **ESpeech-TTS-1 RL-V2** (F5-TTS architecture, Apache-2.0 declared, base checkpoint not stated; original F5
+  weights are CC-BY-NC): RTF 0.17-0.36 on a 3090 Ti, 2.8 GB VRAM, 6/6 lines verbatim, stress by RUAccent
+  turbo3.1 (`+` before the stressed vowel, also inside numerals). GPU only in practice. The best open Russian
+  cloner in the bench.
+- **Kokoro on CPU:** float32 with 8 ORT threads RTF 0.77 on that Xeon; **int8 dynamic quantization was ~4x
+  slower** than float32 there (no AVX2/VNNI). Concurrent `create()` from threads corrupts output (kokoro-onnx
+  #191); espeak-ru ignores the stress mark U+0301. kokoro-ru (zaakirio): OpenRAIL weights, authors report WER
+  2.50 % vs 4.38 % for Piper (Whisper round trip, not reproduced).
+- **Chatterbox Multilingual:** digits come out as garbage (generation aborts on token repetition), spelled-out
+  numbers are fine; its Russian stress needs `russian_text_stresser`, which is not on PyPI; RTF 22-24 on CPU.
+- **Qwen3-TTS 1.7B / F5 Russian / XTTS-v2:** reference leakage in cloning (Qwen3 worst), F5 Russian and
+  XTTS-v2 non-commercial. CosyVoice 3: Russian unproven. IndexTTS-2: no Russian front end, custom licence.
+- **STT** (for the later dictation part): T-one (Apache-2.0, streaming CTC, 300 ms chunks in ~100-120 ms on
+  one thread, output alphabet Cyrillic + space only, no digits/Latin; best with 1 ORT thread, the default
+  all-core session is slower and 6x more CPU) and GigaAM-v3 through sherpa-onnx (MIT, offline, punctuated
+  RNN-T export `csukuangfj/sherpa-onnx-nemo-transducer-punct-giga-am-v3-russian-2025-12-16`). Silero VAD 6.2.1:
+  0.5 ms per 32 ms chunk on one thread. Smart Turn v3.2 (BSD-2): weak on their data, defer.
+- **Methods worth reusing** (docs/methodology): ASR round-trip with a paired design (same sentence with digits
+  and spelled out) to test normalization through a voice; pitch spread in semitones as a "liveliness" proxy;
+  utmos rewards cleanliness, not liveliness (Piper irina 3.67 beats ESpeech 3.27).
+
 ## To do: wider survey (from the user, 2026-11-12)
 - Go through GitHub's "tts" repositories sorted by stars
   (https://github.com/search?q=tts&type=repositories&s=stars&o=desc), page by page:
