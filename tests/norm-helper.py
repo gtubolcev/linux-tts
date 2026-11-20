@@ -185,6 +185,18 @@ def t_slow_and_boom():
     wait_gone(rt, 8)
 
 
+def t_cancel():
+    """the message is stopped while the normalizer works (it was a NULL
+    dereference): no crash, the text passes unchanged"""
+    rt = runtime("cancel")
+    r = client(rt, ["SLOW", "x"], "--timeout", "8000", "--idle", "2", "--cancel-after", "1500")
+    a = answers(r.stdout)
+    check("cancel: no crash", r.returncode == 0 and len(a) == 2, "rc=%d %r" % (r.returncode, r.stdout))
+    check("cancel: stopped text unchanged", len(a) == 2 and a[0][1] == "SLOW"
+          and int(a[0][0]) < 2500, r.stdout)
+    wait_gone(rt, 10)
+
+
 def t_no_helper():
     rt = runtime("none")
     e = dict(os.environ, XDG_RUNTIME_DIR=rt)
@@ -212,7 +224,7 @@ def t_load_race():
 
 try:
     for t in (t_shared, t_mode, t_stale, t_restart_after_idle, t_broken, t_slow_and_boom,
-              t_no_helper, t_load_race):
+              t_cancel, t_no_helper, t_load_race):
         t()
 finally:
     for name in os.listdir(ROOT):

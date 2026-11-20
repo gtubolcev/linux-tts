@@ -2,7 +2,7 @@
  * tts-norm-test - normalizes stdin line by line through the helper
  *
  *   tts-norm-test [--helper PATH] [--python PATH] [--timeout MS] [--idle S] [--lang ru]
- *                 [--stress DICT] [--mark plus|acute]
+ *                 [--stress DICT] [--mark plus|acute] [--cancel-after MS]
  *
  * Prints "<ms>\t<normalized line>" for each line, so the timeouts and the
  * fallbacks of tts-norm.c can be tried with broken helpers.
@@ -16,6 +16,15 @@
 
 #include "tts-norm.h"
 #include "tts-stress.h"
+
+/* --cancel-after: the line counts as stopped this long after it started */
+static gint64 line_start, cancel_after_us = -1;
+
+static gboolean
+cancel_line (void)
+{
+  return g_get_monotonic_time () - line_start >= cancel_after_us;
+}
 
 int
 main (int argc, char **argv)
@@ -48,6 +57,8 @@ main (int argc, char **argv)
         }
       else if (strcmp (argv[i], "--mark") == 0)
         tts_stress_config_parse (&scfg, "TextStressMark", argv[i + 1]);
+      else if (strcmp (argv[i], "--cancel-after") == 0)
+        cancel_after_us = g_ascii_strtoll (argv[i + 1], NULL, 10) * 1000;
       else if (strcmp (argv[i], "--lang") == 0)
         lang = argv[i + 1];
       else
@@ -58,9 +69,11 @@ main (int argc, char **argv)
     }
   n = tts_norm_new (&cfg);
   st = tts_stress_new (&scfg);
+  if (n != NULL && cancel_after_us >= 0)
+    tts_norm_set_cancel (n, cancel_line);
   while (fgets (line, sizeof line, stdin) != NULL)
     {
-      gint64 t0 = g_get_monotonic_time ();
+      gint64 t0 = line_start = g_get_monotonic_time ();
       gchar *out;
 
       line[strcspn (line, "\n")] = '\0';
