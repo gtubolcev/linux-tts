@@ -672,9 +672,30 @@ Conclusion:
      rustc-1.88 exists in noble and resolute. Link it into libtts-common.
   2. In tts-norm.c, pick by voice language. ru: ru_normalizr helper as now. Other languages:
      zt in-process. Unknown language: unchanged. Same "enable normalization" switch.
-  3. ru fallback: when the helper is broken, paused or still loading, use zt-ru instead of the
-     raw text. Wrap Latin runs in U+E000…U+E001 (verbatim) first, so they are not spelled.
-  4. Wrap engine markup (SSML pieces we pass on) as markup tags or verbatim spans.
+  3. Wrap engine markup (SSML pieces we pass on) as markup tags or verbatim spans.
 - Borrow zt's ru rules where they beat rn (time ranges, "руб.", acronym lexicon, nominative
   dates after a colon) as rn fixes. Run them through the native-speaker check first.
 - Watch the repo along with ZONOS3-Mini (memory zonos3-watch).
+
+**Decision (user, 2026-11-21):** no zt fallback for Russian. ru_normalizr is to be rewritten
+in C instead, which removes the Python helper.
+
+ru_normalizr 1.3.0 (MIT) is 19 135 lines of Python in about 40 files, with roughly 100 regex
+calls (60 files use lookbehind or named groups). Its dependencies are pymorphy3 and num2words.
+It uses only part of pymorphy3: parse → normal_form and tag.case, gender, number, animacy, plus
+inflect(). The pymorphy3-dicts-ru data (OpenCorpora, CC BY-SA) is 16 MB.
+
+Port plan:
+1. Oracle and corpus. Python ru_normalizr is the golden generator. The corpus is normbench,
+   norm-test, the 4pda topic text, book texts and the rule tables, about 100k sentences. The C
+   output must match byte for byte, except for a reviewed list of our deliberate fixes. Like
+   zt's goldens, the corpus is .zst in tests and checked in CI.
+2. Morphology in C. A build-time converter turns the dictionary into a compact read-only file
+   that is mmapped, so the modules share the page cache. Its API is parse(word) → [(lemma,
+   tag)] and inflect(word, grammemes), with pymorphy's unknown-word prediction only where rn
+   needs it.
+3. num2words-ru in C (cardinals and ordinals in every case, gender and number). It is small.
+4. Port the rn passes one at a time with PCRE2, in rn's order, keeping the goldens green
+   after each pass.
+5. tts-norm.c calls it in-process. tts-normalize.py and the helper protocol go once parity
+   holds. The "enable normalization" switch stays.
