@@ -1,0 +1,493 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Grigory Tuboltsev <gtubolcev@gmail.com>
+Date: Wed, 18 Nov 2026 22:03:29 +0100
+Subject: [PATCH] =?UTF-8?q?fix(numerals):=20=D0=BA=D1=80=D1=83=D0=B3=D0=BB?=
+ =?UTF-8?q?=D0=B0=D1=8F=20=D1=82=D1=8B=D1=81=D1=8F=D1=87=D0=B0=20=D0=B1?=
+ =?UTF-8?q?=D0=B5=D0=B7=20=C2=AB=D0=BE=D0=B4=D0=BD=D0=B0=C2=BB=20=D0=B8=20?=
+ =?UTF-8?q?=D0=B2=D0=B8=D0=BD=D0=B8=D1=82=D0=B5=D0=BB=D1=8C=D0=BD=D1=8B?=
+ =?UTF-8?q?=D0=B9=20=D1=81=D1=80=D0=BE=D0=BA=D0=B0?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+«Около 1000 человек» — «около тысячи», «1000 лет назад» — «тысячу лет
+назад», «уже 1000 раз» — «тысячу раз». «Одна» остаётся в составных
+числах, денежных суммах и после «не». «На 1000 кусочков» больше не год.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_0189a4focDKPAbyh6UsPZ3Vz
+---
+ CHANGELOG.md                           | 12 ++++
+ docs/SPEED_OBSERVATIONS.md             | 14 ++++
+ src/ru_normalizr/caps.py               |  8 ++-
+ src/ru_normalizr/numerals/_helpers.py  | 30 +++++++++
+ src/ru_normalizr/numerals/cardinals.py | 54 +++++++++++++---
+ src/ru_normalizr/years.py              | 24 +++++++
+ tests/data/golden_corpus_hashes.json   | 16 ++---
+ tests/test_case_rules.py               |  6 ++
+ tests/test_known_gap_fixes.py          | 88 +++++++++++++++++++++++++-
+ tests/test_regressions.py              |  2 +-
+ 10 files changed, 232 insertions(+), 22 deletions(-)
+
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+index 824e92d..bfcdbdb 100644
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -7,6 +7,18 @@ The format is based on Keep a Changelog, and this project follows Semantic Versi
+ ## Unreleased
+ 
+ ### Fixed
++- Круглая 1000 вне денежной суммы читается «тысяча» без «одна»: «около 1000
++  человек» — «около тысячи человек», «жар 1000 солнц» — «жар тысячи солнц».
++  «Одна» остаётся в составных числах («одна тысяча двести»), при денежной
++  единице («заплатил одну тысячу рублей», «5 млн ₽») и после «не» («прожил
++  не одну тысячу лет»). Срок и кратность без предлога стоят в винительном
++  (правило `adverbial-accusative`): «1000 лет назад» — «тысячу лет назад»,
++  «1 неделю спустя» — «одну неделю спустя», «уже 1000 раз» — «тысячу раз».
++  «Прошло 1000 лет» читается «прошло тысяча лет»: число — подлежащее при
++  глаголе течения времени. «На 1000 кусочков», «за 1000 шагов» больше не
++  читаются годом («на тысячный»): родительный множественного справа говорит
++  о количестве. «Тысяча» после многоточия получает заглавную, как другие
++  числительные.
+ - Отрицание наличия ставит количество в родительный: «У него нет 5 рублей» —
+   «нет пяти рублей», «не хватает 2 голосов» — «не хватает двух голосов»,
+   «не было 3 ящиков» — «не было трёх ящиков». Правило `negated-existence`
+diff --git a/docs/SPEED_OBSERVATIONS.md b/docs/SPEED_OBSERVATIONS.md
+index c19da14..1ddd7fa 100644
+--- a/docs/SPEED_OBSERVATIONS.md
++++ b/docs/SPEED_OBSERVATIONS.md
+@@ -1498,3 +1498,17 @@ python scripts/benchmark.py --real-only --mode tts --samples 1 --warmups 1 --pre
+ ```
+ 
+ Разница в пределах шума.
++
++## 18 ноября 2026 — круглая тысяча и винительный срока
++
++Та же машина и контейнер. Два прогона до (`git stash`) и два после.
++
++```text
++python scripts/benchmark.py --real-only --mode tts --samples 1 --warmups 1 --prefix-chars 250000 --book benchmarks/corpus/03_karamzin_history_of_russian_state.txt
++до:     1853,85 мс; 134 855 символов/с
++до:     1840,85 мс; 135 807 символов/с
++после:  1848,97 мс; 135 210 символов/с
++после:  1842,07 мс; 135 717 символов/с
++```
++
++Разница в пределах шума.
+diff --git a/src/ru_normalizr/caps.py b/src/ru_normalizr/caps.py
+index c65c7f0..6bb6c80 100644
+--- a/src/ru_normalizr/caps.py
++++ b/src/ru_normalizr/caps.py
+@@ -61,6 +61,10 @@ def _ellipsis_precedes(text: str, punctuation_position: int) -> bool:
+     return punctuation_position > 0 and text[punctuation_position - 1] in ".…"
+ 
+ 
++#: Круглые числа читаются существительным без «один»: «1000» → «тысяча».
++_ROUND_NUMBER_NOUNS = frozenset({"тысяча", "миллион", "миллиард", "триллион"})
++
++
+ def _starts_with_numeral(text: str, position: int) -> bool:
+     """Слово в позиции `position` — числительное (количественное или порядковое).
+ 
+@@ -74,7 +78,9 @@ def _starts_with_numeral(text: str, position: int) -> bool:
+     if word_match is None:
+         return False
+     return any(
+-        candidate.tag.POS == "NUMR" or "Anum" in candidate.tag
++        candidate.tag.POS == "NUMR"
++        or "Anum" in candidate.tag
++        or candidate.normal_form in _ROUND_NUMBER_NOUNS
+         for candidate in parse_word(word_match.group(0))
+     )
+ 
+diff --git a/src/ru_normalizr/numerals/_helpers.py b/src/ru_normalizr/numerals/_helpers.py
+index 71f7c5d..7e80fad 100644
+--- a/src/ru_normalizr/numerals/_helpers.py
++++ b/src/ru_normalizr/numerals/_helpers.py
+@@ -1897,6 +1897,26 @@ def _rule_adjective_agreement(ctx: NumeralContext) -> str | None:
+     return None
+ 
+ 
++_AGO_WORDS = frozenset({"назад", "спустя"})
++_ELAPSE_VERB_LEMMAS = frozenset({"пройти", "минуть", "пролететь", "пронестись", "промчаться"})
++
++
++def _rule_adverbial_accusative(ctx: NumeralContext) -> str | None:
++    """Срок и кратность без предлога стоят в винительном.
++
++    «1000 лет назад» → «тысячу лет назад», «1 неделю спустя» → «одну неделю
++    спустя», «уже 1000 раз говорил» → «тысячу раз». Предлог слева решает
++    раньше («около тысячи лет назад», «в тысячу раз»). «Раз» с заглавной —
++    начало счёта («Раз, два…»), не кратность.
++    """
++    right = ctx.word(1)
++    if right == "раз" and ctx.raw(1) == "раз":
++        return "accs"
++    if right in TIME_WORDS and ctx.word(2) in _AGO_WORDS:
++        return "accs"
++    return None
++
++
+ def _rule_verb_government(ctx: NumeralContext) -> str | None:
+     """Глагол слева управляет числом: «заплатили одну тысячу».
+ 
+@@ -1919,6 +1939,15 @@ def _rule_verb_government(ctx: NumeralContext) -> str | None:
+         # остальные окончания такими же, как в именительном. Непереходное чтение
+         # среди равновероятных блокирует винительный: «пришли» — это и «прийти»,
+         # и повелительное от «прислать», и управляет только второе.
++        # «Прошло 1000 лет»: число — подлежащее при глаголе течения времени,
++        # «прошло тысяча лет», а не «тысячу» («пройти» переходный). Другие
++        # глаголы в среднем роде управляют: «это заняло тысячу лет».
++        if top_verbs and ctx.word(1) in TIME_WORDS and all(
++            candidate.normal_form in _ELAPSE_VERB_LEMMAS
++            and {"past", "neut"} <= candidate.tag.grammemes
++            for candidate in top_verbs
++        ):
++            return None
+         if top_verbs and all("tran" in candidate.tag for candidate in top_verbs):
+             # Прямое дополнение не бывает в дательном, творительном или
+             # предложном: «закончили дело 2700 пленными» — «пленными» показывает,
+@@ -2015,6 +2044,7 @@ CASE_RULES: tuple[CaseRule, ...] = (
+     CaseRule("oblique-noun-before-bare-number", _rule_oblique_noun_before_bare_number),
+     CaseRule("coordinated-series-head", _rule_coordinated_series_head),
+     CaseRule("preposition-before-number", _rule_preposition_before_number),
++    CaseRule("adverbial-accusative", _rule_adverbial_accusative),
+     CaseRule("passive-participle-predicate", _rule_passive_participle_predicate),
+     CaseRule("adjective-agreement", _rule_adjective_agreement),
+     CaseRule("verb-government", _rule_verb_government),
+diff --git a/src/ru_normalizr/numerals/cardinals.py b/src/ru_normalizr/numerals/cardinals.py
+index 39d8c8a..67ae11a 100644
+--- a/src/ru_normalizr/numerals/cardinals.py
++++ b/src/ru_normalizr/numerals/cardinals.py
+@@ -448,14 +448,36 @@ class _NumberSite:
+     def length(self) -> int:
+         return len(self.tokens)
+ 
+-    def rendered(self, case: str, gender: str | None, animate: bool) -> str:
+-        """Чтение числа в заданной форме вместе с его знаком и обёрткой."""
+-        return build_number_token(
+-            self.token,
+-            self.clean_token,
+-            inflect_numeral_string(self.clean_token, case, gender, animate),
+-            self.is_negative,
+-        )
++    def rendered(
++        self, case: str, gender: str | None, animate: bool, *, keep_one: bool = False
++    ) -> str:
++        """Чтение числа в заданной форме вместе с его знаком и обёрткой.
++
++        `keep_one` оставляет «одна» перед круглой тысячей — для денежных сумм.
++        """
++        words = inflect_numeral_string(self.clean_token, case, gender, animate)
++        if not keep_one and not _negated_one(self.tokens, self.idx):
++            words = _bare_thousand(self.clean_token, self.is_negative, words)
++        return build_number_token(self.token, self.clean_token, words, self.is_negative)
++
++
++_ONE_BEFORE_THOUSAND = re.compile(r"^(?:одна|одну|одной|одною)\s+(?=тысяч)")
++
++
++def _negated_one(tokens: list[str], idx: int) -> bool:
++    """«Не 1000 лет» — «не одну тысячу лет», то есть много тысяч: «одна» держит смысл."""
++    return idx > 0 and tokens[idx - 1].lower() == "не"
++
++
++def _bare_thousand(clean_token: str, is_negative: bool, words: str) -> str:
++    """Круглая 1000 в речи — «тысяча лет», «около тысячи человек».
++
++    «Одна» остаётся в составных числах («одна тысяча двести») и в денежных
++    суммах; это решают вызывающие, здесь — только сама круглая тысяча.
++    """
++    if clean_token != "1000" or is_negative:
++        return words
++    return _ONE_BEFORE_THOUSAND.sub("", words, count=1)
+ 
+ 
+ @dataclass(frozen=True, slots=True)
+@@ -608,6 +630,12 @@ def _counted_one_form_agrees(site: _NumberSite, noun_word: str) -> bool:
+     return False
+ 
+ 
++def _is_money_lemma(lemma: str) -> bool:
++    """Денежная единица: «1000 рублей» — сумма, в ней остаётся «одна тысяча»."""
++    info = resolve_unit_info(lemma)
++    return info is not None and info.category == "money"
++
++
+ def _handle_adjective_and_noun(site: _NumberSite) -> Outcome | None:
+     """Число + прилагательное + существительное: «2 основные задачи».
+ 
+@@ -652,6 +680,7 @@ def _handle_adjective_and_noun(site: _NumberSite) -> Outcome | None:
+         ),
+         p_noun.tag.gender,
+         is_anim,
++        keep_one=_is_money_lemma(p_noun.normal_form),
+     )
+     return [(i, i + 1, num_words), (i + 1, i + 3, None)], 3
+ 
+@@ -674,6 +703,7 @@ def _handle_money_multiplier(
+         inanimate_cardinal_case(site.value, case),
+         p_multiplier.tag.gender or "masc",
+         False,
++        keep_one=True,
+     )
+     consumed = 4 if _is_redundant_unit_token(site.tokens, i + 3, info.lemma) else 3
+     replacement = (
+@@ -709,7 +739,10 @@ def _handle_unit(
+     tokens = site.tokens
+     i = site.idx
+     num_words = site.rendered(
+-        inanimate_cardinal_case(site.value, case), info.gender, False
++        inanimate_cardinal_case(site.value, case),
++        info.gender,
++        False,
++        keep_one=info.category == "money",
+     )
+     full_unit = _render_counted_unit(site, info, case)
+     match_unit = (
+@@ -979,6 +1012,7 @@ def _handle_counted_noun(site: _NumberSite, unit: _UnitAtSite) -> Outcome | None
+         paucal_accusative_case(site.value, counted_case, animate=is_anim),
+         TIME_WORDS.get(unit.alias, p_noun.tag.gender),
+         is_anim,
++        keep_one=_is_money_lemma(p_noun.normal_form),
+     )
+     counted_noun = noun_token
+     if rewrite_noun and site.case == "accs" and is_anim and site.value in {2, 3, 4}:
+@@ -1120,6 +1154,8 @@ def _number_site(
+         )
+     else:
+         inflected_num = inflect_numeral_string(clean_token, inanimate_cardinal_case(val, case))
++    if not _negated_one(tokens, idx):
++        inflected_num = _bare_thousand(clean_token, is_negative, inflected_num)
+     return _NumberSite(
+         tokens=tokens,
+         idx=idx,
+diff --git a/src/ru_normalizr/years.py b/src/ru_normalizr/years.py
+index 5ad09b2..eeeb4fd 100644
+--- a/src/ru_normalizr/years.py
++++ b/src/ru_normalizr/years.py
+@@ -524,6 +524,28 @@ def _year_patterns() -> tuple[ScanPattern, ...]:
+     )
+ 
+ 
++_NEXT_WORD = re.compile(r"\s+([а-яё]+)\b")
++
++
++def _counted_word_follows(text: str, end: int) -> bool:
++    """Справа счётное слово в родительном множественного: «на 1000 кусочков».
++
++    Год не управляет родительным множественного, а количество — управляет,
++    поэтому «разбилась на 1000 (мелких) кусочков» — не год. Слово со строчной
++    буквы, чтобы «на 1000 Бойцов» не путать. После «в» родительный бывает и
++    у одушевлённого дополнения («в 1812 французов разбили»), поэтому «в»
++    вызывающий исключает.
++    """
++    match = _NEXT_WORD.match(text, end)
++    if match is None:
++        return False
++    parsed = parse_word(match.group(1))
++    if not parsed:
++        return False
++    top = parsed[0].tag
++    return top.POS in {"NOUN", "ADJF"} and top.case == "gent" and top.number == "plur"
++
++
+ def normalize_years(text: str) -> str:
+     if not any(char.isdecimal() for char in text):
+         return text
+@@ -1019,6 +1041,8 @@ def normalize_years(text: str) -> str:
+         ):
+             return m.group(0)
+         prep = m.group("prep").lower()
++        if prep not in ("в", "во") and _counted_word_follows(text, m.end()):
++            return m.group(0)
+         if prep in ("в", "во", "о", "об"):
+             case = "loct"
+         elif prep in ("к", "ко", "по"):
+diff --git a/tests/data/golden_corpus_hashes.json b/tests/data/golden_corpus_hashes.json
+index 135fd75..3a727e5 100644
+--- a/tests/data/golden_corpus_hashes.json
++++ b/tests/data/golden_corpus_hashes.json
+@@ -52,20 +52,20 @@
+       "01_solovyov_history_of_russia": {
+         "input_chars": 200000,
+         "input_sha256": "3f2e6f2a33f4b4ded614c594ae98adfda885b458386ee551a59f690557a1b45a",
+-        "output_chars": 200855,
+-        "output_sha256": "d62734c2e2c80cb20ef393fdcf92a1e84499466f89eb988ce8fdb114d305fd58"
++        "output_chars": 200849,
++        "output_sha256": "d76df7b2f580d01c9cab8a6ae127a41f3e77b0310c6eb29abedc2493f99e4cc8"
+       },
+       "02_russian_army_and_navy_modern": {
+         "input_chars": 200000,
+         "input_sha256": "49f5d3583207cd9df7192529771c1d2d607ac8aa3c59c14c9fd3424929f4c7a7",
+-        "output_chars": 206380,
+-        "output_sha256": "75ddf80f506bcd41c47436335c671e26aa3ea4b5116018079d8c3c6070a5f761"
++        "output_chars": 206345,
++        "output_sha256": "d1df27c39a617ffe6ad0c5ea3dffcea443fab4078b0023bc8fd88e0f39b934b5"
+       },
+       "02b_russian_army_and_navy_pre_reform": {
+         "input_chars": 200000,
+         "input_sha256": "bc12ab1181324e99addb01816b3473fbc5e8207d1d6e85e921119e24aaa8eb18",
+-        "output_chars": 206174,
+-        "output_sha256": "e03b168a58f3740ad18728ea32f8cddabbf4403d157427dd7d0ec9408f2402f6"
++        "output_chars": 206140,
++        "output_sha256": "484bb4edc353e76582ee9411c67d3a5fb1982efdfab7138316f607c29d346d4a"
+       },
+       "03_karamzin_history_of_russian_state": {
+         "input_chars": 200000,
+@@ -88,8 +88,8 @@
+       "06_semenov_tyan_shansky_tien_shan_travel": {
+         "input_chars": 200000,
+         "input_sha256": "1e5b60e93d5b9d9b0a1383e26d7ca3e2a9d1d603483defb728ef7fbdc7456dd7",
+-        "output_chars": 206541,
+-        "output_sha256": "20640406356e476c13821124a9834a377b1f2b80f1d7806d989abaf46ca33286"
++        "output_chars": 206535,
++        "output_sha256": "9169945a490219bcd30bcb7ea4a60ba236489f6d9af51e1fb06b208c70c6d74d"
+       }
+     },
+     "mode": "tts",
+diff --git a/tests/test_case_rules.py b/tests/test_case_rules.py
+index f25713d..bcbbb0c 100644
+--- a/tests/test_case_rules.py
++++ b/tests/test_case_rules.py
+@@ -210,6 +210,12 @@ RULE_CASES = (
+         "Он допил чай двумя большими глотками.",
+         id="instrumental_group",
+     ),
++    pytest.param(
++        "adverbial-accusative",
++        "Я уже 1000 раз говорил.",
++        "Я уже тысячу раз говорил.",
++        id="adverbial_accusative",
++    ),
+     pytest.param(
+         "locative-quantity-head",
+         "Он ушёл на пенсию в возрасте 25 лет и занялся садом.",
+diff --git a/tests/test_known_gap_fixes.py b/tests/test_known_gap_fixes.py
+index 42aa75d..7403f12 100644
+--- a/tests/test_known_gap_fixes.py
++++ b/tests/test_known_gap_fixes.py
+@@ -478,6 +478,88 @@ def test_instrumental_group(check_tts: CheckTts, source: str, expected: str) ->
+     check_tts(source, expected)
+ 
+ 
++#: Круглая 1000 вне денежной суммы читается «тысяча» без «одна», а срок и
++#: кратность без предлога стоят в винительном. «Одна» остаётся в составных
++#: числах и при денежной единице.
++ROUND_THOUSAND_CASES = (
++    pytest.param(
++        "Это было 1000 лет назад.",
++        "Это было тысячу лет назад.",
++        id="thousand_years_ago",
++    ),
++    pytest.param(
++        "Около 1000 лет назад тут жили люди.",
++        "Около тысячи лет назад тут жили люди.",
++        id="preposition_beats_ago",
++    ),
++    pytest.param(
++        "Это было 1 неделю назад.",
++        "Это было одну неделю назад.",
++        id="feminine_week_ago",
++    ),
++    pytest.param(
++        "Я уже 1000 раз говорил.",
++        "Я уже тысячу раз говорил.",
++        id="thousand_times",
++    ),
++    pytest.param(
++        "Прошло 1000 лет.",
++        "Прошло тысяча лет.",
++        id="elapsed_time_is_the_subject",
++    ),
++    pytest.param(
++        "Оно заняло 1000 лет.",
++        "Оно заняло тысячу лет.",
++        id="neuter_transitive_verb_still_governs",
++    ),
++    pytest.param(
++        "Жар 1000 солнц!",
++        "Жар тысячи солнц!",
++        id="genitive_thousand",
++    ),
++    pytest.param(
++        "Ваза разбилась на 1000 мелких кусочков.",
++        "Ваза разбилась на тысячу мелких кусочков.",
++        id="counted_noun_is_not_a_year",
++    ),
++    pytest.param(
++        "Он сделал это за 1000 шагов.",
++        "Он сделал это за тысячу шагов.",
++        id="counted_noun_after_za_is_not_a_year",
++    ),
++    pytest.param(
++        "Он заплатил 1000 рублей.",
++        "Он заплатил одну тысячу рублей.",
++        id="money_keeps_one",
++    ),
++    pytest.param(
++        "Он заплатил 1000 американских долларов.",
++        "Он заплатил одну тысячу американских долларов.",
++        id="money_with_adjective_keeps_one",
++    ),
++    pytest.param(
++        "Китай прожил не 1000 лет.",
++        "Китай прожил не одну тысячу лет.",
++        id="negated_one_keeps_one",
++    ),
++    pytest.param(
++        "Он услышал срок... 1000 земных лет.",
++        "Он услышал срок... Тысяча земных лет.",
++        id="thousand_capitalized_after_ellipsis",
++    ),
++    pytest.param(
++        "В зале было 1200 человек.",
++        "В зале было одна тысяча двести человек.",
++        id="compound_number_keeps_one",
++    ),
++)
++
++
++@pytest.mark.parametrize(("source", "expected"), ROUND_THOUSAND_CASES)
++def test_round_thousand(check_tts: CheckTts, source: str, expected: str) -> None:
++    check_tts(source, expected)
++
++
+ GENITIVE_GROUP_CASES = (
+     # Число на 1 при существительном в родительном единственного и вершине
+     # слева: вся группа — несогласованное определение в родительном.
+@@ -2316,7 +2398,7 @@ CASE_AGREEMENT_CASES = (
+     # Творительное прилагательное управляет и счётной группой.
+     pytest.param(
+         "Отряд начальствовал отборными 1000 чел., от которых высылались разъезды.",
+-        "Отряд начальствовал отборными одной тысячей человек, от которых высылались разъезды.",
++        "Отряд начальствовал отборными тысячей человек, от которых высылались разъезды.",
+         id="number_after_an_instrumental_adjective",
+     ),
+     pytest.param(
+@@ -4079,10 +4161,10 @@ def test_dictionary_acronym_keeps_its_caps(
+ 
+ IMPLICIT_YEAR_CONTEXT_CASES = (
+     # Компаратив и счётное «лет» справа снимают чтение «неявный год»: число
+-    # остаётся количественным. «Одна тысяча» и «тысяча» читаются одинаково.
++    # остаётся количественным; круглая тысяча вне денежной суммы — «тысяча».
+     pytest.param(
+         "Сегодня пришло на 1000 больше, чем вчера.",
+-        "Сегодня пришло на одну тысячу больше, чем вчера.",
++        "Сегодня пришло на тысячу больше, чем вчера.",
+         id="round_number_before_a_comparative_is_a_cardinal",
+     ),
+     pytest.param(
+diff --git a/tests/test_regressions.py b/tests/test_regressions.py
+index 5cb3b11..61ef735 100644
+--- a/tests/test_regressions.py
++++ b/tests/test_regressions.py
+@@ -1120,7 +1120,7 @@ class RuNormalizrReportedRegressionTests(unittest.TestCase):
+     def test_normalize_keeps_plain_cardinal_limit_after_do(self):
+         self.assertEqual(
+             normalize("Цена одной акции упала с 10 000 ливров до 1000"),
+-            "Цена одной акции упала с десяти тысяч ливров до одной тысячи",
++            "Цена одной акции упала с десяти тысяч ливров до тысячи",
+         )
+ 
+     def test_normalize_supports_dotted_clock_times(self):

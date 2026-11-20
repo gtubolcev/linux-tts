@@ -1,0 +1,419 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Grigory Tuboltsev <gtubolcev@gmail.com>
+Date: Wed, 18 Nov 2026 21:19:55 +0100
+Subject: [PATCH] =?UTF-8?q?fix(numerals):=20=D1=80=D0=BE=D0=B4=D0=B8=D1=82?=
+ =?UTF-8?q?=D0=B5=D0=BB=D1=8C=D0=BD=D1=8B=D0=B9=20=D0=BF=D1=80=D0=B8=20?=
+ =?UTF-8?q?=D0=B2=D0=B5=D1=80=D1=88=D0=B8=D0=BD=D0=B5-=D1=81=D1=83=D1=89?=
+ =?UTF-8?q?=D0=B5=D1=81=D1=82=D0=B2=D0=B8=D1=82=D0=B5=D0=BB=D1=8C=D0=BD?=
+ =?UTF-8?q?=D0=BE=D0=BC=20=D0=B8=20=D0=BF=D1=80=D0=B5=D0=B4=D0=BB=D0=BE?=
+ =?UTF-8?q?=D0=B3=D0=B0=D1=85=20=C2=AB=D0=BA=D1=80=D0=BE=D0=BC=D0=B5=C2=BB?=
+ =?UTF-8?q?,=20=C2=AB=D0=BF=D0=BE=D0=BC=D0=B8=D0=BC=D0=BE=C2=BB?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Добавлены предлоги родительного («кроме», «помимо», «за исключением»,
+«на протяжении» и др.); «кроме того» закрывает оборот. Правило
+noun-head-genitive: группа при неодушевлённой вершине слева — в
+родительном («Мнение 10 экспертов»), кроме значений, единиц, срока
+и дополнения при переходном глаголе. Эталон корпуса обновлён: два
+изменения в книгах, оба исправления.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_0189a4focDKPAbyh6UsPZ3Vz
+---
+ CHANGELOG.md                            |  12 +++
+ docs/SPEED_OBSERVATIONS.md              |  14 +++
+ src/ru_normalizr/numerals/_constants.py |  16 +++
+ src/ru_normalizr/numerals/_helpers.py   | 138 ++++++++++++++++++++++++
+ tests/data/golden_corpus_hashes.json    |   6 +-
+ tests/test_case_rules.py                |   6 ++
+ tests/test_known_gap_fixes.py           |  92 ++++++++++++++++
+ 7 files changed, 281 insertions(+), 3 deletions(-)
+
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+index dc7fded..f633ad5 100644
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -29,6 +29,18 @@ The format is based on Keep a Changelog, and this project follows Semantic Versi
+   лет 25 на вид» — «лет двадцати пяти». Правило `age-attribute` молчит, если
+   за «лет» идёт глагол или «назад» («Девочка 5 лет играла», «5 лет назад») и
+   при сказуемом («Ему было лет 18»).
++- Предлоги «кроме», «помимо», «сверх», «посреди», «за исключением», «с учётом»,
++  «без учёта», «в размере», «в количестве», «в пределах», «в составе», «в
++  результате», «на протяжении» ставят число в родительный, «по сравнению с» —
++  в творительный. «Кроме того 5 человек» оборот закрывает: «пять человек».
++- Новое правило `noun-head-genitive`: количественная группа при
++  неодушевлённой вершине слева — определение в родительном: «Мнение 10
++  экспертов» — «мнение десяти экспертов», «результат 10 лет работы»,
++  «Ценность этих 7 лет». Вершины-значения («рост», «сумма», «скидка»,
++  «нагрузка»…), единицы измерения, «раз», срок без родительного справа
++  («Дорога 5 часов») и дополнение перед переходным глаголом («Кошка 5 котят
++  родила») не затрагиваются. На 20 000 фраз ficbook: +35 совпадений с
++  эталоном, ни одного нового расхождения.
+ 
+ ## [1.3.0] - 2026-10-12
+ 
+diff --git a/docs/SPEED_OBSERVATIONS.md b/docs/SPEED_OBSERVATIONS.md
+index 0a9e33c..fe362d8 100644
+--- a/docs/SPEED_OBSERVATIONS.md
++++ b/docs/SPEED_OBSERVATIONS.md
+@@ -1470,3 +1470,17 @@ python scripts/benchmark.py --real-only --mode tts --samples 1 --warmups 1 --pre
+ ```
+ 
+ Разница в пределах шума.
++
++## 18 ноября 2026 — вершина-существительное и предлоги родительного
++
++Та же машина и контейнер. Два прогона до (`git stash`) и два после.
++
++```text
++python scripts/benchmark.py --real-only --mode tts --samples 1 --warmups 1 --prefix-chars 250000 --book benchmarks/corpus/03_karamzin_history_of_russian_state.txt
++до:     1808,19 мс; 138 260 символов/с
++до:     1809,11 мс; 138 189 символов/с
++после:  1811,06 мс; 138 041 символов/с
++после:  1813,58 мс; 137 849 символов/с
++```
++
++Замедление около 0,2 %, в пределах шума.
+diff --git a/src/ru_normalizr/numerals/_constants.py b/src/ru_normalizr/numerals/_constants.py
+index 05c87c4..5c66752 100644
+--- a/src/ru_normalizr/numerals/_constants.py
++++ b/src/ru_normalizr/numerals/_constants.py
+@@ -139,6 +139,22 @@ PREP_CASE = {
+     "против": "gent",
+     "среди": "gent",
+     "вместо": "gent",
++    "кроме": "gent",
++    "помимо": "gent",
++    "сверх": "gent",
++    "посреди": "gent",
++    "за исключением": "gent",
++    "без учёта": "gent",
++    "без учета": "gent",
++    "с учётом": "gent",
++    "с учетом": "gent",
++    "в количестве": "gent",
++    "в размере": "gent",
++    "в пределах": "gent",
++    "в составе": "gent",
++    "в результате": "gent",
++    "на протяжении": "gent",
++    "по сравнению с": "ablt",
+     "возле": "gent",
+     "вокруг": "gent",
+     "внутри": "gent",
+diff --git a/src/ru_normalizr/numerals/_helpers.py b/src/ru_normalizr/numerals/_helpers.py
+index bf6cf65..b3dea5e 100644
+--- a/src/ru_normalizr/numerals/_helpers.py
++++ b/src/ru_normalizr/numerals/_helpers.py
+@@ -18,6 +18,7 @@ from .._morph import (
+     first_parse_required,
+     parse_word,
+     select_parse,
++    word_is_known,
+ )
+ from ..preprocess_utils import (
+     NEGATIVE_NUMBER_PLACEHOLDER,
+@@ -809,6 +810,10 @@ def _get_preposition_before_number(tokens: list[str], idx: int) -> tuple[str, st
+         word_left = normalize_context_token(tokens[i])
+         if word_left == "чем" or word_left in NUMERAL_CONTEXT_BARRIERS:
+             break
++        # «Кроме того 5 человек»: указательное в среднем роде закрывает
++        # оборот, и предлог числом не управляет.
++        if word_left in {"того", "этого"} and i == idx - 1:
++            break
+         parsed_left = first_parse_required(word_left)
+         if parsed_left.tag.POS in MORPHOLOGICAL_CONTEXT_BARRIER_POS:
+             break
+@@ -1499,6 +1504,138 @@ def _rule_age_attribute(ctx: NumeralContext) -> str | None:
+     return "gent"
+ 
+ 
++#: Вершины, после которых число — значение, а не определение: «рост 180
++#: сантиметров», «сумма 500 рублей», «время 5 часов». Объединяются с
++#: параметрами измерения и ярлыками.
++_VALUE_HEAD_LEMMAS = frozenset(
++    {
++        "бюджет",
++        "вероятность",
++        "возраст",
++        "время",
++        "всего",
++        "доля",
++        "доход",
++        "зарплата",
++        "итого",
++        "количество",
++        "комиссия",
++        "максимум",
++        "минимум",
++        "налог",
++        "население",
++        "нагрузка",
++        "наценка",
++        "объём",
++        "оклад",
++        "пенсия",
++        "площадь",
++        "продолжительность",
++        "раз",
++        "размер",
++        "расстояние",
++        "рост",
++        "скидка",
++        "срок",
++        "ставка",
++        "стаж",
++        "стоимость",
++        "сумма",
++        "счёт",
++        "тираж",
++        "цена",
++        "численность",
++        "число",
++        "шанс",
++        "штраф",
++    }
++)
++_TIME_COUNTED_LEMMAS = frozenset(
++    {"год", "месяц", "неделя", "день", "сутки", "час", "минута", "секунда", "век"}
++)
++_GROUP_END_MARKERS = frozenset({"назад", "спустя", "подряд", "не", "уже", "ещё", "тому"})
++
++
++def _rule_noun_head_genitive(ctx: NumeralContext) -> str | None:
++    """Количественная группа как определение вершины слева — в родительном.
++
++    «Мнение 10 экспертов» → «мнение десяти экспертов», «результат 10 лет
++    работы», «Ценность этих 7 лет». Вершина — неодушевлённое нарицательное в
++    именительном без предлога перед ним, справа — известное существительное в
++    родительном множественного. Значения («рост 180 см», «сумма 500 рублей»),
++    ярлыки и срок при сказуемом («Завод 5 лет выпускал», «5 лет назад») не
++    трогаются.
++    """
++    parsed_number = parse_integer_token(ctx.token)
++    if parsed_number is None or noun_number_form(int(parsed_number[1])) == "one":
++        return None
++    head_offset = -1
++    if ctx.raw(-1).isalpha():
++        left = ctx.parse(-1)
++        if left is not None and left.tag.POS in {"ADJF", "PRTF"}:
++            if left.tag.case != "gent" or left.tag.number != "plur":
++                return None
++            head_offset = -2
++    else:
++        return None
++    if not ctx.raw(head_offset).isalpha():
++        return None
++    head = ctx.parse(head_offset)
++    if head is None or head.tag.POS != "NOUN" or head.tag.case != "nomn":
++        return None
++    if not is_case_reliable_noun(head) or "anim" in head.tag:
++        return None
++    if {"Name", "Surn", "Patr", "Geox", "Orgn", "Abbr"} & head.tag.grammemes:
++        return None
++    lemma = head.normal_form
++    if (
++        lemma in _VALUE_HEAD_LEMMAS
++        or lemma in MEASURE_PARAMETER_HEADS
++        or lemma in LABEL_NOUN_LEMMAS
++        or lemma in _TIME_CONTEXT_LEMMAS
++        or lemma in _TIME_COUNTED_LEMMAS
++    ):
++        return None
++    before = ctx.parse(head_offset - 1)
++    if before is not None and before.tag.POS in {"PREP", "VERB", "INFN"}:
++        return None
++    right = ctx.word(1)
++    if not right or not ctx.raw(1).isalpha() or not word_is_known(right):
++        return None
++    if ctx.raw(1)[:1].isupper():
++        return None
++    # Единица измерения делает число значением: «нагрузка 2500 килограмм».
++    if is_unit_token(ctx.raw(1)) and ctx.word(1) not in TIME_WORDS:
++        return None
++    top = ctx.parse(1)
++    if (
++        top is None
++        or top.normal_form == "раз"
++        or top.tag.POS not in {"NOUN", "ADJF"}
++        or top.tag.case != "gent"
++        or top.tag.number != "plur"
++    ):
++        return None
++    after = ctx.parse(2)
++    if ctx.word(2) in _GROUP_END_MARKERS:
++        return None
++    if top.normal_form in _TIME_COUNTED_LEMMAS:
++        # Срок сам по себе чаще сказуемое или обстоятельство («Дорога 5
++        # часов», «Завод 10 лет выпускал»); определением его делает
++        # согласованное слово слева или родительный справа («10 лет работы»).
++        if head_offset == -1 and (
++            after is None or after.tag.POS != "NOUN" or after.tag.case != "gent"
++        ):
++            return None
++    elif after is not None and (
++        after.tag.POS == "INFN" or (after.tag.POS == "VERB" and "tran" in after.tag)
++    ):
++        # Переходный глагол сразу за группой делает её прямым дополнением при
++        # подлежащем слева: «Кошка 5 котят родила».
++        return None
++    return "gent"
++
++
+ def _rule_locative_quantity_head(ctx: NumeralContext) -> str | None:
+     """«в возрасте 25 лет» → «в возрасте двадцати пяти лет».
+ 
+@@ -1838,6 +1975,7 @@ CASE_RULES: tuple[CaseRule, ...] = (
+     CaseRule("genitive-quantity-governor", _rule_genitive_quantity_governor),
+     CaseRule("negated-existence", _rule_negated_existence),
+     CaseRule("age-attribute", _rule_age_attribute),
++    CaseRule("noun-head-genitive", _rule_noun_head_genitive),
+     CaseRule("locative-quantity-head", _rule_locative_quantity_head),
+     CaseRule("measure-parameter-head", _rule_measure_parameter_head),
+     CaseRule("oblique-noun-before-bare-number", _rule_oblique_noun_before_bare_number),
+diff --git a/tests/data/golden_corpus_hashes.json b/tests/data/golden_corpus_hashes.json
+index 3552462..2cc0e83 100644
+--- a/tests/data/golden_corpus_hashes.json
++++ b/tests/data/golden_corpus_hashes.json
+@@ -70,8 +70,8 @@
+       "03_karamzin_history_of_russian_state": {
+         "input_chars": 200000,
+         "input_sha256": "c54239da14b304e450b93334d1783417fa0b5552b22c0c7d71a8f5820c920c08",
+-        "output_chars": 209195,
+-        "output_sha256": "e5f3b2d2778085252d17be49cb1220e4a7095ddb4f0ca74ef3cbefe7067bce83"
++        "output_chars": 209194,
++        "output_sha256": "16a8ad987cfa1aef1f55303c4637a030f36240f8b2bceaf0bf4ddc6f7e2304de"
+       },
+       "04_kostomarov_russian_history_biographies": {
+         "input_chars": 200000,
+@@ -89,7 +89,7 @@
+         "input_chars": 200000,
+         "input_sha256": "1e5b60e93d5b9d9b0a1383e26d7ca3e2a9d1d603483defb728ef7fbdc7456dd7",
+         "output_chars": 206541,
+-        "output_sha256": "21107f78489b338c28ae544599c75e1eead7f5178cb8e3d819d1597ebc9a5289"
++        "output_sha256": "20640406356e476c13821124a9834a377b1f2b80f1d7806d989abaf46ca33286"
+       }
+     },
+     "mode": "tts",
+diff --git a/tests/test_case_rules.py b/tests/test_case_rules.py
+index eaddb9c..a513e0a 100644
+--- a/tests/test_case_rules.py
++++ b/tests/test_case_rules.py
+@@ -198,6 +198,12 @@ RULE_CASES = (
+         "В храм прибыла девочка двенадцати лет для продолжения учёбы.",
+         id="age_attribute",
+     ),
++    pytest.param(
++        "noun-head-genitive",
++        "Мнение 10 экспертов совпало.",
++        "Мнение десяти экспертов совпало.",
++        id="noun_head_genitive",
++    ),
+     pytest.param(
+         "locative-quantity-head",
+         "Он ушёл на пенсию в возрасте 25 лет и занялся садом.",
+diff --git a/tests/test_known_gap_fixes.py b/tests/test_known_gap_fixes.py
+index 0fe38bf..4dff7fe 100644
+--- a/tests/test_known_gap_fixes.py
++++ b/tests/test_known_gap_fixes.py
+@@ -333,6 +333,98 @@ def test_age_attribute(check_tts: CheckTts, source: str, expected: str) -> None:
+     check_tts(source, expected)
+ 
+ 
++GENITIVE_GOVERNOR_CASES = (
++    # Предлоги «кроме», «помимо», «за исключением» и вершина-существительное
++    # слева ставят количественную группу в родительный; значения, единицы,
++    # срок и дополнение при глаголе остаются в своём падеже.
++    pytest.param(
++        "Кроме 6 колонн, ничего не осталось.",
++        "Кроме шести колонн, ничего не осталось.",
++        id="krome",
++    ),
++    pytest.param(
++        "За исключением 5 парней, все ушли.",
++        "За исключением пяти парней, все ушли.",
++        id="za_isklyucheniem",
++    ),
++    pytest.param(
++        "Помимо 3 машин, там стоял автобус.",
++        "Помимо трёх машин, там стоял автобус.",
++        id="pomimo",
++    ),
++    pytest.param(
++        "На протяжении 12 вёрст дорога спускалась к реке.",
++        "На протяжении двенадцати вёрст дорога спускалась к реке.",
++        id="na_protyazhenii",
++    ),
++    pytest.param(
++        "Кроме того 5 человек пришли.",
++        "Кроме того пять человек пришли.",
++        id="krome_togo_closes_phrase",
++    ),
++    pytest.param(
++        "Мнение 10 экспертов совпало.",
++        "Мнение десяти экспертов совпало.",
++        id="noun_head",
++    ),
++    pytest.param(
++        "Это результат 10 лет работы.",
++        "Это результат десяти лет работы.",
++        id="noun_head_time_with_genitive",
++    ),
++    pytest.param(
++        "Ценность этих 7 лет велика.",
++        "Ценность этих семи лет велика.",
++        id="noun_head_through_determiner",
++    ),
++    pytest.param(
++        "Это бред 5 сумасшедших.",
++        "Это бред пяти сумасшедших.",
++        id="noun_head_substantive",
++    ),
++    pytest.param(
++        "Рост 180 сантиметров.",
++        "Рост сто восемьдесят сантиметров.",
++        id="value_head_stays",
++    ),
++    pytest.param(
++        "Допустимая нагрузка 2500 килограмм.",
++        "Допустимая нагрузка две тысячи пятьсот килограмм.",
++        id="unit_stays",
++    ),
++    pytest.param(
++        "Скидка 50 процентов.",
++        "Скидка пятьдесят процентов.",
++        id="discount_stays",
++    ),
++    pytest.param(
++        "Дорога 5 часов.",
++        "Дорога пять часов.",
++        id="bare_duration_stays",
++    ),
++    pytest.param(
++        "Завод 10 лет выпускал трактора.",
++        "Завод десять лет выпускал трактора.",
++        id="duration_before_verb_stays",
++    ),
++    pytest.param(
++        "Кошка 5 котят родила.",
++        "Кошка пять котят родила.",
++        id="object_before_transitive_stays",
++    ),
++    pytest.param(
++        "Он меняет местоположение 8 раз за день.",
++        "Он меняет местоположение восемь раз за день.",
++        id="frequency_stays",
++    ),
++)
++
++
++@pytest.mark.parametrize(("source", "expected"), GENITIVE_GOVERNOR_CASES)
++def test_genitive_governor(check_tts: CheckTts, source: str, expected: str) -> None:
++    check_tts(source, expected)
++
++
+ GENITIVE_GROUP_CASES = (
+     # Число на 1 при существительном в родительном единственного и вершине
+     # слева: вся группа — несогласованное определение в родительном.

@@ -1,0 +1,33 @@
+#!/usr/bin/make -f
+# Pure Python, nothing compiled: the wheels are unpacked as they are (their
+# *.dist-info stay: pymorphy3 finds its dictionary by entry point), eng_to_ipa
+# and ru_normalizr are copied from their sources.
+PY = debian/speech-dispatcher-ru-normalizr/usr/lib/speech-dispatcher-modules/python
+
+%:
+	dh $@
+
+override_dh_auto_configure override_dh_auto_build override_dh_auto_clean:
+
+override_dh_auto_install:
+	mkdir -p $(PY)
+	for w in deps/*.whl; do python3 -I -m zipfile -e $$w $(PY); done
+	rm -rf debian/e2i && mkdir debian/e2i
+	tar xzf deps/eng_to_ipa-*.tar.gz -C debian/e2i
+	cp -r debian/e2i/eng_to_ipa-*/eng_to_ipa $(PY)/
+	cp -r src/ru_normalizr $(PY)/
+	rm -rf $(PY)/bin
+	find $(PY) -name __pycache__ -prune -exec rm -rf {} +
+	find $(PY) -type d -exec chmod 755 {} +
+	find $(PY) -type f -exec chmod 644 {} +
+
+override_dh_auto_test:
+
+# after the install: the test runs on what goes into the package
+execute_after_dh_auto_install:
+	cd $(PY) && python3 -I -B -c 'import sys; sys.path.insert(0, "."); \
+	  from ru_normalizr import Normalizer, NormalizeOptions; \
+	  r = Normalizer(NormalizeOptions.tts()).normalize("В 2026 году было 5 кг"); \
+	  print(r); assert "тысяч" in r and "килограмм" in r, r'
+
+override_dh_python3:

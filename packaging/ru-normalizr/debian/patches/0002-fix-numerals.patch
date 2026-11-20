@@ -1,0 +1,346 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Grigory Tuboltsev <gtubolcev@gmail.com>
+Date: Wed, 18 Nov 2026 21:06:22 +0100
+Subject: [PATCH] =?UTF-8?q?fix(numerals):=20=D1=84=D0=BE=D1=80=D0=BC=D0=B0?=
+ =?UTF-8?q?=20=D0=BE=D0=B4=D1=83=D1=88=D0=B5=D0=B2=D0=BB=D1=91=D0=BD=D0=BD?=
+ =?UTF-8?q?=D0=BE=D0=B3=D0=BE=20=D1=81=D1=83=D1=89=D0=B5=D1=81=D1=82=D0=B2?=
+ =?UTF-8?q?=D0=B8=D1=82=D0=B5=D0=BB=D1=8C=D0=BD=D0=BE=D0=B3=D0=BE=20=D0=B8?=
+ =?UTF-8?q?=20=D0=B2=D0=BE=D0=B7=D1=80=D0=B0=D1=81=D1=82=20=D0=B2=20=D1=80?=
+ =?UTF-8?q?=D0=BE=D0=B4=D0=B8=D1=82=D0=B5=D0=BB=D1=8C=D0=BD=D0=BE=D0=BC?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Одушевлённое существительное, уже стоящее не в счётной форме («за 2
+воинами», «3 герберы»), больше не переписывается в родительный
+множественного. «под»/«за» с творительным справа дают творительный.
+Новое правило age-attribute: «девочка 12 лет», «девушка, лет 18»,
+«парень лет 25 на вид» — число в родительном.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_0189a4focDKPAbyh6UsPZ3Vz
+---
+ CHANGELOG.md                            |  10 +++
+ docs/SPEED_OBSERVATIONS.md              |  15 ++++
+ src/ru_normalizr/numerals/_constants.py |   1 +
+ src/ru_normalizr/numerals/_helpers.py   |  48 ++++++++++
+ src/ru_normalizr/numerals/cardinals.py  |  20 ++++-
+ tests/test_case_rules.py                |   6 ++
+ tests/test_known_gap_fixes.py           | 113 ++++++++++++++++++++++++
+ 7 files changed, 212 insertions(+), 1 deletion(-)
+
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+index 03e7811..dc7fded 100644
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -19,6 +19,16 @@ The format is based on Keep a Changelog, and this project follows Semantic Versi
+   крупнейшей экономики». То же для чисел на 2–4 с определением во
+   множественном. Существительные-«номера» (век, год, съезд, дивизия и т. п.)
+   исключены: «21 века» остаётся открытым дефектом порядкового чтения.
++- Одушевлённое существительное не в счётной форме больше не переписывается:
++  «за 2 воинами» — «за двумя воинами» (а не «за двух воинов»), «3 герберы»
++  остаются «три герберы». Счётная форма «вижу 2 воина» по-прежнему даёт
++  «двух воинов». Предлог «под» и «за» с существительным в творительном справа
++  ставят число в творительный: «под 3 одеялами» — «под тремя одеялами».
++- Возраст как определение лица читается в родительном: «девочка 12 лет» —
++  «девочка двенадцати лет», «девушка, лет 18» — «лет восемнадцати», «парень
++  лет 25 на вид» — «лет двадцати пяти». Правило `age-attribute` молчит, если
++  за «лет» идёт глагол или «назад» («Девочка 5 лет играла», «5 лет назад») и
++  при сказуемом («Ему было лет 18»).
+ 
+ ## [1.3.0] - 2026-10-12
+ 
+diff --git a/docs/SPEED_OBSERVATIONS.md b/docs/SPEED_OBSERVATIONS.md
+index 41240bf..0a9e33c 100644
+--- a/docs/SPEED_OBSERVATIONS.md
++++ b/docs/SPEED_OBSERVATIONS.md
+@@ -1455,3 +1455,18 @@ python scripts/benchmark.py --real-only --mode tts --samples 1 --warmups 1 --pre
+ ```
+ 
+ Разница в пределах шума, замедления нет.
++
++## 18 ноября 2026 — форма одушевлённого существительного и возраст
++
++Та же машина и тот же контейнер, что в предыдущей записи. Два прогона до
++(`git stash`) и два после.
++
++```text
++python scripts/benchmark.py --real-only --mode tts --samples 1 --warmups 1 --prefix-chars 250000 --book benchmarks/corpus/03_karamzin_history_of_russian_state.txt
++до:     1805,84 мс; 138 440 символов/с
++до:     1803,25 мс; 138 639 символов/с
++после:  1806,18 мс; 138 414 символов/с
++после:  1803,79 мс; 138 597 символов/с
++```
++
++Разница в пределах шума.
+diff --git a/src/ru_normalizr/numerals/_constants.py b/src/ru_normalizr/numerals/_constants.py
+index 71f4577..05c87c4 100644
+--- a/src/ru_normalizr/numerals/_constants.py
++++ b/src/ru_normalizr/numerals/_constants.py
+@@ -114,6 +114,7 @@ PREP_CASE = {
+     "без": "gent",
+     "при": "loct",
+     "между": "ablt",
++    "под": "accs",
+     "до": "gent",
+     "от": "gent",
+     "у": "gent",
+diff --git a/src/ru_normalizr/numerals/_helpers.py b/src/ru_normalizr/numerals/_helpers.py
+index b46146f..bf6cf65 100644
+--- a/src/ru_normalizr/numerals/_helpers.py
++++ b/src/ru_normalizr/numerals/_helpers.py
+@@ -1461,6 +1461,44 @@ def _rule_negated_existence(ctx: NumeralContext) -> str | None:
+     return "gent"
+ 
+ 
++def _is_person_head(parse: MorphParse | None) -> bool:
++    """Одушевлённое нарицательное в именительном: «девочка», «парень»."""
++    if parse is None or parse.tag.POS != "NOUN" or parse.tag.case != "nomn":
++        return False
++    tag = parse.tag
++    return "anim" in tag and not ({"Name", "Surn", "Patr"} & tag.grammemes)
++
++
++def _rule_age_attribute(ctx: NumeralContext) -> str | None:
++    """Возраст как определение лица — родительный признака.
++
++    «девочка 12 лет» → «девочка двенадцати лет», «девушка, лет 18» →
++    «лет восемнадцати», «парень лет 25 на вид». Глагол сразу за «лет»
++    («Девочка 5 лет играла») и «назад» делают число сроком, а сказуемое
++    слева («Ему было лет 18») — обычным количеством; там правило молчит.
++    """
++    if ctx.word(-1) == "лет":
++        if ctx.raw(-1) != "лет":
++            return None
++        head_offset = -3 if ctx.raw(-2) == "," else -2
++        if _is_person_head(ctx.parse(head_offset)):
++            return "gent"
++        if ctx.word(1) == "на" and ctx.word(2) == "вид":
++            return "gent"
++        return None
++    if ctx.raw(1) != "лет" or not ctx.raw(-1).isalpha():
++        return None
++    if not _is_person_head(ctx.parse(-1)):
++        return None
++    after = ctx.parse(2)
++    if after is not None and (
++        after.tag.POS in {"VERB", "INFN", "GRND"}
++        or ctx.word(2) in {"назад", "спустя", "не", "уже", "ещё", "подряд"}
++    ):
++        return None
++    return "gent"
++
++
+ def _rule_locative_quantity_head(ctx: NumeralContext) -> str | None:
+     """«в возрасте 25 лет» → «в возрасте двадцати пяти лет».
+ 
+@@ -1557,6 +1595,15 @@ def _rule_preposition_before_number(ctx: NumeralContext) -> str | None:
+     if prep_match is None:
+         return None
+     word_left, prep_case = prep_match
++    if word_left in {"за", "под"}:
++        # «за 2 воинами», «под 3 одеялами»: предлог управляет и винительным,
++        # и творительным, а выбор виден по существительному справа.
++        for offset in range(1, min(ctx.visible_length - ctx.idx, 5)):
++            right_parse = first_parse_required(ctx.raw(offset))
++            if is_case_reliable_noun(right_parse):
++                if right_parse.tag.case == "ablt":
++                    return "ablt"
++                break
+     if word_left in {"с", "со"}:
+         for offset in range(1, min(ctx.visible_length - ctx.idx, 5)):
+             if ctx.raw(offset).lower() in {"до", "по"}:
+@@ -1790,6 +1837,7 @@ CASE_RULES: tuple[CaseRule, ...] = (
+     CaseRule("label-noun-head", _rule_label_noun_head),
+     CaseRule("genitive-quantity-governor", _rule_genitive_quantity_governor),
+     CaseRule("negated-existence", _rule_negated_existence),
++    CaseRule("age-attribute", _rule_age_attribute),
+     CaseRule("locative-quantity-head", _rule_locative_quantity_head),
+     CaseRule("measure-parameter-head", _rule_measure_parameter_head),
+     CaseRule("oblique-noun-before-bare-number", _rule_oblique_noun_before_bare_number),
+diff --git a/src/ru_normalizr/numerals/cardinals.py b/src/ru_normalizr/numerals/cardinals.py
+index 019b172..39d8c8a 100644
+--- a/src/ru_normalizr/numerals/cardinals.py
++++ b/src/ru_normalizr/numerals/cardinals.py
+@@ -865,6 +865,7 @@ def _paucal_group_is_genitive(site: _NumberSite, alias: str) -> bool:
+     return _has_noun_head_on_the_left(site)
+ 
+ 
++
+ def _one_group_is_genitive(site: _NumberSite, alias: str) -> bool:
+     """Существительное в родительном единственного при числе на 1 (кроме 11).
+ 
+@@ -928,6 +929,23 @@ def _handle_counted_noun(site: _NumberSite, unit: _UnitAtSite) -> Outcome | None
+         return None
+     noun_token = unit.noun_token
+     is_anim = "anim" in p_noun.tag
++    # Одушевлённый винительный («вижу двух воинов») строится из счётной
++    # формы «2 воина» — родительного единственного; слово тогда переписывается
++    # во множественное. Если справа уже родительный множественного
++    # («задеть 2 людей»), число одушевлённое, но слово остаётся как есть.
++    # Иная форма («3 герберы», разобранная как фамилия «Гербер») значит, что
++    # одушевлённость разбор выдумал: число неодушевлённое, слово не трогаем.
++    rewrite_noun = True
++    if is_anim and noun_number_form(site.value) == "few":
++        noun_parses = [p for p in parse_word(unit.alias) if p.tag.POS == "NOUN"]
++        if not any(
++            p.tag.case == "gent" and p.tag.number == "sing" for p in noun_parses
++        ):
++            rewrite_noun = False
++            is_anim = any(
++                "anim" in p.tag and p.tag.case == "gent" and p.tag.number == "plur"
++                for p in noun_parses
++            )
+     # Счётный оборот читает числительное неодушевлённым: «по два бургомистра»
+     # (распределительное «по» не знает одушевлённого винительного) и
+     # «четыре человека детей боярских» (классификатор с родительным
+@@ -963,7 +981,7 @@ def _handle_counted_noun(site: _NumberSite, unit: _UnitAtSite) -> Outcome | None
+         is_anim,
+     )
+     counted_noun = noun_token
+-    if site.case == "accs" and is_anim and site.value in {2, 3, 4}:
++    if rewrite_noun and site.case == "accs" and is_anim and site.value in {2, 3, 4}:
+         if p_noun.normal_form == "человек":
+             inflected_noun = "человек"
+         else:
+diff --git a/tests/test_case_rules.py b/tests/test_case_rules.py
+index b75ec6a..eaddb9c 100644
+--- a/tests/test_case_rules.py
++++ b/tests/test_case_rules.py
+@@ -192,6 +192,12 @@ RULE_CASES = (
+         "Мне не хватает двух голосов, чтобы пройти во второй тур.",
+         id="negated_existence",
+     ),
++    pytest.param(
++        "age-attribute",
++        "В храм прибыла девочка 12 лет для продолжения учёбы.",
++        "В храм прибыла девочка двенадцати лет для продолжения учёбы.",
++        id="age_attribute",
++    ),
+     pytest.param(
+         "locative-quantity-head",
+         "Он ушёл на пенсию в возрасте 25 лет и занялся садом.",
+diff --git a/tests/test_known_gap_fixes.py b/tests/test_known_gap_fixes.py
+index 3f4bfab..0fe38bf 100644
+--- a/tests/test_known_gap_fixes.py
++++ b/tests/test_known_gap_fixes.py
+@@ -220,6 +220,119 @@ def test_negated_existence(check_tts: CheckTts, source: str, expected: str) -> N
+     check_tts(source, expected)
+ 
+ 
++ANIMATE_NOUN_FORM_CASES = (
++    # Одушевлённый винительный переписывает только счётную форму «2 воина».
++    # Существительное в другой форме уже задаёт падеж числу и не меняется.
++    pytest.param(
++        "Он стал идти за 2 воинами, которые рассказывали.",
++        "Он стал идти за двумя воинами, которые рассказывали.",
++        id="za_with_instrumental_noun",
++    ),
++    pytest.param(
++        "Кот спал под 3 одеялами.",
++        "Кот спал под тремя одеялами.",
++        id="pod_with_instrumental_noun",
++    ),
++    pytest.param(
++        "Вертолёт пролетел над 5 домами.",
++        "Вертолёт пролетел над пятью домами.",
++        id="nad_governs_instrumental",
++    ),
++    pytest.param(
++        "Он стоял перед 3 дверями.",
++        "Он стоял перед тремя дверями.",
++        id="pered_governs_instrumental",
++    ),
++    pytest.param(
++        "Но он не смог задеть 2 людей.",
++        "Но он не смог задеть двух людей.",
++        id="genitive_plural_noun_is_kept",
++    ),
++    pytest.param(
++        "Хвостом он прижимал к телу 3 герберы - ярко-оранжевых цветка.",
++        "Хвостом он прижимал к телу три герберы — ярко-оранжевых цветка.",
++        id="spurious_animate_parse_does_not_rewrite_noun",
++    ),
++    # Счётная форма по-прежнему даёт одушевлённый винительный.
++    pytest.param(
++        "Я вижу 2 воина у ворот.",
++        "Я вижу двух воинов у ворот.",
++        id="paucal_animate_accusative_still_rewrites",
++    ),
++    pytest.param(
++        "Он заплатил за 2 билета.",
++        "Он заплатил за два билета.",
++        id="za_with_accusative_noun",
++    ),
++    pytest.param(
++        "Он лёг под 2 одеяла.",
++        "Он лёг под два одеяла.",
++        id="pod_with_accusative_noun",
++    ),
++)
++
++
++@pytest.mark.parametrize(("source", "expected"), ANIMATE_NOUN_FORM_CASES)
++def test_animate_noun_form(check_tts: CheckTts, source: str, expected: str) -> None:
++    check_tts(source, expected)
++
++
++AGE_ATTRIBUTE_CASES = (
++    # Возраст как определение лица стоит в родительном признака; срок
++    # при сказуемом и возраст-сказуемое остаются в своём падеже.
++    pytest.param(
++        "Сидела молодая девушка, лет 18, в синем платье.",
++        "Сидела молодая девушка, лет восемнадцати, в синем платье.",
++        id="approx_age_after_comma",
++    ),
++    pytest.param(
++        "В храм прибыла девочка 12 лет для продолжения учёбы.",
++        "В храм прибыла девочка двенадцати лет для продолжения учёбы.",
++        id="age_after_person",
++    ),
++    pytest.param(
++        "Это был симпатичный парень лет 25 на вид.",
++        "Это был симпатичный парень лет двадцати пяти на вид.",
++        id="approx_age_na_vid",
++    ),
++    pytest.param(
++        "Парень 20 лет от роду пришёл к нам.",
++        "Парень двадцати лет от роду пришёл к нам.",
++        id="age_ot_rodu",
++    ),
++    pytest.param(
++        "Ему было лет 18, не больше.",
++        "Ему было лет восемнадцать, не больше.",
++        id="approx_age_predicate_stays",
++    ),
++    pytest.param(
++        "Он прожил там лет 5.",
++        "Он прожил там лет пять.",
++        id="approx_duration_stays",
++    ),
++    pytest.param(
++        "Девочка 5 лет играла во дворе.",
++        "Девочка пять лет играла во дворе.",
++        id="duration_before_verb_stays",
++    ),
++    pytest.param(
++        "Девочка 5 лет назад уехала.",
++        "Девочка пять лет назад уехала.",
++        id="duration_nazad_stays",
++    ),
++    pytest.param(
++        "Мальчику 12 лет.",
++        "Мальчику двенадцать лет.",
++        id="dative_age_stays",
++    ),
++)
++
++
++@pytest.mark.parametrize(("source", "expected"), AGE_ATTRIBUTE_CASES)
++def test_age_attribute(check_tts: CheckTts, source: str, expected: str) -> None:
++    check_tts(source, expected)
++
++
+ GENITIVE_GROUP_CASES = (
+     # Число на 1 при существительном в родительном единственного и вершине
+     # слева: вся группа — несогласованное определение в родительном.
