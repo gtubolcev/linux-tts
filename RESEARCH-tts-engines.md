@@ -251,6 +251,33 @@ Notes:
 Verdict: a speechd module on audio.cpp could cover (1) Piper on GPU and (2) a heavy tier
 (qwen3_tts, cosyvoice3, chatterbox) for GPUs above a 1060.
 
+### Kokoro v1.0 for all its languages (checked 2026-11-21)
+Why only Russian so far: sd_kokoro skips every `kokoro-<lang>` directory except `ru`, because only ru has
+a text front end (ru-g2p.c). The model side is not the obstacle:
+- **kokoro-ru is the stock architecture.** Its config.json equals hexgrad/Kokoro-82M's in every field
+  (`model_type` added) and the vocab (114 symbols) is identical; sd_kokoro feeds `input_ids`/`style`/`speed`,
+  the input names of the stock ONNX export (onnx-community/Kokoro-82M-v1.0-ONNX, voices as raw float32
+  `[510,1,256]` .bin, the format sd_kokoro reads). So the stock model.onnx and its 54 voices load as they are.
+- **Stock voices (54):** American English 20 (af_*, am_*), British English 8, Spanish 3, French 1, Hindi 4,
+  Italian 2, Japanese 5, Mandarin 8, Brazilian Portuguese 3. Apache-2.0. Kokoro-82M-v1.1-zh adds 103 zh/en
+  voices (separate model, to check). kokoro-ru adds ru (sveta, masha; dima on its own checkpoint).
+- **What differs is the G2P** (hexgrad's pipeline, misaki, Apache-2.0, `_tmp/web/misaki/src` fba1236):
+  - es, fr, it, pt-br, hi: espeak-ng with stress, then a small map to Kokoro's symbols: diphthongs to
+    single letters (aɪ→I, aʊ→W, eɪ→A, oʊ→O, əʊ→Q, ɔɪ→Y), affricates (dʒ→ʤ, tʃ→ʧ, ts→ʦ, dz→ʣ). That is
+    ru-g2p's espeak path without the Russian stress dictionary: a generic `espeak-g2p.c` for these.
+  - en-us / en-gb: lexicons us_gold+us_silver / gb_gold+gb_silver (3 + 3 MB JSON each, provenance not
+    stated in the repo, Apache-2.0 declared), heteronyms by spaCy POS, out-of-lexicon words through
+    espeak-ng with the EspeakFallback map (more replacements: ɚ→əɹ, r→ɹ, ɾ→T, ʔ→t, US drops ː). A C
+    version: lexicon lookup (converted to a compact sorted file) + espeak fallback; no spaCy, so a few
+    heteronyms (read/lead/live) take the first reading. Plain espeak alone (kokoro-onnx does this) works
+    but is audibly worse on English.
+  - ja: pyopenjtalk (OpenJTalk + MeCab dictionary; Ubuntu has open-jtalk and the naist-jdic) plus misaki's
+    kana-to-phoneme rules. zh: jieba + pypinyin + tone sandhi to misaki's zh symbols. Both are larger
+    ports; sherpa-onnx 2.x no longer has a built-in Kokoro front end (its examples call misaki in Python).
+- Plan: extend sd_kokoro (not sd_sherpa, as PLAN.md once said): per-language G2P table, the stock model
+  packaged like kokoro-ru (310 MB fp32; the voices 0.5 MB each), languages in order es/fr/it/pt/hi (espeak
+  only), en (lexicon), then ja, zh.
+
 ### kokoro-ruslan (checked 2026-11-15)
 github.com/igorshmukler/kokoro-ruslan: a Russian training pipeline (PyTorch, MPS-first)
 on the RUSLAN single-speaker corpus. Despite the name it is not Kokoro-82M (StyleTTS2 +
