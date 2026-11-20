@@ -388,6 +388,30 @@ the rest); max chunk length; whether SSML passes through. Examples:
 cleaned Kaggle ru subset (as rutextnorm cleaned it), and the reference outputs of
 ru-normalizr and rutextnorm. Run text-only comparisons first (exact match per class), then
 audio with Vosk ASR through `norm-test`.
+Add the supertonic-android sets (§8): `formats.txt` (61 dates/times/counts in context),
+`punctuation.txt`, and for stage 7 `hard.txt` (71 stress cases with a key), «Идиот» ch. 1
+(41 scored words) and `yo_orlovy.txt` (69 ё cases). They are GPL-3.0: keep them in `_tmp/`
+and record only scores here.
+
+**Rules to add, seen in supertonic-android (§8; ideas only, their code is GPL-3.0).**
+Check each against ru-normalizr first; add only what it lacks:
+- stage 3: case of a number from the preposition before it (без/до/от → gen., к/по → dat.,
+  с/между/перед → ins., о/при → prep.; "с 5 лет" gen.);
+- stage 3: gender from the following noun ("21 книга", "1001 имя");
+- stage 3: Roman numerals agreeing with the label noun, including lists and spans ("главы с
+  III по V", "тома I и II", "XIX, XX века"); Arabic chapter numbers read the same way;
+- stage 3: ranges "10-15 человек" → "от десяти до пятнадцати", only when the second number
+  is larger (not dates or codes); year spans to the dates rule;
+- stage 3: phone numbers by their punctuation; digit groups with spaces, NBSP or U+202F
+  joined into one number;
+- stage 1: footnote marks dropped ("слово¹", "слово.*", "[1]"), but "км²" and the "* * *"
+  separator kept; words hyphenated across a line break joined;
+- stage 4: acronyms spelt by letter names when they have no vowel or are on the list, else
+  read as a word; with stress (ФСБ → эфэсбэ́, США → сэшэа́);
+- stage 5: a short list of Latin words read in Russian before language routing (Wi-Fi,
+  SIM, PIN, GIF, MIDI);
+- stage 8 (per profile): an ellipsis gives a longer pause than a full stop; brackets read
+  as words, as a pause, as a separate phrase, or skipped.
 
 **Open questions.**
 - Licences: dicrector (none), silero-stress models, LLMnorm-GUI, "Norma".
@@ -448,6 +472,13 @@ Plan for us:
    (ме́жконфессиона́льными) — keep one.
 5. JN `.rex` rules (553, ~300 homographs) as seed pairs "homograph + context" for our own
    homograph stage, not run as regexes.
+6. Vote of two sources (from supertonic-android, §8): when two independent sources agree, the
+   stress is final. When they disagree, or the word is on a homograph list, use the homograph
+   stage, else a fixed order. Their result without an LLM: 61 of 71 hard cases. Homograph and
+   ambiguity lists to compare with ours: `ruaccent_omographs.tsv.gz` (19 732 forms),
+   `tera_ambiguous_stress.txt` (19 741), `tera_ambiguous_yo.txt` (637). Put ё only where a
+   dictionary confirms it.
+7. Score every change on their `hard.txt`, «Идиот» ch. 1 and `yo_orlovy.txt` (§8).
 
 ### 7a. Stress sources and cross-checking (2026-11-19)
 
@@ -478,7 +509,10 @@ JN 1401, Vosk 316, conflict 261. The user's own marks (38) agree: 37 JN, 1 Vosk.
 
 github.com/davnozdu/supertonic-android: an Android TTS engine for Russian. Engines: Supertonic 3,
 TeraTTS v2, Silero, Kokoro-RU, Shtorm PocketTTS RU. Code: Kotlin plus Rust on ONNX Runtime.
-**The code is GPL-3.0, so we take ideas, rules and test cases, not code.** A local clone of
+**The code is GPL-3.0, so we take ideas, rules and test cases, not code.**
+What was taken and where it went: normalization rules and test sets → §5; stress vote, lists
+and test sets → §7 items 6–7; voices and engine settings → xfce4-speech-settings/PLAN.md
+("Ideas from supertonic-android"). The rest of this section is the source summary. A local clone of
 commit 7d55869 is in `_tmp/web/supertonic-android/src`.
 
 Normalization (offline path, `app/src/main/java/.../tts/utils/`):
