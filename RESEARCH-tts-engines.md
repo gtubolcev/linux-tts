@@ -723,7 +723,8 @@ without AVX2 (close to the user's laptop class) and an RTX 3090 Ti. What matters
   voices as we package them, but OHF retrained them in November 2026 from new bases: denis (2026-11-09) and
   dmitri (2026-11-12) now come from `rdh` (nl_BE, CC0) and `hifi_tts_92` (Hi-Fi TTS reader 92, CC BY 4.0).
   The new models need Piper >= 1.5 (MRD and SDP, `vowel_clusters` in the config that merge diphthongs into
-  single phoneme ids); whether sherpa-onnx's piper front end handles `vowel_clusters` is unchecked.
+  single phoneme ids). piper1 (`_tmp/piper1`) handles `vowel_clusters`; the sherpa-onnx sources we build
+  do not (no match), so the new voices need either our Piper module or a sherpa patch.
   Our packaging/piper-voices takes the sherpa-onnx `vits-piper-*` assets, converted from the old models.
   Base models of our packaged voices per current cards: hifi_tts_92 (dmitri, alba, siwis, paola, gosia),
   rdh (denis, thorsten, davefx, darkman), from scratch (ljspeech, issai), Kristin (john, public domain),
