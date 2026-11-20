@@ -10,24 +10,18 @@
  * process started with the server stops it when no living module has owned it
  * for SileroIdleTimeout seconds (also when the module was killed).
  * SileroPreload starts it with the module instead of with the first message.
- * The text is cut into sentences; each one is synthesized by POST
- * /v2/generate and handed to the speech-dispatcher server as soon as it is
- * complete, so the next one is synthesized while the previous one is playing.
- * With SileroFirstChunk the first piece is cut short so the first sound comes
- * sooner.
- *
+ * For tts-module the server is the one model: loading it starts or adopts
+ * the server, the idle unload stops it, QUIT leaves it to the next module.
  * The model and the runtime are not free software (CC BY-NC-SA 4.0), so they
  * are not part of the module: they are installed, with their licences, into
  * SileroDir (default ~/.local/share/silero-tts/<version>).  The voices are
- * the speakers of the model version, offered as "silero-ru-<speaker>"; the
- * voice types MALEn / FEMALEn pick the n-th speaker of that gender.
+ * the speakers of the model version, offered as "silero-ru-<speaker>".
  *
  * Copyright (C) 2026 Grigory Tuboltsev
  * SPDX-License-Identifier: MIT
  */
 
 #include <arpa/inet.h>
-#include <ctype.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <glib.h>
@@ -44,36 +38,20 @@
 #include <time.h>
 #include <unistd.h>
 
-#include <speech-dispatcher/spd_module_main.h>
-
-#include "tts-copy.h"
-#include "tts-config.h"
-#include "tts-norm.h"
+#include "tts-module.h"
 #include "tts-stress.h"
 
-#define DBG(...) do { if (debug_on) { fprintf (stderr, "sd_silero: " __VA_ARGS__); fputc ('\n', stderr); } } while (0)
-#define ERR(...) do { fprintf (stderr, "sd_silero: " __VA_ARGS__); fputc ('\n', stderr); } while (0)
+#define DBG(...) TTS_DBG (__VA_ARGS__)
+#define ERR(...) TTS_ERR (__VA_ARGS__)
 
 /* configuration */
 static gchar *cfg_server = NULL;
 static gchar *cfg_dir = NULL;
 static gchar *cfg_version = NULL;
-/* SileroVoice "<lang>" "<voice>": the voice of a language, before the voice type */
-static GHashTable *cfg_lang_voice = NULL;
-static int cfg_idle_timeout = 300;
 static int cfg_threads = 0;
-static gboolean cfg_preload = FALSE;
 static int cfg_load_timeout = 60;
-static int cfg_first_chunk = 0;
-static int debug_on = 0;
-
-typedef struct
-{
-  gchar *name;      /* silero-ru-xenia */
-  gchar *language;  /* ru */
-  gchar *gender;    /* "male" or "female" */
-  gchar *speaker;   /* xenia */
-} Voice;
+static TtsStressConfig stress_cfg;  /* TextStress... keys */
+static TtsStress *stress_stage = NULL;
 
 /* the speakers of the model versions */
 static const struct { const char *version, *language, *speaker, *gender; } speakers[] = {
@@ -89,304 +67,16 @@ static const struct { const char *version, *language, *speaker, *gender; } speak
   { "v5_ru", "ru", "xenia", "female" },
 };
 
-static GPtrArray *voices = NULL;
-static SPDVoice **spd_voices = NULL;
+/* the one model of all voices: the server */
+static int server_token;
 
-/* message settings */
-static gchar *set_voice_name = NULL;
-static const gchar *set_gender = NULL;   /* from the voice type */
-static int set_type_index = 0;           /* MALE2 -> 1 */
-static gchar *set_language = NULL;
-static int set_rate = 0;
-static int set_pitch = 0;
-static int set_volume = 0;
-
-/* server */
+/* server; used by the loader, and by the worker only while it is loaded */
 static pid_t server_pid = 0;
 static int server_port = 0;
 static gboolean server_ready = FALSE;
 static pid_t server_child = 0;   /* server_pid when we forked it */
-static pid_t watcher_pid = 0;        /* see server_watch */
-static gboolean quit_requested = FALSE;
-static time_t last_use = 0;
-
-static volatile int stop_requested = 0;
-static TtsNormConfig norm_cfg;  /* TextNormalization... keys */
-static TtsCopyConfig copy_cfg;  /* AudioCopyDir */
-static TtsCopy *copy = NULL;
-static gboolean copy_made = FALSE;
-static TtsNorm *norm = NULL;
-static TtsStressConfig stress_cfg;  /* TextStress... keys */
-static TtsStress *stress_stage = NULL;
 
 
-
-static gchar *
-unquote (gchar *s)
-{
-  gsize n;
-
-  g_strstrip (s);
-  n = strlen (s);
-  if (n >= 2 && s[0] == '"' && s[n - 1] == '"')
-    {
-      s[n - 1] = '\0';
-      return s + 1;
-    }
-  return s;
-}
-
-
-
-static void
-parse_config (gchar *contents)
-{
-  gchar **lines;
-
-  lines = g_strsplit (contents, "\n", -1);
-  for (gchar **l = lines; *l != NULL; l++)
-    {
-      gchar *line = g_strstrip (*l);
-      gchar *value;
-
-      if (*line == '\0' || *line == '#')
-        continue;
-      value = line;
-      while (*value != '\0' && !isspace ((guchar) *value))
-        value++;
-      if (*value != '\0')
-        *value++ = '\0';
-      value = unquote (value);
-
-      if (tts_norm_config_parse (&norm_cfg, line, value)
-          || tts_copy_config_parse (&copy_cfg, line, value)
-          || tts_stress_config_parse (&stress_cfg, line, value))
-        ;
-      else if (g_ascii_strcasecmp (line, "SileroServer") == 0)
-        g_free (cfg_server), cfg_server = g_strdup (value);
-      else if (g_ascii_strcasecmp (line, "SileroDir") == 0)
-        g_free (cfg_dir), cfg_dir = g_strdup (value);
-      else if (g_ascii_strcasecmp (line, "SileroVersion") == 0)
-        g_free (cfg_version), cfg_version = g_strdup (value);
-      else if (g_ascii_strcasecmp (line, "SileroIdleTimeout") == 0)
-        cfg_idle_timeout = atoi (value);
-      else if (g_ascii_strcasecmp (line, "SileroThreads") == 0)
-        cfg_threads = atoi (value);
-      else if (g_ascii_strcasecmp (line, "SileroLoadTimeout") == 0)
-        cfg_load_timeout = atoi (value);
-      else if (g_ascii_strcasecmp (line, "SileroPreload") == 0)
-        cfg_preload = atoi (value) != 0;
-      else if (g_ascii_strcasecmp (line, "SileroFirstChunk") == 0)
-        cfg_first_chunk = atoi (value);
-      else if (g_ascii_strcasecmp (line, "SileroVoice") == 0)
-        {
-          /* value was unquoted as one string: ru" "silero-ru-xenia */
-          gchar **parts = g_strsplit_set (value, "\" \t", -1);
-          gchar *lang = NULL, *name = NULL;
-
-          for (gchar **p = parts; *p != NULL; p++)
-            if (**p != '\0')
-              {
-                if (lang == NULL)
-                  lang = *p;
-                else if (name == NULL)
-                  name = *p;
-              }
-          if (lang != NULL && name != NULL)
-            {
-              if (cfg_lang_voice == NULL)
-                cfg_lang_voice = g_hash_table_new_full (g_str_hash, g_str_equal, g_free, g_free);
-              g_hash_table_replace (cfg_lang_voice, g_ascii_strdown (lang, -1), g_strdup (name));
-            }
-          g_strfreev (parts);
-        }
-      else if (g_ascii_strcasecmp (line, "Debug") == 0)
-        debug_on = atoi (value);
-    }
-  g_strfreev (lines);
-}
-
-
-
-int
-module_config (const char *configfile)
-{
-  gchar *contents = NULL;
-
-  cfg_server = g_strdup ("/usr/bin/silero-server");
-  tts_norm_config_init (&norm_cfg);
-  tts_copy_config_init (&copy_cfg);
-  /* Silero reads "+" before the stressed vowel */
-  tts_stress_config_init (&stress_cfg, TRUE, RU_STRESS_PLUS);
-  cfg_version = g_strdup ("v5_6_ru");
-
-  if (tts_config_read (configfile, &contents))
-    parse_config (contents);
-  g_free (contents);
-  if (cfg_dir == NULL || *cfg_dir == '\0')
-    {
-      g_free (cfg_dir);
-      cfg_dir = g_build_filename (g_get_user_data_dir (), "silero-tts", cfg_version, NULL);
-    }
-  else if (cfg_dir[0] == '~' && cfg_dir[1] == '/')
-    {
-      gchar *d = g_build_filename (g_get_home_dir (), cfg_dir + 2, NULL);
-      g_free (cfg_dir);
-      cfg_dir = d;
-    }
-  return 0;
-}
-
-
-
-static void
-load_voices (void)
-{
-  voices = g_ptr_array_new ();
-  for (guint i = 0; i < G_N_ELEMENTS (speakers); i++)
-    {
-      Voice *v;
-
-      if (strcmp (speakers[i].version, cfg_version) != 0)
-        continue;
-      v = g_new0 (Voice, 1);
-      v->name = g_strdup_printf ("silero-%s-%s", speakers[i].language, speakers[i].speaker);
-      v->language = g_strdup (speakers[i].language);
-      v->gender = g_strdup (speakers[i].gender);
-      v->speaker = g_strdup (speakers[i].speaker);
-      g_ptr_array_add (voices, v);
-    }
-
-  spd_voices = g_new0 (SPDVoice *, voices->len + 1);
-  for (guint i = 0; i < voices->len; i++)
-    {
-      Voice *v = g_ptr_array_index (voices, i);
-      spd_voices[i] = g_new0 (SPDVoice, 1);
-      spd_voices[i]->name = v->name;
-      spd_voices[i]->language = v->language;
-      spd_voices[i]->variant = v->gender;
-    }
-}
-
-
-
-int
-module_init (char **msg)
-{
-  gchar *models;
-
-  load_voices ();
-  if (voices->len == 0)
-    {
-      *msg = g_strdup_printf ("unknown SileroVersion %s", cfg_version);
-      return -1;
-    }
-  if (!g_file_test (cfg_server, G_FILE_TEST_IS_EXECUTABLE))
-    {
-      *msg = g_strdup_printf ("SileroServer %s is missing", cfg_server);
-      return -1;
-    }
-  models = g_build_filename (cfg_dir, "models", NULL);
-  if (!g_file_test (models, G_FILE_TEST_IS_DIR))
-    {
-      *msg = g_strdup_printf ("the Silero model is not installed (no %s)", models);
-      g_free (models);
-      return -1;
-    }
-  g_free (models);
-  module_audio_set_server ();
-  *msg = strdup (cfg_preload ? "Silero ready (the server is loading)"
-                             : "Silero ready (the server starts on the first message)");
-  return 0;
-}
-
-
-
-SPDVoice **
-module_list_voices (void)
-{
-  return spd_voices;
-}
-
-
-
-int
-module_set (const char *var, const char *val)
-{
-  if (strcmp (var, "synthesis_voice") == 0)
-    {
-      g_free (set_voice_name);
-      set_voice_name = (val != NULL && strcmp (val, "NULL") != 0) ? g_strdup (val) : NULL;
-    }
-  else if (strcmp (var, "language") == 0)
-    {
-      g_free (set_language);
-      set_language = (val != NULL && strcmp (val, "NULL") != 0) ? g_strdup (val) : NULL;
-    }
-  else if (strcmp (var, "voice") == 0 || strcmp (var, "voice_type") == 0)
-    {
-      /* male1..3, female1..3, child_male, child_female */
-      const gchar *t = val != NULL ? val : "";
-      set_gender = NULL;
-      set_type_index = 0;
-      if (g_ascii_strncasecmp (t, "child_", 6) == 0)
-        t += 6;
-      if (g_ascii_strncasecmp (t, "female", 6) == 0)
-        set_gender = "female", t += 6;
-      else if (g_ascii_strncasecmp (t, "male", 4) == 0)
-        set_gender = "male", t += 4;
-      if (g_ascii_isdigit (*t) && atoi (t) > 0)
-        set_type_index = atoi (t) - 1;
-    }
-  else if (strcmp (var, "rate") == 0)
-    set_rate = atoi (val);
-  else if (strcmp (var, "pitch") == 0)
-    set_pitch = atoi (val);
-  else if (strcmp (var, "volume") == 0)
-    set_volume = atoi (val);
-  /* pitch_range, punctuation, spelling, capitals: not supported */
-  return 0;
-}
-
-
-
-int
-module_audio_set (const char *var, const char *val)
-{
-  if (strcmp (var, "audio_output_method") == 0)
-    return strcmp (val, "server") == 0 ? 0 : -1;
-  return 0;
-}
-
-
-
-int
-module_audio_init (char **status)
-{
-  *status = strdup ("audio through the server");
-  return 0;
-}
-
-
-
-int
-module_loglevel_set (const char *var, const char *val)
-{
-  return 0;
-}
-
-
-
-int
-module_debug (int enable, const char *file)
-{
-  debug_on = enable;
-  return 0;
-}
-
-
-
-/* ------------------------------------------------------------------ server */
 
 static int
 wanted_threads (void)
@@ -601,16 +291,20 @@ owner_alive (long owner)
 static void
 server_watch (void)
 {
-  pid_t pid = server_pid;
+  pid_t pid = server_pid, child;
   time_t dead_since = 0;
+  int idle = tts_idle_timeout ();
 
-  watcher_pid = fork ();
-  if (watcher_pid != 0)
+  /* forked twice, so that init reaps it and not the module */
+  child = fork ();
+  if (child != 0)
     {
-      if (watcher_pid < 0)
-        watcher_pid = 0;
+      if (child > 0)
+        waitpid (child, NULL, 0);
       return;
     }
+  if (fork () != 0)
+    _exit (0);
 
   /* no ties to speech-dispatcher; the server is not our child */
   server_child = 0;
@@ -644,7 +338,7 @@ server_watch (void)
         since = st.released, dead_since = 0;
       else
         since = dead_since != 0 ? dead_since : (dead_since = time (NULL));
-      if (time (NULL) - since >= MAX (cfg_idle_timeout, 0))
+      if (time (NULL) - since >= idle)
         {
           kill_server (pid);
           state_remove ();
@@ -662,7 +356,7 @@ server_release (void)
 {
   if (!server_alive ())
     return;
-  if (cfg_idle_timeout <= 0)
+  if (tts_idle_timeout () <= 0)
     server_stop ();
   else
     state_write (0, (long) time (NULL));
@@ -713,55 +407,6 @@ server_connect (void)
 
 
 
-/* Lets the speech-dispatcher server interrupt us (STOP) while we wait. */
-static void
-process_input (void)
-{
-  struct pollfd fd = { STDIN_FILENO, POLLIN, 0 };
-
-  while (!quit_requested && poll (&fd, 1, 0) > 0 && (fd.revents & (POLLIN | POLLHUP)))
-    if (module_process (STDIN_FILENO, 0) == 0 || (fd.revents & (POLLHUP | POLLERR)))
-      {
-        /* QUIT while we speak, or the server is gone (the pipe stays
-         * readable at its end, so polling again would spin): stop the
-         * message, module_loop then quits */
-        quit_requested = TRUE;
-        stop_requested = 1;
-      }
-}
-
-
-/* lets STOP interrupt a wait for the normalizer */
-static gboolean
-norm_cancel (void)
-{
-  process_input ();
-  return stop_requested != 0;
-}
-
-/* the normalizer, made with the first message; NULL when it is off */
-static TtsNorm *
-get_norm (void)
-{
-  if (norm == NULL && norm_cfg.enabled)
-    {
-      norm = tts_norm_new (&norm_cfg);
-      tts_norm_set_cancel (norm, norm_cancel);
-    }
-  return norm;
-}
-
-/* the stress stage, made with the first message; NULL when it is off */
-static TtsStress *
-get_stress (void)
-{
-  if (stress_stage == NULL && stress_cfg.enabled)
-    stress_stage = tts_stress_new (&stress_cfg);
-  return stress_stage;
-}
-
-
-
 static gboolean
 server_health (void)
 {
@@ -784,37 +429,38 @@ server_health (void)
 static gboolean
 server_spawn (void)
 {
-  gchar threads[16];
+  gchar threads[16], port[16];
+  gchar *log = tts_debug ? g_build_filename (g_get_user_runtime_dir (), "silero-server.log", NULL)
+                         : NULL;
 
   server_port = free_port ();
   if (server_port <= 0)
     {
+      g_free (log);
       ERR ("no free port");
       return FALSE;
     }
   g_snprintf (threads, sizeof (threads), "%d", wanted_threads ());
+  g_snprintf (port, sizeof (port), "%d", server_port);
 
   server_pid = fork ();
   if (server_pid < 0)
     {
       server_pid = 0;
+      g_free (log);
       return FALSE;
     }
   if (server_pid == 0)
     {
-      gchar port[16];
+      /* a threaded process: only async-signal-safe calls up to exec */
       int out;
 
       /* its own session, so it outlives the module (see server_release) */
       setsid ();
-      g_snprintf (port, sizeof (port), "%d", server_port);
       out = open ("/dev/null", O_RDWR);
       dup2 (out, STDIN_FILENO);
-      if (debug_on)
-        {
-          gchar *log = g_build_filename (g_get_user_runtime_dir (), "silero-server.log", NULL);
-          out = open (log, O_WRONLY | O_CREAT | O_TRUNC, 0600);
-        }
+      if (log != NULL)
+        out = open (log, O_WRONLY | O_CREAT | O_TRUNC, 0600);
       dup2 (out, STDOUT_FILENO);
       dup2 (out, STDERR_FILENO);
       closefrom (3);
@@ -823,6 +469,7 @@ server_spawn (void)
       _exit (127);
     }
 
+  g_free (log);
   server_child = server_pid;
   server_ready = FALSE;
   state_write (getpid (), 0);
@@ -854,9 +501,6 @@ server_start (void)
           server_ready = TRUE;
           return TRUE;
         }
-      process_input ();
-      if (stop_requested)
-        return FALSE;   /* keep it loading for the next message */
       g_usleep (200000);
     }
   ERR ("silero-server did not start in %d s", cfg_load_timeout);
@@ -866,95 +510,113 @@ server_start (void)
 
 
 
-/* ------------------------------------------------------------------- text */
+/* ------------------------------------------------------------------ engine */
 
-/* SSML (speech-dispatcher wraps all text in <speak>) to plain text */
-static gchar *
-ssml_to_text (const char *data, size_t bytes)
+static void
+silero_setup (void)
 {
-  GString *out = g_string_sized_new (bytes);
-  const char *p = data, *end = data + bytes;
-
-  while (p < end && *p != '\0')
-    {
-      if (*p == '<')
-        {
-          const char *close = memchr (p, '>', end - p);
-          if (close == NULL)
-            break;
-          /* <break .../> and closing block tags separate words */
-          g_string_append_c (out, ' ');
-          p = close + 1;
-        }
-      else if (*p == '&')
-        {
-          static const struct { const char *ent; char ch; } ents[] = {
-            { "&lt;", '<' }, { "&gt;", '>' }, { "&amp;", '&' },
-            { "&quot;", '"' }, { "&apos;", '\'' }
-          };
-          gboolean done = FALSE;
-          for (guint i = 0; i < G_N_ELEMENTS (ents); i++)
-            if (strncmp (p, ents[i].ent, strlen (ents[i].ent)) == 0)
-              {
-                g_string_append_c (out, ents[i].ch);
-                p += strlen (ents[i].ent);
-                done = TRUE;
-                break;
-              }
-          if (!done)
-            g_string_append_c (out, *p++);
-        }
-      else
-        g_string_append_c (out, *p++);
-    }
-  return g_strstrip (g_string_free (out, FALSE)) ;
+  cfg_server = g_strdup ("/usr/bin/silero-server");
+  cfg_version = g_strdup ("v5_6_ru");
+  /* Silero reads "+" before the stressed vowel */
+  tts_stress_config_init (&stress_cfg, TRUE, RU_STRESS_PLUS);
 }
 
 
 
-/* Cuts the text after . ! ? … ; and line breaks; long pieces also after commas.
- * The first piece is cut at a comma already after cfg_first_chunk characters:
- * nothing plays before it is synthesized. */
-static GPtrArray *
-split_sentences (const gchar *text)
+static gboolean
+silero_config (const gchar *key, const gchar *value)
 {
-  GPtrArray *out = g_ptr_array_new_with_free_func (g_free);
-  GString *cur = g_string_new (NULL);
+  if (tts_stress_config_parse (&stress_cfg, key, value))
+    ;
+  else if (g_ascii_strcasecmp (key, "SileroServer") == 0)
+    g_free (cfg_server), cfg_server = g_strdup (value);
+  else if (g_ascii_strcasecmp (key, "SileroDir") == 0)
+    g_free (cfg_dir), cfg_dir = g_strdup (value);
+  else if (g_ascii_strcasecmp (key, "SileroVersion") == 0)
+    g_free (cfg_version), cfg_version = g_strdup (value);
+  else if (g_ascii_strcasecmp (key, "SileroThreads") == 0)
+    cfg_threads = atoi (value);
+  else if (g_ascii_strcasecmp (key, "SileroLoadTimeout") == 0)
+    cfg_load_timeout = MAX (atoi (value), 1);
+  else
+    return FALSE;
+  return TRUE;
+}
 
-  for (const gchar *p = text; *p != '\0'; p = g_utf8_next_char (p))
+
+
+static gboolean
+silero_init (gchar **msg)
+{
+  gchar *models;
+  guint n = 0;
+
+  if (cfg_dir == NULL || *cfg_dir == '\0')
     {
-      gunichar c = g_utf8_get_char (p);
-      gunichar next = g_utf8_get_char (g_utf8_next_char (p));
-      gboolean end_here = FALSE;
-
-      if (c == '\n')
-        {
-          end_here = TRUE;
-          c = ' ';
-        }
-      g_string_append_unichar (cur, c);
-      if (!end_here && (next == ' ' || next == '\n' || next == '\0'))
-        {
-          if (c == '.' || c == '!' || c == '?' || c == 0x2026 || c == ';')
-            end_here = TRUE;
-          else if ((c == ',' || c == ':' || c == 0x2014)
-                   && g_utf8_strlen (cur->str, -1)
-                      > (out->len == 0 && cfg_first_chunk > 0 ? cfg_first_chunk : 200))
-            end_here = TRUE;
-        }
-      if (end_here)
-        {
-          g_strstrip (cur->str);
-          if (*cur->str != '\0')
-            g_ptr_array_add (out, g_strdup (cur->str));
-          g_string_truncate (cur, 0);
-        }
+      g_free (cfg_dir);
+      cfg_dir = g_build_filename (g_get_user_data_dir (), "silero-tts", cfg_version, NULL);
     }
-  g_strstrip (cur->str);
-  if (*cur->str != '\0')
-    g_ptr_array_add (out, g_strdup (cur->str));
-  g_string_free (cur, TRUE);
-  return out;
+  else if (cfg_dir[0] == '~' && cfg_dir[1] == '/')
+    {
+      gchar *d = g_build_filename (g_get_home_dir (), cfg_dir + 2, NULL);
+      g_free (cfg_dir);
+      cfg_dir = d;
+    }
+  if (!g_file_test (cfg_server, G_FILE_TEST_IS_EXECUTABLE))
+    {
+      *msg = g_strdup_printf ("SileroServer %s is missing", cfg_server);
+      return FALSE;
+    }
+  models = g_build_filename (cfg_dir, "models", NULL);
+  if (!g_file_test (models, G_FILE_TEST_IS_DIR))
+    {
+      *msg = g_strdup_printf ("the Silero model is not installed (no %s)", models);
+      g_free (models);
+      return FALSE;
+    }
+  g_free (models);
+  for (guint i = 0; i < G_N_ELEMENTS (speakers); i++)
+    if (strcmp (speakers[i].version, cfg_version) == 0)
+      {
+        gchar *name = g_strdup_printf ("silero-%s-%s", speakers[i].language, speakers[i].speaker);
+        tts_voice_add (name, speakers[i].language, speakers[i].gender, &server_token,
+                       (gpointer) speakers[i].speaker);
+        g_free (name);
+        n++;
+      }
+  if (n == 0)
+    {
+      *msg = g_strdup_printf ("unknown SileroVersion %s", cfg_version);
+      return FALSE;
+    }
+  *msg = g_strdup_printf ("Silero ready, %u voices", n);
+  return TRUE;
+}
+
+
+
+/* in the loader thread: starts the server (or adopts a running one) and
+ * waits until it has loaded the model */
+static gboolean
+silero_load (gpointer model, GError **error)
+{
+  if (server_start ())
+    return TRUE;
+  g_set_error (error, G_FILE_ERROR, G_FILE_ERROR_FAILED,
+               "silero-server did not start (see silero-server.log with Debug 1)");
+  return FALSE;
+}
+
+
+
+/* idle: stop the server; QUIT: leave it to the next module */
+static void
+silero_unload (gpointer model)
+{
+  if (tts_closing ())
+    server_release ();
+  else
+    server_stop ();
 }
 
 
@@ -975,78 +637,6 @@ json_escape (const gchar *s)
         g_string_append_c (out, c);
     }
   return g_string_free (out, FALSE);
-}
-
-
-
-static Voice *
-pick_voice (void)
-{
-  gchar *lang = NULL;
-  Voice *found = NULL;
-
-  if (set_voice_name != NULL)
-    for (guint i = 0; i < voices->len && found == NULL; i++)
-      {
-        Voice *v = g_ptr_array_index (voices, i);
-        if (g_ascii_strcasecmp (v->name, set_voice_name) == 0)
-          found = v;
-      }
-
-  /* the voice chosen for the language in the configuration */
-  if (found == NULL && cfg_lang_voice != NULL && set_language != NULL)
-    {
-      gchar *l = g_ascii_strdown (set_language, strcspn (set_language, "-_"));
-      const gchar *name = g_hash_table_lookup (cfg_lang_voice, l);
-
-      for (guint i = 0; i < voices->len && found == NULL && name != NULL; i++)
-        {
-          Voice *v = g_ptr_array_index (voices, i);
-          if (g_ascii_strcasecmp (v->name, name) == 0)
-            found = v;
-        }
-      g_free (l);
-    }
-
-  /* the voices of the language, else of English, else all of them; among
-   * them the n-th one of the gender of the voice type, else the n-th one */
-  if (found == NULL)
-    {
-      const gchar *langs[] = { NULL, "en", NULL };
-      GPtrArray *cand = g_ptr_array_new ();
-      GPtrArray *same = g_ptr_array_new ();
-
-      if (set_language != NULL)
-        lang = g_ascii_strdown (set_language, strcspn (set_language, "-_"));
-      langs[0] = lang;
-      for (guint l = 0; l < 2 && cand->len == 0; l++)
-        for (guint i = 0; i < voices->len && langs[l] != NULL; i++)
-          {
-            Voice *v = g_ptr_array_index (voices, i);
-            if (strcmp (v->language, langs[l]) == 0)
-              g_ptr_array_add (cand, v);
-          }
-      if (cand->len == 0)
-        for (guint i = 0; i < voices->len; i++)
-          g_ptr_array_add (cand, g_ptr_array_index (voices, i));
-      for (guint i = 0; i < cand->len && set_gender != NULL; i++)
-        {
-          Voice *v = g_ptr_array_index (cand, i);
-          if (g_strcmp0 (v->gender, set_gender) == 0)
-            g_ptr_array_add (same, v);
-        }
-      if (same->len > 0)
-        found = g_ptr_array_index (same, set_type_index % same->len);
-      else if (cand->len > 0)
-        found = g_ptr_array_index (cand, set_type_index % cand->len);
-      g_ptr_array_free (same, TRUE);
-      g_ptr_array_free (cand, TRUE);
-    }
-  g_free (lang);
-  if (found == NULL)
-    found = g_ptr_array_index (voices, 0);
-
-  return found;
 }
 
 
@@ -1080,7 +670,7 @@ typedef struct
 
 
 
-/* Reads more data; while waiting lets STOP in. 1 = data, 0 = EOF, -1 = error or stop. */
+/* Reads more data; gives up when the message is stopped. 1 = data, 0 = EOF, -1 = error or stop. */
 static int
 reader_fill (Reader *r)
 {
@@ -1094,14 +684,12 @@ reader_fill (Reader *r)
     return -1;
   for (;;)
     {
-      struct pollfd fds[2] = { { r->fd, POLLIN, 0 }, { STDIN_FILENO, POLLIN, 0 } };
+      struct pollfd fds[1] = { { r->fd, POLLIN, 0 } };
       ssize_t n;
 
-      if (poll (fds, 2, 200) < 0 && errno != EINTR)
+      if (poll (fds, 1, 200) < 0 && errno != EINTR)
         return -1;
-      if (fds[1].revents & (POLLIN | POLLHUP | POLLERR))
-        process_input ();
-      if (stop_requested)
+      if (tts_stopped ())
         return -1;
       if (!(fds[0].revents & (POLLIN | POLLHUP | POLLERR)))
         continue;
@@ -1169,7 +757,7 @@ reader_bytes (Reader *r, GByteArray *out, size_t len)
 
 /* Synthesizes one sentence into float samples. */
 static gboolean
-generate (const gchar *text, Voice *voice, GByteArray *pcm, int *sample_rate)
+generate (const gchar *text, const TtsPiece *p, GByteArray *pcm, int *sample_rate)
 {
   gchar *esc, *body, *req;
   Reader *r;
@@ -1183,10 +771,10 @@ generate (const gchar *text, Voice *voice, GByteArray *pcm, int *sample_rate)
     gchar rate[G_ASCII_DTOSTR_BUF_SIZE], pitch[G_ASCII_DTOSTR_BUF_SIZE];
 
     /* rate -100..100 -> 0.5..2 times; pitch -100..100 -> 0.75..1.25 */
-    g_ascii_formatd (rate, sizeof (rate), "%.3f", pow (2.0, CLAMP (set_rate, -100, 100) / 100.0));
-    g_ascii_formatd (pitch, sizeof (pitch), "%.3f", 1.0 + CLAMP (set_pitch, -100, 100) / 400.0);
+    g_ascii_formatd (rate, sizeof (rate), "%.3f", pow (2.0, p->settings->rate / 100.0));
+    g_ascii_formatd (pitch, sizeof (pitch), "%.3f", 1.0 + p->settings->pitch / 400.0);
     body = g_strdup_printf ("{\"text\": \"%s\", \"speaker\": \"%s\", \"rate\": %s, \"pitch\": %s}",
-                            esc, voice->speaker, rate, pitch);
+                            esc, (const gchar *) p->voice->data, rate, pitch);
   }
   req = g_strdup_printf ("POST /v2/generate HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n"
                          "Content-Type: application/json\r\nContent-Length: %zu\r\n\r\n", strlen (body));
@@ -1253,177 +841,62 @@ out:
   g_free (r);
   g_free (req);
   g_free (body);
-  return ok && !stop_requested;
+  return ok && !tts_stopped ();
+}
+
+
+
+/* in the worker */
+static gboolean
+silero_speak (const TtsPiece *p, GError **error)
+{
+  GByteArray *pcm;
+  gchar *ready;
+  int rate = 48000;
+  gboolean ok;
+
+  /* it died since it was loaded: start it again */
+  if (!server_alive () && !server_start ())
+    {
+      g_set_error (error, G_FILE_ERROR, G_FILE_ERROR_FAILED, "silero-server is gone");
+      return FALSE;
+    }
+  if (stress_stage == NULL && stress_cfg.enabled)
+    stress_stage = tts_stress_new (&stress_cfg);
+  ready = tts_stress_apply (stress_stage, p->text, p->voice->language);
+  pcm = g_byte_array_new ();
+  ok = generate (ready, p, pcm, &rate);
+  if (ok)
+    tts_audio_float ((const float *) pcm->data, pcm->len / sizeof (float), rate);
+  else if (!tts_stopped ())
+    g_set_error (error, G_FILE_ERROR, G_FILE_ERROR_FAILED, "silero-server failed");
+  g_byte_array_free (pcm, TRUE);
+  g_free (ready);
+  return ok || tts_stopped ();
 }
 
 
 
 static void
-send_audio (GByteArray *pcm, int sample_rate)
+silero_close (void)
 {
-  size_t n = pcm->len / sizeof (float);
-  const float *f = (const float *) pcm->data;
-  short *s;
-  /* 0 and above keep the level the model made (its peaks are already near
-   * full scale, any boost clips); below 0 it gets quieter. */
-  double gain = set_volume >= 0 ? 1.0 : CLAMP ((set_volume + 100) / 100.0, 0.0, 1.0);
-  AudioTrack track;
-
-  if (n == 0)
-    return;
-  s = g_new (short, n);
-  for (size_t i = 0; i < n; i++)
-    s[i] = (short) (CLAMP (f[i] * gain, -1.0, 1.0) * 32767.0);
-  track.bits = 16;
-  track.num_channels = 1;
-  track.sample_rate = sample_rate;
-  track.num_samples = (int) n;
-  track.samples = s;
-  module_tts_output_server (&track, SPD_AUDIO_LE);
-  tts_copy_audio (copy, s, n, track.sample_rate, 1);
-  g_free (s);
-}
-
-
-
-void
-module_speak_sync (const char *data, size_t bytes, SPDMessageType msgtype)
-{
-  gchar *text;
-  GPtrArray *sentences;
-  Voice *voice;
-  gboolean ok, whole;
-
-  stop_requested = 0;
-  text = ssml_to_text (data, bytes);
-  if (*text == '\0')
-    {
-      /* nothing to say (e.g. only spaces): finish the message at once,
-       * an error would leave clients waiting for its end */
-      g_free (text);
-      module_speak_ok ();
-      module_report_event_begin ();
-      module_report_event_end ();
-      return;
-    }
-  if (!copy_made)
-    copy = tts_copy_new (&copy_cfg), copy_made = TRUE;
-  module_speak_ok ();
-  module_report_event_begin ();
-  last_use = time (NULL);
-
-  voice = pick_voice ();
-  /* the helper loads while the server does */
-  tts_norm_start (get_norm ());
-  ok = server_start ();
-  whole = !ok || tts_norm_message (norm, &text, voice->language);
-  sentences = split_sentences (text);
-  DBG ("speaking %u sentence(s) with %s: %s", sentences->len, voice->name, text);
-
-  if (ok)
-    for (guint i = 0; i < sentences->len && !stop_requested; i++)
-      {
-        const gchar *piece = g_ptr_array_index (sentences, i);
-        gchar *norm_piece = whole ? NULL : tts_norm_text (norm, piece, voice->language);
-        gchar *ready = tts_stress_apply (get_stress (), norm_piece != NULL ? norm_piece : piece,
-                                         voice->language);
-        GByteArray *pcm = g_byte_array_new ();
-        int rate = 48000;
-
-        tts_copy_text (copy, ready);
-        if (!stop_requested && generate (ready, voice, pcm, &rate))
-          send_audio (pcm, rate);
-        g_byte_array_free (pcm, TRUE);
-        g_free (ready);
-        g_free (norm_piece);
-      }
-
-  last_use = time (NULL);
-  g_ptr_array_free (sentences, TRUE);
-  g_free (text);
-  tts_copy_end (copy);
-  if (stop_requested)
-    module_report_event_stop ();
-  else
-    module_report_event_end ();
-}
-
-
-
-size_t
-module_pause (void)
-{
-  stop_requested = 1;
-  return 0;
-}
-
-
-
-int
-module_stop (void)
-{
-  stop_requested = 1;
-  return 0;
-}
-
-
-
-int
-module_close (void)
-{
-  server_release ();
-  tts_norm_free (norm);
-  tts_copy_free (copy);
-  copy = NULL;
   tts_stress_free (stress_stage);
   stress_stage = NULL;
-  norm = NULL;
-  return 0;
 }
 
 
 
-/* Main loop: the protocol, plus stopping an idle server. */
-int
-module_loop (void)
-{
-  if (cfg_preload)
-    {
-      /* start loading now, server_start waits for it with the first message */
-      last_use = time (NULL);
-      if (!server_alive () && !server_adopt ())
-        server_spawn ();
-    }
-  for (;;)
-    {
-      struct pollfd fd = { STDIN_FILENO, POLLIN, 0 };
-      int ret = poll (&fd, 1, 5000);
-
-      if (ret < 0 && errno != EINTR)
-        return -1;
-      if (ret > 0)
-        {
-          if ((fd.revents & POLLIN) && module_process (STDIN_FILENO, 0) == 0)
-            quit_requested = TRUE;
-          if (quit_requested)
-            {
-              server_release ();
-              return 0;
-            }
-          if (fd.revents & (POLLHUP | POLLERR))
-            {
-              server_release ();
-              return -1;
-            }
-        }
-      if (watcher_pid > 0 && waitpid (watcher_pid, NULL, WNOHANG) == watcher_pid)
-        watcher_pid = 0;
-      if (server_pid > 0 && cfg_idle_timeout > 0 && time (NULL) - last_use > cfg_idle_timeout)
-        {
-          server_stop ();
-          tts_norm_stop (norm);
-        }
-      else
-        server_alive ();
-    }
-}
+const TtsEngine tts_engine = {
+  .name = "sd_silero",
+  .prefix = "Silero",
+  .max_models = 1,
+  .idle_timeout = 300,
+  .first_chunk = 0,
+  .setup = silero_setup,
+  .config = silero_config,
+  .init = silero_init,
+  .load = silero_load,
+  .unload = silero_unload,
+  .speak = silero_speak,
+  .close = silero_close,
+};

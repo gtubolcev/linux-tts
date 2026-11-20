@@ -450,12 +450,21 @@ def r_stop_during_load(m):
     m.speak("Привет.")
     m.expect("701 BEGIN")
     time.sleep(0.5)
-    if any(l.startswith("702 END") for _, l in m.lines):
-        return   # loads faster than that (Piper)
     t0 = time.time()
     m.send("STOP\n")
-    t, _ = m.expect("703 STOP")
-    check(t - t0 < 0.3, "STOP during load took %.2f s" % (t - t0))
+    end = None
+    while end is None and time.time() - t0 < 5:
+        end = next(((t, l) for t, l in m.lines if l.startswith(("702 END", "703 STOP"))), None)
+        time.sleep(0.02)
+    check(end is not None, "no 703 STOP after STOP")
+    t, line = end
+    if line.startswith("702"):
+        # the model was there already (Piper, an adopted server): the
+        # message ended before STOP came
+        check(t - t0 < 0.1, "702 END %.2f s after STOP" % (t - t0))
+    else:
+        check(t - t0 < 0.3, "STOP during load took %.2f s" % (t - t0))
+    m.pos = len(m.lines)
     m.speak("Ещё раз.")
     m.expect("702 END", 60)
 

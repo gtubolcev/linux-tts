@@ -152,7 +152,7 @@ endif
 # -------------------------------------------------------------- silero
 # the module only; silero-server needs the user's Silero model (CC BY-NC-SA)
 if get_option('silero').allowed()
-  executable('sd_silero', 'silero/sd_silero.c', norm_src, stress_src,
+  executable('sd_silero', 'silero/sd_silero.c', module_src, stress_src,
     include_directories: [speechd_inc, shim_inc, common_inc],
     dependencies: module_deps,
     install: true, install_dir: module_dir)
