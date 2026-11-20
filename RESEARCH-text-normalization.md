@@ -473,3 +473,65 @@ with JN in 1300, with Vosk in 208, has both variants in 280 (homographs, names, 
 en and ru disagree in 11, missing in 480 (names, slang). With Koziev and OpenRussian added:
 JN 1401, Vosk 316, conflict 261. The user's own marks (38) agree: 37 JN, 1 Vosk.
 → JN before Vosk; Wiktionary as the referee and as the main free full-form source.
+
+## 8. davnozdu/supertonic-android ("MyTTS", read 2026-11-20)
+
+github.com/davnozdu/supertonic-android: an Android TTS engine for Russian. Engines: Supertonic 3,
+TeraTTS v2, Silero, Kokoro-RU, Shtorm PocketTTS RU. Code: Kotlin plus Rust on ONNX Runtime.
+**The code is GPL-3.0, so we take ideas, rules and test cases, not code.** A local clone of
+commit 7d55869 is in `_tmp/web/supertonic-android/src`.
+
+Normalization (offline path, `app/src/main/java/.../tts/utils/`):
+- `RussianBookNormalizer.kt`:
+  - case from the preceding preposition (без/до/от → gen., к/по → dat., с/между → ins., о/при →
+    prep.), e.g. "без 25 записей", "к 234", "с 5 кг";
+  - gender agreement with a list of following nouns: "21 книга", "1001 имя";
+  - Roman numerals agreeing with the label noun ("главы с III по V" → "с третьей по пятую");
+  - number ranges "10-15 человек" → "от десяти до пятнадцати", while year spans go to the dates
+    stage;
+  - digit groups joined ("1 500 км");
+  - phone numbers read in groups;
+  - footnote marks removed ("молоко¹", "молоко.*", "[1]"), but "км²" and the "* * *" separator
+    kept;
+  - words hyphenated across a line break joined;
+  - acronyms spelled by letter names unless they are in a "read as a word" list.
+  Quality is mixed. Their own test expects "Я прошёл одна тысяча пятьсот километров" (should be
+  "тысячу пятьсот"). ru-normalizr is ahead on morphology.
+- `TextNormalizer.kt`, `CurrencyNormalizer.kt`, `RussianNumberNormalizer.kt` cover currency,
+  measurements, percentages, decimals ("3,14" → "три целых четырнадцать сотых") and fractions
+  ("1/3" → "одна третья").
+- Prosody tweaks (release v5.0.5): an ellipsis gives a longer pause than a full stop; brackets
+  are read as words, as a pause, as a separate phrase, or skipped; Latin words such as SIM,
+  PIN and Wi-Fi are transliterated before language routing.
+
+Stress (`docs/stress-vote.md`):
+- Two opinions per word: the RUAccent dictionary (3.26 M forms) and Silero Stress. If they agree,
+  that stress is final. If they disagree, or the word is a RUAccent homograph (19 732 forms,
+  `assets/ruaccent_omographs.tsv.gz`), an LLM decides. Each question is asked twice with the
+  options swapped, and the answer counts only if both agree.
+- Without an LLM: RUAccent decides a disagreement, and Silero decides a homograph. This scored
+  61/71 on their hard set (70/71 with a cloud LLM; a local Gemma did worse than no LLM).
+- ё is taken only from a dictionary confirmation, because LLMs add false ё ("телёфон").
+- Assets: `tera_ambiguous_stress.txt` (19 741 forms) and `tera_ambiguous_yo.txt` (637) list
+  where stress or ё is ambiguous. Useful for the stress-review page and for marking forms where
+  the user's decision is needed.
+
+**Test corpora** (`tools/stress_tests/`; for local evaluation only, not to commit here):
+- `hard.txt`: 71 hard stress cases, with a key in `hard_stress.py`;
+- `idiot_ch1.txt`: 41 scored words from chapter 1 of «Идиот», with a key in `ch1_key.py`;
+- `formats.txt`: 61 lines of dates, times, counts and ranges in context;
+- `punctuation.txt`;
+- `yo_orlovy.txt`: ё restoration, 69 cases, with a key.
+
+These go into the norm-test set for the profile normalizer (stage 3 of the work order).
+
+Other:
+- Supertonic voices can be imported as `style_ttl.npy` + `style_dp.npy`, or as a `.json`.
+- The release shtorm-designed-voices-v1 has 206 synthetic Russian reference voices for Shtorm
+  PocketTTS RU (Qwen3-TTS VoiceDesign, 24 kHz MP3). They could serve as Pocket TTS voices in
+  sd_sherpa once the RU fine-tune runs through sherpa's Pocket path. That needs a check: the
+  model export (`tools/export_shtorm.py`) and the licence of the reference packs.
+- A Russian int8 model with 6 flow steps instead of 8 (about a third of the CPU load). The idea
+  to try for Supertonic in sherpa: a NumSteps setting.
+- Stress dictionary releases (v3.1.1): russian_accents_{full,compact}.json, in the form
+  `{"москва": "москва́"}`, built from RUAccent (MIT, but derived from Zaliznyak's dictionary).
