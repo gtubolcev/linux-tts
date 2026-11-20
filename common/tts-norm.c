@@ -15,7 +15,7 @@
  * timed out, and is skipped.
  *
  * Copyright (C) 2026 Grigory Tuboltsev
- * SPDX-License-Identifier: MIT
+ * SPDX-License-Identifier: GPL-3.0-or-later
  */
 
 #include "tts-norm.h"

@@ -32,7 +32,7 @@
  * module_stdout_mutex (module_speak), the worker never nests them.
  *
  * Copyright (C) 2026 Grigory Tuboltsev
- * SPDX-License-Identifier: MIT
+ * SPDX-License-Identifier: GPL-3.0-or-later
  */
 
 #include <ctype.h>

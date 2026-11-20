@@ -10,7 +10,7 @@
  * everything else the English ones.
  *
  * Copyright (C) 2026 Grigory Tuboltsev
- * SPDX-License-Identifier: MIT
+ * SPDX-License-Identifier: GPL-3.0-or-later
  */
 
 #include <string.h>

@@ -15,7 +15,7 @@
  * Only Russian text is normalized now; other languages pass through.
  *
  * Copyright (C) 2026 Grigory Tuboltsev
- * SPDX-License-Identifier: MIT
+ * SPDX-License-Identifier: GPL-3.0-or-later
  */
 
 #ifndef TTS_NORM_H

@@ -2,7 +2,7 @@
  * kokoro - see kokoro.h
  *
  * Copyright (C) 2026 Grigory Tuboltsev
- * SPDX-License-Identifier: MIT
+ * SPDX-License-Identifier: GPL-3.0-or-later
  */
 
 #include "kokoro.h"

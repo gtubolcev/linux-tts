@@ -2,7 +2,7 @@
  * tts-copy - a copy of what a module speaks, in files, for debugging
  *
  * Copyright (C) 2026 Grigory Tuboltsev
- * SPDX-License-Identifier: MIT
+ * SPDX-License-Identifier: GPL-3.0-or-later
  */
 
 #include "tts-copy.h"

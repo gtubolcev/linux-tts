@@ -7,7 +7,7 @@
  * Vosk TTS (word<TAB>phonemes, sorted by bytes, the stressed vowel has "1").
  *
  * Copyright (C) 2026 Grigory Tuboltsev
- * SPDX-License-Identifier: MIT
+ * SPDX-License-Identifier: GPL-3.0-or-later
  */
 
 #ifndef RU_G2P_H

@@ -18,7 +18,7 @@
  * the speakers of the model version, offered as "silero-ru-<speaker>".
  *
  * Copyright (C) 2026 Grigory Tuboltsev
- * SPDX-License-Identifier: MIT
+ * SPDX-License-Identifier: GPL-3.0-or-later
  */
 
 #include <errno.h>

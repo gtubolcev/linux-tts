@@ -28,7 +28,7 @@
  * with tts_voice_add() in its init callback.
  *
  * Copyright (C) 2026 Grigory Tuboltsev
- * SPDX-License-Identifier: MIT
+ * SPDX-License-Identifier: GPL-3.0-or-later
  */
 
 #ifndef TTS_MODULE_H

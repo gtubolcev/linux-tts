@@ -15,7 +15,7 @@
  * Digits are not in the vocabulary, numbers are spelt out first.
  *
  * Copyright (C) 2026 Grigory Tuboltsev
- * SPDX-License-Identifier: MIT
+ * SPDX-License-Identifier: GPL-3.0-or-later
  */
 
 #ifndef TERATTS_H

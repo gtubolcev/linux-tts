@@ -13,24 +13,14 @@ VER=0.1-3~local
 MVER=2.0-1~local
 rm -rf "$OUT/root"; mkdir -p "$OUT/root"
 
-MIT='License: MIT
- Permission is hereby granted, free of charge, to any person obtaining a copy
- of this software and associated documentation files (the "Software"), to deal
- in the Software without restriction, including without limitation the rights
- to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
- copies of the Software, and to permit persons to whom the Software is
- furnished to do so, subject to the following conditions:
+LIC='License: GPL-3+
+ This program is free software: you can redistribute it and/or modify
+ it under the terms of the GNU General Public License as published by
+ the Free Software Foundation, either version 3 of the License, or
+ (at your option) any later version.
  .
- The above copyright notice and this permission notice shall be included in all
- copies or substantial portions of the Software.
- .
- THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
- OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
- SOFTWARE.'
+ On Debian systems the full text of the GNU General Public License
+ version 3 is in /usr/share/common-licenses/GPL-3.'
 
 # ------------------------------------------------------------ the module
 W=$OUT/root/speech-dispatcher-teratts
@@ -47,7 +37,7 @@ Upstream-Name: sd_teratts
 
 Files: *
 Copyright: 2026 Grigory Tuboltsev
-$MIT
+$LIC
 Comment: teratts.c follows teratts.py of TeraSpace/TeraTTSv2 (the text
  preparation and the order of its four ONNX graphs). Linked statically with
  libspeechd_module from speech-dispatcher (LGPL-2.1+). The module source is

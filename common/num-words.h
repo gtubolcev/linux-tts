@@ -6,7 +6,7 @@
  * четырнадцать сотых" / "three point one four".
  *
  * Copyright (C) 2026 Grigory Tuboltsev
- * SPDX-License-Identifier: MIT
+ * SPDX-License-Identifier: GPL-3.0-or-later
  */
 
 #ifndef NUM_WORDS_H

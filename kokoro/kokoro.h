@@ -3,7 +3,7 @@
  * through the onnxruntime C API
  *
  * Copyright (C) 2026 Grigory Tuboltsev
- * SPDX-License-Identifier: MIT
+ * SPDX-License-Identifier: GPL-3.0-or-later
  */
 
 #ifndef KOKORO_H

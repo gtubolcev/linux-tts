@@ -8,7 +8,7 @@
  *       < lines: writes <out-prefix>NN.wav per line
  *
  * Copyright (C) 2026 Grigory Tuboltsev
- * SPDX-License-Identifier: MIT
+ * SPDX-License-Identifier: GPL-3.0-or-later
  */
 
 #include "kokoro.h"

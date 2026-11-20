@@ -13,7 +13,7 @@
  * by a resolver plugged in with tts_stress_set_resolver().
  *
  * Copyright (C) 2026 Grigory Tuboltsev
- * SPDX-License-Identifier: MIT
+ * SPDX-License-Identifier: GPL-3.0-or-later
  */
 
 #ifndef TTS_STRESS_H

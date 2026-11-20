@@ -16,7 +16,7 @@
 # older modules, which start it as a child).
 #
 # Copyright (C) 2026 Grigory Tuboltsev
-# SPDX-License-Identifier: MIT
+# SPDX-License-Identifier: GPL-3.0-or-later
 
 import fcntl
 import os
