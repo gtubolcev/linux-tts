@@ -57,7 +57,10 @@ class Mod:
             f.write("TextNormalization no\nDebug 1\n" + REAL_CONF
                     + conf.replace("@DIR@", self.dir.name))
         self.err_path = os.path.join(self.dir.name, "stderr")
-        env = dict(os.environ, XDG_CACHE_HOME=os.path.join(self.dir.name, "cache"))
+        # own runtime dir: .load / .state of the test, not of the session
+        os.mkdir(os.path.join(self.dir.name, "run"), 0o700)
+        env = dict(os.environ, XDG_CACHE_HOME=os.path.join(self.dir.name, "cache"),
+                   XDG_RUNTIME_DIR=os.path.join(self.dir.name, "run"))
         self.p = subprocess.Popen([EXE, path], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                                   stderr=open(self.err_path, "wb"), env=env)
         self.lines = []      # (time, line); audio as "AUDIO n"
@@ -197,6 +200,15 @@ def t_marks(m):
     check(m.said()[1].endswith("|Two, & three."), m.said())
 
 
+def t_bad_mark(m):
+    """a mark name with a newline would fake "702 END"; it is dropped"""
+    m.speak('<speak>One.<mark name="a\n702 END"/> Two.<mark name="ok"/></speak>')
+    m.expect("702 END")
+    evs = m.events()
+    check("700-ok" in evs and not any(e.startswith("700-a") for e in evs), evs)
+    check(evs.count("702 END") == 1, evs)
+
+
 def t_entities_utf8(m):
     m.set(synthesis_voice="dummy-ru-female-1")
     m.speak("<speak>Привет, мир &lt;3</speak>")
@@ -302,6 +314,33 @@ def t_probe_crash(m):
     m.expect("702 END")
     check(m.said() == ["dummy-en-female-1|Hello.", "dummy-en-female-1|Again."], m.said())
     check(m.stderr().count("test load of dummy-en-female-1 (") == 1, "en tested twice")
+
+
+def t_probe_exit(m):
+    """an engine that exits itself in the test load (sherpa-onnx _Exit(-1))
+    is remembered like a crash; the module does not load the model"""
+    write_models(m, en="ok", ru="exit")
+    m.set(synthesis_voice="dummy-ru-female-1")
+    m.speak("Привет.")
+    m.expect("702 END")
+    check("made the engine exit (code 255)" in m.stderr(), m.stderr()[-800:])
+    check("made the engine exit" in probe_cache(m), probe_cache(m))
+    m.set(synthesis_voice="dummy-en-female-1")
+    m.speak("Hello.")
+    m.expect("702 END")
+    check(m.said() == ["dummy-en-female-1|Hello."], m.said())
+
+
+def t_probe_killed(m):
+    """a test load killed from outside (OOM killer) fails, but is not
+    remembered as a broken model"""
+    write_models(m, en="ok", ru="kill")
+    m.set(synthesis_voice="dummy-ru-female-1")
+    m.speak("Привет.")
+    m.expect("702 END")
+    check("was killed (signal 9" in m.stderr(), m.stderr()[-800:])
+    check(os.path.join(m.dir.name, "ru") + "]" not in probe_cache(m), probe_cache(m))
+    check("loaded ru" not in m.stderr(), "ru loaded in the module")
 
 
 def t_probe_cached(m):
@@ -559,6 +598,36 @@ def t_preload(m):
     check("loaded ru (1)" in m.stderr(), "no preload: " + m.stderr())
 
 
+def wait_stderr(m, text, secs):
+    end = time.time() + secs
+    while time.time() < end:
+        if text in m.stderr():
+            return True
+        time.sleep(0.05)
+    return False
+
+
+def write_load(m, voice):
+    path = os.path.join(m.dir.name, "run", "linux-tts", "dummy.load")
+    with open(path + ".new", "w") as f:
+        f.write(voice + "\n")
+    os.replace(path + ".new", path)
+
+
+def t_load_request_during_wait(m):
+    """a .load request while a message waits for its model does not take
+    the message's place: the message is spoken (it hung until STOP)"""
+    write_load(m, "dummy-en-female-1")
+    check(wait_stderr(m, "load request: dummy-en-female-1", 3), "no load request")
+    m.set(synthesis_voice="dummy-ru-female-1")
+    m.speak("Привет.")
+    m.expect("701 BEGIN")
+    write_load(m, "dummy-en-male-1")
+    check(wait_stderr(m, "load request: dummy-en-male-1", 3), "no second load request")
+    m.expect("702 END", 10)
+    check(m.said() == ["dummy-ru-female-1|Привет."], m.said())
+
+
 def t_config_reload(m):
     """the settings dialog changes the file without restarting the server"""
     path = os.path.join(m.dir.name, "dummy.conf")
@@ -597,6 +666,7 @@ TESTS = [
     (t_basic, ""),
     (t_empty, ""),
     (t_marks, ""),
+    (t_bad_mark, ""),
     (t_entities_utf8, ""),
     (t_stop, "DummySynthMs 100\n"),
     (t_stop_speak_one_write, "DummySynthMs 100\n"),
@@ -619,7 +689,10 @@ TESTS = [
     (t_eof_during_speech, "DummySynthMs 100\n"),
     (t_preload, 'DummyPreload yes\nDummyVoice "ru" "dummy-ru-female-1"\n'),
     (t_config_reload, ""),
+    (t_load_request_during_wait, "DummyLoadMs 3000\n"),
     (t_probe_crash, "DummyModelDir @DIR@\n"),
+    (t_probe_exit, "DummyModelDir @DIR@\n"),
+    (t_probe_killed, "DummyModelDir @DIR@\n"),
     (t_probe_cached, "DummyModelDir @DIR@\n"),
     (t_probe_hang, "DummyModelDir @DIR@\nDummyProbeTimeout 1\n"),
     (t_probe_quit, "DummyModelDir @DIR@\n"),

@@ -142,6 +142,10 @@ static GMutex m_lock;
 static GCond m_cond;
 static GQueue loaded = G_QUEUE_INIT;       /* models, most recently used first */
 static gpointer wanted = NULL;             /* what the loader should load */
+static guint wanted_gen = 0;               /* counts the requests for wanted */
+/* the model the message being spoken waits for: goes before wanted, which a
+ * .load request or Preload may change meanwhile */
+static gpointer speak_wanted = NULL;
 static gpointer loading = NULL;            /* what it loads now */
 static gpointer in_use = NULL;             /* the worker's; never unloaded */
 static gboolean unload_all = FALSE;
@@ -489,6 +493,29 @@ module_config (const char *configfile)
 
 /* ----------------------------------------------------------------- voices */
 
+/* a copy of @text fit for a LIST VOICES line and for the dialog's
+ * configuration: valid UTF-8, no control character, tab or quote (names and
+ * languages come from the directory names of downloaded models) */
+static gchar *
+voice_field (const gchar *text, const gchar *what)
+{
+  gchar *r;
+  gboolean changed = FALSE;
+
+  if (text == NULL)
+    return NULL;
+  r = g_utf8_make_valid (text, -1);
+  for (gchar *c = r; *c != '\0'; c++)
+    if ((guchar) *c < 0x20 || *c == 0x7f || *c == '"')
+      {
+        *c = '_';
+        changed = TRUE;
+      }
+  if (changed || strcmp (r, text) != 0)
+    TTS_ERR ("a voice %s with characters it cannot have, using \"%s\"", what, r);
+  return r;
+}
+
 TtsVoice *
 tts_voice_add (const gchar *name, const gchar *language, const gchar *gender,
                gpointer model, gpointer data)
@@ -497,9 +524,9 @@ tts_voice_add (const gchar *name, const gchar *language, const gchar *gender,
 
   if (voices == NULL)
     voices = g_ptr_array_new ();
-  v->name = g_strdup (name);
-  v->language = g_strdup (language);
-  v->gender = g_strdup (gender);
+  v->name = voice_field (name, "name");
+  v->language = voice_field (language, "language");
+  v->gender = voice_field (gender, "gender");
   v->model = model;
   v->data = data;
   g_ptr_array_add (voices, v);
@@ -733,6 +760,14 @@ probe_setup (gpointer data)
   prctl (PR_SET_PDEATHSIG, SIGKILL);
 }
 
+/* signals that come from the engine itself, not from outside */
+static gboolean
+crash_signal (int sig)
+{
+  return sig == SIGSEGV || sig == SIGABRT || sig == SIGBUS || sig == SIGILL || sig == SIGFPE
+         || sig == SIGTRAP || sig == SIGSYS;
+}
+
 /* in the loader, before the first load of M: FALSE (with *error) if the
  * test load in a child crashed or hung */
 static gboolean
@@ -747,7 +782,7 @@ probe_model (gpointer m, GError **error)
   GError *e = NULL;
   gint64 t0, end;
   int status = 0;
-  gboolean ok = TRUE, done = FALSE;
+  gboolean ok = TRUE, done = FALSE, got_status = FALSE;
 
   if (timeout == 0 || E->model_path == NULL || conf_given == NULL || module_base == NULL
       || (path = E->model_path (m)) == NULL || (stamp = model_stamp (path)) == NULL)
@@ -804,8 +839,10 @@ probe_model (gpointer m, GError **error)
     {
       pid_t r = waitpid (pid, &status, WNOHANG);
 
-      if (r == pid || (r < 0 && errno != EINTR))
-        done = TRUE;
+      if (r == pid)
+        done = got_status = TRUE;
+      else if (r < 0 && errno != EINTR)
+        done = TRUE;   /* no status: no verdict, the loader tries itself */
       else if (g_get_monotonic_time () >= end)
         {
           kill (pid, SIGKILL);
@@ -821,13 +858,29 @@ probe_model (gpointer m, GError **error)
         g_usleep (100 * 1000);
     }
   probe_pid = 0;
-  if (WIFSIGNALED (status))
-    result = g_strdup_printf ("the model crashed the engine (signal %d, %s)", WTERMSIG (status),
-                              g_strsignal (WTERMSIG (status)));
-  else if (WIFEXITED (status) && WEXITSTATUS (status) == 0)
-    result = g_strdup ("ok");
   TTS_DBG ("test load of %s: status %d in %.1f s", voice, status,
            (g_get_monotonic_time () - t0) / 1e6);
+  if (!got_status)
+    TTS_ERR ("test load of %s: no exit status (%s)", voice, g_strerror (errno));
+  else if (WIFSIGNALED (status) && crash_signal (WTERMSIG (status)))
+    result = g_strdup_printf ("the model crashed the engine (signal %d, %s)", WTERMSIG (status),
+                              g_strsignal (WTERMSIG (status)));
+  else if (WIFSIGNALED (status))
+    {
+      /* killed from outside (the OOM killer, the end of the session): says
+       * nothing about the model, so not remembered; tried again later */
+      TTS_ERR ("test load of %s killed by signal %d", voice, WTERMSIG (status));
+      g_set_error (error, G_FILE_ERROR, G_FILE_ERROR_FAILED,
+                   "the test load of %s was killed (signal %d, %s)", voice, WTERMSIG (status),
+                   g_strsignal (WTERMSIG (status)));
+      ok = FALSE;
+    }
+  else if (WEXITSTATUS (status) == 0)
+    result = g_strdup ("ok");
+  else if (WEXITSTATUS (status) != 2 && WEXITSTATUS (status) != 3)
+    /* the engine gave up and exited itself (sherpa-onnx: _Exit(-1) on bad
+     * model metadata): it would take the module with it */
+    result = g_strdup_printf ("the model made the engine exit (code %d)", WEXITSTATUS (status));
   /* exit 2 or 3: the load fails normally here too; nothing to remember */
   if (result != NULL)
     {
@@ -858,7 +911,8 @@ loader_main (gpointer data)
       gint64 t0;
       gboolean ok;
 
-      while (!loader_quit && !unload_all && !needs_load_locked (wanted))
+      while (!loader_quit && !unload_all && !needs_load_locked (speak_wanted)
+             && !needs_load_locked (wanted))
         g_cond_wait (&m_cond, &m_lock);
       if (loader_quit)
         break;
@@ -866,6 +920,7 @@ loader_main (gpointer data)
       if (unload_all)
         {
           GList *keep = NULL;
+          guint gen = wanted_gen;
 
           unload_all = FALSE;
           while (!g_queue_is_empty (&loaded))
@@ -883,7 +938,9 @@ loader_main (gpointer data)
           for (GList *k = keep; k != NULL; k = k->next)
             g_queue_push_tail (&loaded, k->data);
           g_list_free (keep);
-          if (wanted != in_use)
+          /* the old request would load its model again at once; one that
+           * came while the models were unloaded stays */
+          if (wanted != in_use && wanted_gen == gen)
             wanted = NULL;
           g_mutex_unlock (&m_lock);
           malloc_trim (0);
@@ -893,7 +950,7 @@ loader_main (gpointer data)
           continue;
         }
 
-      m = wanted;
+      m = needs_load_locked (speak_wanted) ? speak_wanted : wanted;
       /* make room: the least recently used model that is not in use */
       if ((int) g_queue_get_length (&loaded) >= max_models ())
         for (GList *l = g_queue_peek_tail_link (&loaded); l != NULL; l = l->prev)
@@ -957,15 +1014,22 @@ loader_main (gpointer data)
 }
 
 static void
+wake_loader_locked (void)
+{
+  if (loader == NULL)
+    loader = g_thread_new ("tts-loader", loader_main, NULL);
+  g_cond_broadcast (&m_cond);
+}
+
+static void
 request_model (gpointer m)
 {
   if (m == NULL || E->load == NULL)
     return;
   g_mutex_lock (&m_lock);
   wanted = m;
-  if (loader == NULL)
-    loader = g_thread_new ("tts-loader", loader_main, NULL);
-  g_cond_broadcast (&m_cond);
+  wanted_gen++;
+  wake_loader_locked ();
   g_mutex_unlock (&m_lock);
 }
 
@@ -978,14 +1042,17 @@ wait_model (gpointer m)
 
   if (m == NULL || E->load == NULL)
     return TRUE;
-  request_model (m);
   g_mutex_lock (&m_lock);
   in_use = m;
+  wanted = m;          /* replaces an older request, which would push it out */
+  speak_wanted = m;    /* and survives a newer one until it is loaded */
+  wake_loader_locked ();
   while (needs_load_locked (m) && !tts_stopped ())
     {
       gint64 until = g_get_monotonic_time () + 50 * G_TIME_SPAN_MILLISECOND;
       g_cond_wait_until (&m_cond, &m_lock, until);
     }
+  speak_wanted = NULL;
   ok = g_queue_find (&loaded, m) != NULL;
   if (ok && g_queue_peek_head (&loaded) != m)
     {
@@ -1049,6 +1116,19 @@ attr_value (const char *tag, const char *end, const char *attr)
   return NULL;
 }
 
+#define MARK_MAX 256
+
+static gboolean
+mark_ok (const gchar *name)
+{
+  if (strlen (name) > MARK_MAX || !g_utf8_validate (name, -1, NULL))
+    return FALSE;
+  for (const gchar *c = name; *c != '\0'; c++)
+    if ((guchar) *c < 0x20 || *c == 0x7f)
+      return FALSE;
+  return TRUE;
+}
+
 static void
 segment_add (GArray *out, GString *text, gchar *mark)
 {
@@ -1077,6 +1157,13 @@ tts_ssml_parse (const char *data, gsize bytes)
           if (strncmp (p, "<mark", 5) == 0 && (isspace ((guchar) p[5]) || p[5] == '/'))
             {
               gchar *name = attr_value (p + 5, close, "name");
+              if (name != NULL && !mark_ok (name))
+                {
+                  /* "700-<name>" is one protocol line: a newline in the
+                   * name could fake "702 END" to the server */
+                  TTS_ERR ("a mark name that cannot be sent, dropped");
+                  g_clear_pointer (&name, g_free);
+                }
               if (name != NULL)
                 segment_add (out, text, name);
             }

@@ -7,7 +7,9 @@
  * character of the value 0x7d0a (the bytes that need escaping).  A piece
  * with "FAIL" fails.  Every piece is logged to stderr as "dummy: say <text>".
  * With DummyModelDir the models have files there (en, ru, bad) for the test
- * loads: a file that starts with "crash" aborts the load, "hang" never ends.
+ * loads: a file that starts with "crash" aborts the load, "exit" exits with
+ * code 255 (as sherpa-onnx does on bad metadata), "kill" is killed with
+ * SIGKILL (as by the OOM killer), "hang" never ends.
  *
  * Copyright (C) 2026 Grigory Tuboltsev
  * SPDX-License-Identifier: GPL-3.0-or-later
@@ -77,6 +79,10 @@ dummy_load (gpointer model, GError **error)
     {
       if (g_str_has_prefix (contents, "crash"))
         abort ();
+      if (g_str_has_prefix (contents, "exit"))
+        _exit (255);
+      if (g_str_has_prefix (contents, "kill"))
+        raise (SIGKILL);
       while (g_str_has_prefix (contents, "hang"))
         pause ();
       g_free (contents);
