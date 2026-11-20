@@ -82,7 +82,7 @@ if get_option('kokoro').require(onnx_ok and espeak.found() and espeak_prog.found
   install_data('kokoro/kokoro.conf', install_dir: conf_dir)
   # ru_dict from the espeak-ng master rules, which honour the stress mark
   # U+0301; the rest of espeak-ng-data is linked to the system's at install
-  espeak_data = espeak.get_variable(pkgconfig: 'prefix', default_value: '/usr') / 'lib' / 'x86_64-linux-gnu' / 'espeak-ng-data'
+  espeak_data = espeak.get_variable(pkgconfig: 'libdir', default_value: get_option('prefix') / get_option('libdir')) / 'espeak-ng-data'
   espeak_data = get_option('espeak_data') != '' ? get_option('espeak_data') : espeak_data
   kokoro_data = get_option('datadir') / 'speech-dispatcher-kokoro' / 'espeak-ng-data'
   custom_target('ru_dict',
