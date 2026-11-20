@@ -3,7 +3,7 @@ Description: "vulkan" provider: the Vulkan plugin EP of onnxruntime
  and its first device appended with SessionOptionsAppendExecutionProvider_V2;
  without the plugin or a device the session stays on the CPU.
 Author: Grigory Tuboltsev
-Forwarded: no
+Forwarded: https://github.com/k2-fsa/sherpa-onnx/pull/4261
 
 --- a/sherpa-onnx/csrc/provider.cc
 +++ b/sherpa-onnx/csrc/provider.cc
@@ -48,7 +48,7 @@ Forwarded: no
  #endif
  
 +#if ORT_API_VERSION >= 23
-+// The Vulkan plugin EP (https://github.com/0xshawn/onnx-vulkan-rs or the
++// The Vulkan plugin EP (https://github.com/automataIA/onnx-vulkan-rs or the
 +// like) is a shared library that onnxruntime loads at run time; it needs an
 +// onnxruntime at least as new as the one it was built for. It is looked for
 +// in SHERPA_ONNX_VULKAN_EP, else as libonnxruntime_ep_vulkan.so next to the

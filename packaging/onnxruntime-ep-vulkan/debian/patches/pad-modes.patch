@@ -1,6 +1,7 @@
 From 266bb7968724736b9d379ef4917ab7fbaf11a6b4 Mon Sep 17 00:00:00 2001
 From: Grigory Tuboltsev <gtubolcev@gmail.com>
 Date: Thu, 19 Nov 2026 02:41:22 +0100
+Forwarded: https://github.com/automataIA/onnx-vulkan-rs/pull/5
 Subject: [PATCH] feat(core): Pad modes edge, reflect and wrap
 
 Pad claimed nodes in any mode but ran only "constant"; a node in another
