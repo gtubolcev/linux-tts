@@ -2,7 +2,7 @@
  * ru-stress - see ru-stress.h
  *
  * Copyright (C) 2026 Grigory Tuboltsev
- * SPDX-License-Identifier: MIT
+ * SPDX-License-Identifier: GPL-3.0-or-later
  */
 
 #include "ru-stress.h"

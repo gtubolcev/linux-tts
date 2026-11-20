@@ -2,7 +2,7 @@
  * tts-stress - the stress stage of the speech-dispatcher modules
  *
  * Copyright (C) 2026 Grigory Tuboltsev
- * SPDX-License-Identifier: MIT
+ * SPDX-License-Identifier: GPL-3.0-or-later
  */
 
 #include "tts-stress.h"

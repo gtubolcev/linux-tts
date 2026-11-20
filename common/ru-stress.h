@@ -25,7 +25,7 @@
  * one vowel get no mark.  "е" becomes "ё" where the dictionary says so.
  *
  * Copyright (C) 2026 Grigory Tuboltsev
- * SPDX-License-Identifier: MIT
+ * SPDX-License-Identifier: GPL-3.0-or-later
  */
 
 #ifndef RU_STRESS_H

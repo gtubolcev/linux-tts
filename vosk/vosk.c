@@ -5,7 +5,7 @@
  * Apache-2.0); see vosk.h.
  *
  * Copyright (C) 2026 Grigory Tuboltsev
- * SPDX-License-Identifier: MIT
+ * SPDX-License-Identifier: GPL-3.0-or-later
  */
 
 #include "vosk.h"

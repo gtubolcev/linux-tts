@@ -43,7 +43,7 @@ Status: early. Packages for Ubuntu 26.04: `sudo add-apt-repository ppa:gtubolcev
 
 ## License
 
-MIT, see [LICENSE](LICENSE). `vosk/vosk.c` ports the Python `vosk_tts` package and
+GPL-3.0-or-later, see [LICENSE](LICENSE) (until 2026-11-20 the code was MIT). `vosk/vosk.c` ports the Python `vosk_tts` package and
 `kokoro/ru-g2p.c` ports `ru_g2p.py` of kokoro-ru, both Apache-2.0. The models have
 licenses of their own (OpenRAIL-M, Apache-2.0, CC-BY-4.0, CC-BY-NC-4.0 …), see the
 model packages. The Silero models and silero-tts-onnx are CC BY-NC-SA 4.0 and are

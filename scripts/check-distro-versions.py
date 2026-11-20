@@ -19,7 +19,7 @@ something needs a rebuild, 2 when Launchpad cannot be asked.
 (for a daily systemd --user timer).
 
 Copyright (C) 2026 Grigory Tuboltsev
-SPDX-License-Identifier: MIT
+SPDX-License-Identifier: GPL-3.0-or-later
 """
 import re
 import shutil

@@ -16,24 +16,14 @@ MVER=0.1-1~local
 SYS=/usr/lib/x86_64-linux-gnu/espeak-ng-data
 rm -rf "$OUT/root"; mkdir -p "$OUT/root"
 
-MIT='License: MIT
- Permission is hereby granted, free of charge, to any person obtaining a copy
- of this software and associated documentation files (the "Software"), to deal
- in the Software without restriction, including without limitation the rights
- to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
- copies of the Software, and to permit persons to whom the Software is
- furnished to do so, subject to the following conditions:
+LIC='License: GPL-3+
+ This program is free software: you can redistribute it and/or modify
+ it under the terms of the GNU General Public License as published by
+ the Free Software Foundation, either version 3 of the License, or
+ (at your option) any later version.
  .
- The above copyright notice and this permission notice shall be included in all
- copies or substantial portions of the Software.
- .
- THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
- OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
- SOFTWARE.'
+ On Debian systems the full text of the GNU General Public License
+ version 3 is in /usr/share/common-licenses/GPL-3.'
 
 # ------------------------------------------------------------ the module
 W=$OUT/root/speech-dispatcher-kokoro
@@ -57,7 +47,7 @@ Upstream-Name: sd_kokoro
 
 Files: *
 Copyright: 2026 Grigory Tuboltsev
-$MIT
+$LIC
 Comment: ru-g2p.c is a port of ru_g2p.py of zaakirio/kokoro-ru (Apache-2.0),
  of misaki's espeak front end (Apache-2.0) and of the punctuation handling of
  phonemizer (GPL-3+). Linked with libespeak-ng (GPL-3+) and statically with

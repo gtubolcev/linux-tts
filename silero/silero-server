@@ -23,7 +23,7 @@ The runtime is code from the internet, so it is imported only if its files
 are the ones listed in --manifest (sha256 of a known release).
 
 Copyright (C) 2026 Grigory Tuboltsev
-SPDX-License-Identifier: MIT
+SPDX-License-Identifier: GPL-3.0-or-later
 """
 import argparse
 import hashlib

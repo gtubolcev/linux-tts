@@ -7,7 +7,7 @@ OUT.wav (never played), the module's stderr to OUT.err.  Exit 0 when the
 module said 702 END and gave audio.
 
 Copyright (C) 2026 Grigory Tuboltsev
-SPDX-License-Identifier: MIT
+SPDX-License-Identifier: GPL-3.0-or-later
 """
 import select
 import subprocess

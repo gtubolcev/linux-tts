@@ -8,7 +8,7 @@
  * fallbacks of tts-norm.c can be tried with broken helpers.
  *
  * Copyright (C) 2026 Grigory Tuboltsev
- * SPDX-License-Identifier: MIT
+ * SPDX-License-Identifier: GPL-3.0-or-later
  */
 
 #include <stdio.h>

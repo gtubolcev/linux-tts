@@ -6,7 +6,7 @@
  * output this reproduces character for character.
  *
  * Copyright (C) 2026 Grigory Tuboltsev
- * SPDX-License-Identifier: MIT
+ * SPDX-License-Identifier: GPL-3.0-or-later
  */
 
 #include "ru-g2p.h"

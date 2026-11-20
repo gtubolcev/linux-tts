@@ -8,7 +8,7 @@
  * with "FAIL" fails.  Every piece is logged to stderr as "dummy: say <text>".
  *
  * Copyright (C) 2026 Grigory Tuboltsev
- * SPDX-License-Identifier: MIT
+ * SPDX-License-Identifier: GPL-3.0-or-later
  */
 
 #include <stdio.h>

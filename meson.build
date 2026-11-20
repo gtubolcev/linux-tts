@@ -1,6 +1,6 @@
 project('speech-dispatcher-modules', 'c',
   version: '0.1.0',
-  license: 'MIT',
+  license: 'GPL-3.0-or-later',
   meson_version: '>= 0.62',
   default_options: ['c_std=gnu11', 'warning_level=2', 'buildtype=debugoptimized'])
 

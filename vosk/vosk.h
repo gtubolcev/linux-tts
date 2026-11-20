@@ -6,7 +6,7 @@
  * the BERT model and the "multistream_v1" input of the acoustic model.
  *
  * Copyright (C) 2026 Grigory Tuboltsev
- * SPDX-License-Identifier: MIT
+ * SPDX-License-Identifier: GPL-3.0-or-later
  */
 
 #ifndef VOSK_H
