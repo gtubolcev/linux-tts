@@ -56,11 +56,20 @@ test('tts-config', executable('tts-config-test', 'common/tts-config-test.c', 'co
 executable('tts-norm-test', 'common/tts-norm-test.c', norm_src, stress_src,
   include_directories: common_inc, dependencies: glib)
 
+# the common module frame (threads, protocol, text) and its tests with a
+# fake engine
+module_src = files('common/tts-module.c') + norm_src
+sd_dummy = executable('sd_dummy', 'tests/sd_dummy.c', module_src,
+  include_directories: [speechd_inc, shim_inc, common_inc],
+  dependencies: module_deps)
+test('module-protocol', find_program('tests/module-protocol.py'), args: [sd_dummy],
+  timeout: 180)
+
 onnx_ok = json_glib.found() and onnxruntime.found()
 
 # ---------------------------------------------------------------- vosk
 if get_option('vosk').require(onnx_ok, error_message: 'sd_vosk needs json-glib and onnxruntime').allowed()
-  executable('sd_vosk', 'vosk/vosk.c', 'vosk/sd_vosk.c', norm_src,
+  executable('sd_vosk', 'vosk/vosk.c', 'vosk/sd_vosk.c', module_src,
     include_directories: [speechd_inc, shim_inc, common_inc],
     dependencies: module_deps + [json_glib, onnxruntime],
     install: true, install_dir: module_dir)
@@ -75,7 +84,7 @@ espeak = dependency('espeak-ng', required: false)
 espeak_prog = find_program('espeak-ng', required: false)
 if get_option('kokoro').require(onnx_ok and espeak.found() and espeak_prog.found(),
     error_message: 'sd_kokoro needs json-glib, onnxruntime and espeak-ng').allowed()
-  executable('sd_kokoro', 'kokoro/ru-g2p.c', 'common/ru-stress.c', 'kokoro/kokoro.c', 'kokoro/sd_kokoro.c', norm_src,
+  executable('sd_kokoro', 'kokoro/ru-g2p.c', 'common/ru-stress.c', 'kokoro/kokoro.c', 'kokoro/sd_kokoro.c', module_src,
     include_directories: [speechd_inc, shim_inc, common_inc],
     dependencies: module_deps + [json_glib, onnxruntime, espeak],
     install: true, install_dir: module_dir)
@@ -96,7 +105,7 @@ endif
 
 # ------------------------------------------------------------- teratts
 if get_option('teratts').require(onnx_ok, error_message: 'sd_teratts needs json-glib and onnxruntime').allowed()
-  executable('sd_teratts', 'teratts/teratts.c', 'common/num-words.c', 'common/ru-stress.c', 'teratts/sd_teratts.c', norm_src,
+  executable('sd_teratts', 'teratts/teratts.c', 'common/num-words.c', 'common/ru-stress.c', 'teratts/sd_teratts.c', module_src,
     include_directories: [speechd_inc, shim_inc, common_inc],
     dependencies: module_deps + [json_glib, onnxruntime],
     install: true, install_dir: module_dir)
@@ -123,7 +132,7 @@ if get_option('sherpa').require(sherpa.found() and espeak.found(),
                      prefix: '#include <espeak-ng/speak_lib.h>')
     sherpa_args += '-DHAVE_ESPEAK_TERMINATOR'
   endif
-  executable('sd_sherpa-onnx', 'sherpa/sd_sherpa.c', norm_src, stress_src,
+  executable('sd_sherpa-onnx', 'sherpa/sd_sherpa.c', module_src, stress_src,
     c_args: sherpa_args,
     include_directories: [speechd_inc, shim_inc, common_inc],
     dependencies: module_deps + [sherpa, espeak],
