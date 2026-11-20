@@ -38,7 +38,7 @@ override_dh_auto_install:
 	  debian/sherpa-onnx.pc.in > debian/tmp/$(PRIV)/pkgconfig/sherpa-onnx.pc
 	patchelf --set-rpath $(ORTDIR) debian/tmp/$(PRIV)/sherpa-onnx/bin/* debian/tmp/$(PRIV)/*.so
 	mkdir -p debian/tmp/usr/bin
-	sed 's|@BINDIR@|/$(PRIV)/sherpa-onnx/bin|' debian/sherpa-say > debian/tmp/usr/bin/sherpa-say
+	sed 's|@BINDIR@|/$(PRIV)/sherpa-onnx/bin|' debian/sherpa-say.sh > debian/tmp/usr/bin/sherpa-say
 	chmod 755 debian/tmp/usr/bin/sherpa-say
 
 override_dh_shlibdeps:
