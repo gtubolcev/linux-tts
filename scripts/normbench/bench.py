@@ -6,6 +6,10 @@ if which == "rn":
     from ru_normalizr import Normalizer, NormalizeOptions
     n = Normalizer(NormalizeOptions.tts())
     f = n.normalize
+elif which in ("zt", "ztraw"):
+    import zyphra_textnorm
+    n = zyphra_textnorm.Normalizer(prepass=(which == "zt"))
+    f = lambda t: n.normalize(t, "ru")
 elif which == "nemo":
     from nemo_text_processing.text_normalization.normalize_with_audio import NormalizerWithAudio
     n = NormalizerWithAudio(input_case="cased", lang="ru", cache_dir="/work/nemo-cache")

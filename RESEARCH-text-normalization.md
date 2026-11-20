@@ -631,3 +631,50 @@ today. Our licence is GPL-3.0-or-later now, so GPL/LGPL/Apache/MIT sources can a
    ru design (section 5) is the template.
 3. uk: start from lang-uk/ukrainian-tts-preprocessing and its benchmark.
 4. Tests: PolyNorm-Benchmark for en/de/fr/es/it/pt/pl.
+
+## 10. Zyphra/zyphra-textnorm 0.3.1 (tested 2026-11-20)
+
+MIT, Rust; Rust ports of the NeMo r1.2.0 grammars plus the ZONOS3 locale grammars, 43 languages
+(en de es fr it pt nl pl uk cs ru …). No FST runtime: the tables are compiled in. Python
+(abi3 wheel) and a C ABI (`zyphra_textnorm_new/normalize/free`, static lib, header
+`include/zyphra_textnorm.h`). A pre-pass (on by default, `fancy-regex`+`regex`) handles
+markdown, emoji, agreement, dates, units. "Never fails": a sentence the grammar fails on comes
+back as typed.
+
+normbench (ref-ru.tsv, 47 rows; scripts/normbench, `bench.py zt|ztraw`):
+
+| | ru_normalizr | zt (pre-pass) | zt raw (NeMo parity) |
+|---|---|---|---|
+| exact | 40/47 | 37/47 | 25/47 |
+| WER | 6.2% | 7.1% | 15.2% |
+| ms/phrase median (max) | 1.7 (311) | 0.2 (4) | 0.0 |
+| load | 1.0 s | 0.01 s | 0 |
+| RSS (Python process) | 71 MB | 39 MB | 19 MB |
+
+zt is better at: "С 9:00 до 18:00" (с девяти часов до восемнадцати часов), "99 руб." (nominative),
+"14:30" as "четырнадцать часов тридцать минут", acronyms that are words (ООН stays, rn says
+"оо он"), and "Дата релиза: 17.11.2026" in the nominative (cf. the обособление case in
+memory). zt is worse at:
+- Latin words inside Russian are spelled letter by letter ("smartphone" → "эс эм эй ар …", even
+  a stray "и эн джи эл ай эс эйч" from a label); rn transliterates. Known words (Linux, GitHub)
+  stay Latin, which is fine for engines with their own Latin handling.
+- "см." → "сантиметр", "При Петре I" → "ай", "Python 3.10" → "третье октября", "Ubuntu 26.04" →
+  "двадцать шестое апреля", "Счёт 3:1" → "одна минута четвертого", "1,5 книги", "К 3-й главе".
+- Case after prepositions still fails in the same places as rn (нет 5 рублей, около 1000 км).
+
+Conclusion:
+- **Not a replacement for ru_normalizr** in Russian: slightly worse, with worse failure modes
+  (letter spelling, dates out of versions).
+- **Worth it for the other languages.** We have nothing for de/en/uk/fr/es/pl/cs…, and zt
+  covers them in-process from C: no Python helper, ~0.2 ms, no load time. Plan:
+  1. Build the static lib in the speech-dispatcher-modules source package. This needs cargo,
+     the crates vendored in the orig tarball (the PPA builds offline), and rustc ≥ 1.88:
+     rustc-1.88 exists in noble and resolute. Link it into libtts-common.
+  2. In tts-norm.c, pick by voice language. ru: ru_normalizr helper as now. Other languages:
+     zt in-process. Unknown language: unchanged. Same "enable normalization" switch.
+  3. ru fallback: when the helper is broken, paused or still loading, use zt-ru instead of the
+     raw text. Wrap Latin runs in U+E000…U+E001 (verbatim) first, so they are not spelled.
+  4. Wrap engine markup (SSML pieces we pass on) as markup tags or verbatim spans.
+- Borrow zt's ru rules where they beat rn (time ranges, "руб.", acronym lexicon, nominative
+  dates after a colon) as rn fixes. Run them through the native-speaker check first.
+- Watch the repo along with ZONOS3-Mini (memory zonos3-watch).
