@@ -359,6 +359,46 @@ Test 2026-11-18 on mikhail (docker, --cpus=3, i5-8600K, BlueTTS cbe5150), 10 Rus
   our own stress/G2P → IPA and `synthesize(..., text_is_phonemes=True)`.
 Licence still blocks the PPA (decoder OpenRAIL-M); at most a user-downloaded module.
 
+### Supertonic upstream and its forks (checked 2026-11-20)
+Repo supertone-oss-archive/supertonic (sample code MIT, model OpenRAIL-M, so not in the PPA).
+- **Archived 2026-09-09.** The official Voice Builder closed on 2026-08-31, so there is no
+  official way to make new voices. Community replacements:
+  - kdrkdrkdr/supertonic.embed: fits `style_ttl` (50×256) and `style_dp` (8×16) to a WAV
+    through WavLM, needs a CUDA GPU, licence not stated;
+  - saurabhv749/supertonic3-voice-clone: MIT, ~2.6 GB of GPU memory, 6–30 min per voice;
+  - Fawzan09 voice builder: a Colab notebook, no licence.
+
+  All of them output the same style JSON as F1…M5, so a voice import works for these files too.
+  Cloning only with the speaker's consent (see tts-direction).
+- **Reported WER:** ru 3.99, uk 1.23.
+- **Front end:** NFKD, text wrapped as `<lang>…</lang>`; `na` means no language. sherpa does
+  all of this already. Chunks are at most 300 characters (120 for ko/ja), with 0.3 s of silence
+  between them; sherpa's `silence_duration` matches.
+- **Expression tags** such as `<laugh>`, `<breath>` and `<sigh>` (10 in all). Untested;
+  normalizers must not strip them.
+- **U+0301 has an index (146) in unicode_indexer.bin.** Stress marks might work; we strip
+  them now and send only ё. To test, writing to files only.
+- **Speed:** sherpa and the sample code default to 1.05, and sd_sherpa multiplies the user's
+  rate by 1.05. The MentalGear fork measured 1.0 as more natural and with fewer clipped
+  words, and wrote an upstream PR (docs/upstream_pr_speed_default.md).
+- **Seed:** the starting noise has no seed (`seed=-1` in sherpa), so the same phrase can come
+  out clean once and "hiccupy" the next time; the vocoder noise moves word timing more than
+  the style does (MentalGear docs/GLITCH_MITIGATION.md). A fixed seed makes renders
+  repeatable and lets a test set compare like with like. Try a fixed seed in sd_sherpa.
+- Ports: Supertonic MNN (fp16/int8 builds, CLI vra/supertonic-mnn, no licence);
+  Topping1/Supertonic-Voice-Mixer (MIT, mixes styles: the same as our planned voice mixing).
+
+Forks (1604 in all; the ones with real commits ahead of upstream):
+
+| Fork | Ahead | Of interest |
+|---|---|---|
+| MentalGear/supertonic | 81 | emotion and style steering: `s' = normalize(s + α·Δ)` on style_ttl, with no ONNX change (angry and surprised from RAVDESS, which is NC, a one-speaker proof); speed 1.0; glitch and seed study, listening benches |
+| DevGitPit | 104 | Android text normalizer: em dash → comma, ranges, currency, title case lowered at chunk boundaries, trailing comma → period, regex lexicon |
+| groxaxo/supertonic-express | 52 | MIT. CPU timestep reuse, OpenVINO, smart chunking, 15 steps by default, CPU benchmark checked by ASR |
+| wwongw21 | 5 | trims emitted audio chunks, bounds Unicode input |
+| calebrio02 | 7 | Docker, OpenAI-compatible API |
+| nero-dv | 3 | GPU |
+
 ## Runtimes worth building on
 - **sherpa-onnx** (k2-fsa, Apache-2.0, C/C++ API, CPU) — one runtime for many TTS model
   families (VITS/Piper, Matcha, Kokoro, Kitten, …) and for STT (Vosk, GigaAM v3, Whisper,
