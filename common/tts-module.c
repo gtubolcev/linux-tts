@@ -37,6 +37,7 @@
 #include <string.h>
 #include <unistd.h>
 #include <math.h>
+#include <sys/stat.h>
 #ifdef HAVE_SONIC
 #include <sonic.h>
 #endif
@@ -47,6 +48,10 @@
 #include "tts-norm.h"
 
 #define E (&tts_engine)
+/* how often the main thread looks whether the configuration changed */
+#define CONFIG_CHECK_MS 2000
+
+static void take_config (void);
 
 /* in libspeechd_module, not in its header: prints under module_stdout_mutex */
 void module_send (const char *format, ...);
@@ -230,20 +235,31 @@ max_models (void)
   return MAX (cfg_max_models > 0 ? cfg_max_models : E->max_models, 1);
 }
 
-int
-module_config (const char *configfile)
+/* Takes the lines of CONTENTS: the frame's keys into the globals and C,
+ * the engine's through E->config (only with ENGINE: those need a restart) */
+typedef struct
 {
-  gchar *contents = NULL;
-  gchar **lines;
+  GHashTable *lang_voice;
+  TtsNormConfig norm;
+  TtsCopyConfig copy;
+} Parsed;
 
-  tts_norm_config_init (&norm_cfg);
-  tts_copy_config_init (&copy_cfg);
-  if (E->setup != NULL)
-    E->setup ();
-  if (!tts_config_read (configfile, &contents))
-    return 0;
+static void
+reset_scalars (void)
+{
+  cfg_idle_timeout = -1;
+  cfg_first_chunk = -1;
+  cfg_max_rate = 4.0;
+  cfg_model_max_speed = 2.0;
+  cfg_max_models = 0;
+  g_clear_pointer (&cfg_preload, g_free);
+}
 
-  lines = g_strsplit (contents, "\n", -1);
+static void
+parse_config (gchar *contents, Parsed *c, gboolean engine)
+{
+  gchar **lines = g_strsplit (contents, "\n", -1);
+
   for (gchar **l = lines; *l != NULL; l++)
     {
       gchar *line = g_strstrip (*l);
@@ -258,8 +274,8 @@ module_config (const char *configfile)
         *value++ = '\0';
       value = tts_unquote (value);
 
-      if (tts_norm_config_parse (&norm_cfg, line, value)
-          || tts_copy_config_parse (&copy_cfg, line, value))
+      if (tts_norm_config_parse (&c->norm, line, value)
+          || tts_copy_config_parse (&c->copy, line, value))
         ;
       else if (is_key (line, "IdleTimeout"))
         cfg_idle_timeout = MAX (atoi (value), 0);
@@ -295,21 +311,101 @@ module_config (const char *configfile)
               }
           if (lang != NULL && name != NULL)
             {
-              if (cfg_lang_voice == NULL)
-                cfg_lang_voice = g_hash_table_new_full (g_str_hash, g_str_equal, g_free, g_free);
-              g_hash_table_replace (cfg_lang_voice, g_ascii_strdown (lang, -1), g_strdup (name));
+              if (c->lang_voice == NULL)
+                c->lang_voice = g_hash_table_new_full (g_str_hash, g_str_equal, g_free, g_free);
+              g_hash_table_replace (c->lang_voice, g_ascii_strdown (lang, -1), g_strdup (name));
             }
           g_strfreev (parts);
         }
       else if (g_ascii_strcasecmp (line, "Debug") == 0)
         tts_debug = atoi (value);
+      else if (!engine)
+        ;
       else if (E->config != NULL && E->config (line, value))
         ;
       else
         TTS_DBG ("unknown key %s", line);
     }
   g_strfreev (lines);
+}
+
+/* the two files read and their state when read, to see them change */
+typedef struct
+{
+  gboolean exists;
+  dev_t dev;
+  ino_t ino;
+  off_t size;
+  struct timespec mtime;
+} Stamp;
+
+static gchar *conf_given = NULL, *conf_user = NULL, *conf_sys = NULL;
+static Stamp stamp_user, stamp_sys;
+/* what the worker has (or gets) of the normalizer and copy settings */
+static gchar *norm_sig = NULL, *copy_sig = NULL;
+
+static gchar *
+norm_signature (const TtsNormConfig *c)
+{
+  return g_strdup_printf ("%d\x1f%s\x1f%s\x1f%d\x1f%d", c->enabled, c->python ? c->python : "",
+                          c->helper ? c->helper : "", c->timeout_ms, c->start_ms);
+}
+
+static gchar *
+copy_signature (const TtsCopyConfig *c)
+{
+  return g_strdup (c->dir != NULL ? c->dir : "");
+}
+
+static Stamp
+stamp_of (const gchar *path)
+{
+  Stamp t = { 0 };
+  struct stat st;
+
+  if (path != NULL && stat (path, &st) == 0)
+    {
+      t.exists = TRUE;
+      t.dev = st.st_dev;
+      t.ino = st.st_ino;
+      t.size = st.st_size;
+      t.mtime = st.st_mtim;
+    }
+  return t;
+}
+
+static gboolean
+stamp_same (const Stamp *a, const Stamp *b)
+{
+  return a->exists == b->exists && a->dev == b->dev && a->ino == b->ino && a->size == b->size
+         && a->mtime.tv_sec == b->mtime.tv_sec && a->mtime.tv_nsec == b->mtime.tv_nsec;
+}
+
+int
+module_config (const char *configfile)
+{
+  gchar *contents = NULL;
+  Parsed c = { NULL };
+
+  tts_norm_config_init (&c.norm);
+  tts_copy_config_init (&c.copy);
+  if (E->setup != NULL)
+    E->setup ();
+  if (configfile != NULL)
+    {
+      conf_given = g_strdup (configfile);
+      tts_config_paths (configfile, &conf_user, &conf_sys);
+      stamp_user = stamp_of (conf_user);
+      stamp_sys = stamp_of (conf_sys);
+    }
+  if (tts_config_read (configfile, &contents))
+    parse_config (contents, &c, TRUE);
   g_free (contents);
+  cfg_lang_voice = c.lang_voice;
+  norm_cfg = c.norm;
+  copy_cfg = c.copy;
+  norm_sig = norm_signature (&norm_cfg);
+  copy_sig = copy_signature (&copy_cfg);
   return 0;
 }
 
@@ -1027,6 +1123,7 @@ speak_message (Msg *m)
   fflush (stdout);
   m->began = TRUE;
   pthread_mutex_unlock (&module_stdout_mutex);
+  take_config ();
   if (!copy_made)
     copy = tts_copy_new (&copy_cfg), copy_made = TRUE;
 
@@ -1274,10 +1371,137 @@ module_debug (int enable, const char *file)
 }
 
 /* main thread, with module_stdout_mutex held: queue only, never print */
+/* ------------------------------------------------- configuration changes */
+
+/* <Prefix>Preload 1, or the voice whose model to load */
+static void
+preload (void)
+{
+  TtsVoice *v;
+
+  if (cfg_preload == NULL || voices == NULL || voices->len == 0)
+    return;
+  v = voice_by_name (cfg_preload);
+  if (v == NULL && !tts_parse_bool (cfg_preload))
+    TTS_ERR ("%sPreload: no voice %s, loading the default one", E->prefix, cfg_preload);
+  if (v == NULL)
+    v = default_voice ();
+  if (v->model != NULL)
+    request_model (v->model);
+}
+
+/* the worker owns the normalizer and the copy: it takes their new settings
+ * before its next message (under q_lock) */
+static TtsNormConfig *pending_norm = NULL;
+static TtsCopyConfig *pending_copy = NULL;
+
+static void
+take_config (void)
+{
+  TtsNormConfig *n;
+  TtsCopyConfig *c;
+
+  g_mutex_lock (&q_lock);
+  n = pending_norm;
+  c = pending_copy;
+  pending_norm = NULL;
+  pending_copy = NULL;
+  g_mutex_unlock (&q_lock);
+  if (n != NULL)
+    {
+      tts_norm_free (norm);
+      norm = NULL;
+      tts_norm_config_clear (&norm_cfg);
+      norm_cfg = *n;
+      g_free (n);
+    }
+  if (c != NULL)
+    {
+      tts_copy_free (copy);
+      copy = NULL;
+      copy_made = FALSE;
+      tts_copy_config_clear (&copy_cfg);
+      copy_cfg = *c;
+      g_free (c);
+    }
+}
+
+/* The settings dialog changes the user's file and no longer restarts the
+ * server for it: the frame's own keys (voices per language, Preload, idle
+ * time, rate scale, normalizer, copy) are read again when a file changes.
+ * The engine's keys still need a restart.  Main thread. */
+static void
+config_check (void)
+{
+  Stamp u, sy;
+  Parsed c = { NULL };
+  gchar *contents = NULL, *old_preload, *sig;
+
+  if (conf_given == NULL)
+    return;
+  u = stamp_of (conf_user);
+  sy = stamp_of (conf_sys);
+  if (stamp_same (&u, &stamp_user) && stamp_same (&sy, &stamp_sys))
+    return;
+  stamp_user = u;
+  stamp_sys = sy;
+  TTS_DBG ("configuration changed, reading it again");
+
+  tts_norm_config_init (&c.norm);
+  tts_copy_config_init (&c.copy);
+  old_preload = g_strdup (cfg_preload);
+  reset_scalars ();
+  if (tts_config_read (conf_given, &contents))
+    parse_config (contents, &c, FALSE);
+  g_free (contents);
+  if (cfg_lang_voice != NULL)
+    g_hash_table_unref (cfg_lang_voice);
+  cfg_lang_voice = c.lang_voice;
+
+  g_mutex_lock (&q_lock);
+  sig = norm_signature (&c.norm);
+  if (strcmp (sig, norm_sig) != 0)
+    {
+      if (pending_norm != NULL)
+        tts_norm_config_clear (pending_norm);
+      g_free (pending_norm);
+      pending_norm = g_memdup2 (&c.norm, sizeof c.norm);
+      g_free (norm_sig);
+      norm_sig = sig;
+    }
+  else
+    {
+      tts_norm_config_clear (&c.norm);
+      g_free (sig);
+    }
+  sig = copy_signature (&c.copy);
+  if (strcmp (sig, copy_sig) != 0)
+    {
+      if (pending_copy != NULL)
+        tts_copy_config_clear (pending_copy);
+      g_free (pending_copy);
+      pending_copy = g_memdup2 (&c.copy, sizeof c.copy);
+      g_free (copy_sig);
+      copy_sig = sig;
+    }
+  else
+    {
+      tts_copy_config_clear (&c.copy);
+      g_free (sig);
+    }
+  g_mutex_unlock (&q_lock);
+
+  if (cfg_preload != NULL && g_strcmp0 (old_preload, cfg_preload) != 0)
+    preload ();
+  g_free (old_preload);
+}
+
 int
 module_speak (char *data, size_t bytes, SPDMessageType msgtype)
 {
   Msg *m;
+
+  config_check ();
 
   if (closed || voices == NULL || voices->len == 0)
     return 0;
@@ -1395,23 +1619,19 @@ module_close (void)
 int
 module_loop (void)
 {
-  if (cfg_preload != NULL)
-    {
-      /* <Prefix>Preload 1, or the voice whose model to load */
-      TtsVoice *v = voice_by_name (cfg_preload);
-
-      if (v == NULL && !tts_parse_bool (cfg_preload))
-        TTS_ERR ("%sPreload: no voice %s, loading the default one", E->prefix, cfg_preload);
-      if (v == NULL)
-        v = default_voice ();
-      if (v->model != NULL)
-        request_model (v->model);
-    }
+  preload ();
 
   for (;;)
     {
       struct pollfd fd = { STDIN_FILENO, POLLIN, 0 };
-      int ret = poll (&fd, 1, -1);
+      /* wakes up to see the configuration change: two stat() calls */
+      int ret = poll (&fd, 1, CONFIG_CHECK_MS);
+
+      if (ret == 0)
+        {
+          config_check ();
+          continue;
+        }
 
       if (ret < 0)
         {
