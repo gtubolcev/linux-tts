@@ -18,6 +18,15 @@
  * check "still running?" and the printing happen under module_stdout_mutex,
  * so nothing of a message follows its final event.
  *
+ * Load requests and state: the settings dialog writes
+ * $XDG_RUNTIME_DIR/linux-tts/<module>.load (a voice name, or "1") when the
+ * user chooses this synthesizer, and the module loads that voice then, not
+ * with the first sentence; the file removed means "the user is done with
+ * it", and the models go at once (unless IdleTimeout is 0).  The loader
+ * writes <module>.state: "loading", "ready", "failed <why>" or "idle", for
+ * the dialog to show.  <module> is the name of the configuration file
+ * without ".conf".
+ *
  * Lock order: q_lock and m_lock are never held together; the main thread
  * takes module_stdout_mutex inside q_lock (stop_all) and q_lock inside
  * module_stdout_mutex (module_speak), the worker never nests them.
@@ -103,6 +112,10 @@ static Msg *current = NULL;                /* being spoken (worker) */
 static gboolean quitting = FALSE;
 static gboolean worker_idle = TRUE;
 static GThread *worker = NULL;
+/* idle unload, q_lock: since when nothing was spoken or asked to load, and
+ * whether the models are already unloaded since then */
+static gint64 idle_since = 0;
+static gboolean idle_done = TRUE;
 
 static TtsNorm *norm = NULL;
 static TtsCopy *copy = NULL;
@@ -122,6 +135,28 @@ static GHashTable *failed = NULL;          /* model -> monotonic time of the fai
 static GThread *loader = NULL;
 
 #define RETRY_FAILED (60 * G_TIME_SPAN_SECOND)
+
+/* $XDG_RUNTIME_DIR/linux-tts/<module>.load and .state; NULL without a
+ * configuration file */
+static gchar *load_path = NULL, *state_path = NULL;
+
+/* tells the dialog what the loader does; any thread */
+static void
+write_state (const gchar *fmt, ...)
+{
+  va_list ap;
+  gchar *text;
+
+  if (state_path == NULL)
+    return;
+  va_start (ap, fmt);
+  text = g_strdup_vprintf (fmt, ap);
+  va_end (ap);
+  /* a temporary file and rename: the reader never sees half of it */
+  if (!g_file_set_contents (state_path, text, -1, NULL))
+    TTS_DBG ("cannot write %s", state_path);
+  g_free (text);
+}
 
 static gboolean closed = FALSE;
 
@@ -341,6 +376,7 @@ typedef struct
 
 static gchar *conf_given = NULL, *conf_user = NULL, *conf_sys = NULL;
 static Stamp stamp_user, stamp_sys;
+static Stamp stamp_load;                  /* of load_path */
 /* what the worker has (or gets) of the normalizer and copy settings */
 static gchar *norm_sig = NULL, *copy_sig = NULL;
 
@@ -393,10 +429,30 @@ module_config (const char *configfile)
     E->setup ();
   if (configfile != NULL)
     {
+      gchar *base = g_path_get_basename (configfile);
+      gchar *dir = g_build_filename (g_get_user_runtime_dir (), "linux-tts", NULL);
+
       conf_given = g_strdup (configfile);
       tts_config_paths (configfile, &conf_user, &conf_sys);
       stamp_user = stamp_of (conf_user);
       stamp_sys = stamp_of (conf_sys);
+      if (g_str_has_suffix (base, ".conf"))
+        base[strlen (base) - 5] = '\0';
+      if (*base != '\0' && g_mkdir_with_parents (dir, 0700) == 0)
+        {
+          gchar *name = g_strconcat (base, ".load", NULL);
+
+          load_path = g_build_filename (dir, name, NULL);
+          g_free (name);
+          name = g_strconcat (base, ".state", NULL);
+          state_path = g_build_filename (dir, name, NULL);
+          g_free (name);
+          /* a request left from before this module started is old news */
+          stamp_load = stamp_of (load_path);
+          write_state ("idle\n");
+        }
+      g_free (dir);
+      g_free (base);
     }
   if (tts_config_read (configfile, &contents))
     parse_config (contents, &c, TRUE);
@@ -579,6 +635,7 @@ loader_main (gpointer data)
             wanted = NULL;
           g_mutex_unlock (&m_lock);
           malloc_trim (0);
+          write_state ("idle\n");
           TTS_DBG ("models unloaded after %d s without speech", idle_timeout ());
           g_mutex_lock (&m_lock);
           continue;
@@ -602,15 +659,28 @@ loader_main (gpointer data)
           E->unload (old);
           malloc_trim (0);
         }
+      write_state ("loading\n");
       t0 = g_get_monotonic_time ();
       ok = E->load (m, &error);
       if (ok)
-        TTS_DBG ("model loaded in %.1f s", (g_get_monotonic_time () - t0) / 1e6);
+        {
+          TTS_DBG ("model loaded in %.1f s", (g_get_monotonic_time () - t0) / 1e6);
+          write_state ("ready\n");
+        }
       else
         {
           TTS_ERR ("cannot load the model: %s", error != NULL ? error->message : "?");
+          write_state ("failed %s\n", error != NULL ? error->message : "?");
           g_clear_error (&error);
         }
+      /* the idle time counts from the end of a load too: a model loaded
+       * for a request nobody speaks with goes after IdleTimeout, even if
+       * the request was withdrawn while it loaded */
+      g_mutex_lock (&q_lock);
+      idle_since = g_get_monotonic_time ();
+      idle_done = FALSE;
+      g_cond_broadcast (&q_cond);
+      g_mutex_unlock (&q_lock);
 
       g_mutex_lock (&m_lock);
       loading = NULL;
@@ -1163,37 +1233,37 @@ msg_free (Msg *m)
 static gpointer
 worker_main (gpointer data)
 {
-  gint64 last_end = g_get_monotonic_time ();
-  gboolean unloaded = FALSE;
-
   g_mutex_lock (&q_lock);
   for (;;)
     {
       Msg *m;
 
+      /* idle: unload when the time is up; the time and the idle timeout
+       * may change meanwhile (a load request, a new configuration), and
+       * whoever changes them wakes us up to look again */
       while (g_queue_is_empty (&queue) && !quitting)
         {
           int idle = idle_timeout ();
-          if (idle > 0 && !unloaded)
-            {
-              gint64 until = last_end + (gint64) idle * G_TIME_SPAN_SECOND;
-              if (!g_cond_wait_until (&q_cond, &q_lock, until) && g_queue_is_empty (&queue))
-                {
-                  unloaded = TRUE;
-                  g_mutex_unlock (&q_lock);
-                  tts_norm_stop (norm);
-                  if (E->load != NULL)
-                    {
-                      g_mutex_lock (&m_lock);
-                      unload_all = TRUE;
-                      g_cond_broadcast (&m_cond);
-                      g_mutex_unlock (&m_lock);
-                    }
-                  g_mutex_lock (&q_lock);
-                }
-            }
-          else
+          gint64 until = idle_since + (gint64) idle * G_TIME_SPAN_SECOND;
+
+          if (idle <= 0 || idle_done)
             g_cond_wait (&q_cond, &q_lock);
+          else if (g_get_monotonic_time () < until)
+            g_cond_wait_until (&q_cond, &q_lock, until);
+          else
+            {
+              idle_done = TRUE;
+              g_mutex_unlock (&q_lock);
+              tts_norm_stop (norm);
+              if (E->load != NULL)
+                {
+                  g_mutex_lock (&m_lock);
+                  unload_all = TRUE;
+                  g_cond_broadcast (&m_cond);
+                  g_mutex_unlock (&m_lock);
+                }
+              g_mutex_lock (&q_lock);
+            }
         }
       if (g_queue_is_empty (&queue))
         break;
@@ -1210,9 +1280,9 @@ worker_main (gpointer data)
       g_cond_broadcast (&q_cond);
       g_mutex_unlock (&q_lock);
       msg_free (m);
-      last_end = g_get_monotonic_time ();
-      unloaded = FALSE;
       g_mutex_lock (&q_lock);
+      idle_since = g_get_monotonic_time ();
+      idle_done = FALSE;
     }
   worker_idle = TRUE;
   g_cond_broadcast (&q_cond);
@@ -1253,6 +1323,13 @@ int
 module_init (char **msg)
 {
   gchar *emsg = NULL;
+
+  /* glibc gives every thread that allocates its own 64 MB arena (up to 8 per
+   * core), and the inference threads leave hundreds of MB in them that
+   * malloc_trim does not get back after the model is unloaded.  Two are
+   * enough: the engines allocate big blocks, mostly from one thread. */
+  if (g_getenv ("MALLOC_ARENA_MAX") == NULL)
+    mallopt (M_ARENA_MAX, 2);
 
   if (E->init != NULL && !E->init (&emsg))
     {
@@ -1373,21 +1450,74 @@ module_debug (int enable, const char *file)
 /* main thread, with module_stdout_mutex held: queue only, never print */
 /* ------------------------------------------------- configuration changes */
 
+/* the worker's idle clock starts again at @since (0: long ago, so the
+ * models go now); main thread */
+static void
+idle_restart (gint64 since)
+{
+  g_mutex_lock (&q_lock);
+  idle_since = since;
+  idle_done = FALSE;
+  if (worker == NULL && !quitting)
+    worker = g_thread_new ("tts-worker", worker_main, NULL);
+  g_cond_broadcast (&q_cond);
+  g_mutex_unlock (&q_lock);
+}
+
+/* loads @name ("1", or the voice whose model to load); @why for the log */
+static void
+load_voice (const gchar *name,
+            const gchar *why)
+{
+  TtsVoice *v;
+
+  if (name == NULL || voices == NULL || voices->len == 0 || E->load == NULL)
+    return;
+  v = voice_by_name (name);
+  if (v == NULL && !tts_parse_bool (name))
+    TTS_ERR ("%s: no voice %s, loading the default one", why, name);
+  if (v == NULL)
+    v = default_voice ();
+  if (v->model == NULL)
+    return;
+  /* not "loaded forever": the idle time counts from now */
+  idle_restart (g_get_monotonic_time ());
+  request_model (v->model);
+}
+
 /* <Prefix>Preload 1, or the voice whose model to load */
 static void
 preload (void)
 {
-  TtsVoice *v;
+  gchar *why = g_strdup_printf ("%sPreload", E->prefix);
 
-  if (cfg_preload == NULL || voices == NULL || voices->len == 0)
+  load_voice (cfg_preload, why);
+  g_free (why);
+}
+
+/* the dialog asks to load a voice, or (the file gone) is done with us */
+static void
+load_request_check (void)
+{
+  Stamp st = stamp_of (load_path);
+  gchar *contents = NULL;
+
+  if (load_path == NULL || stamp_same (&st, &stamp_load))
     return;
-  v = voice_by_name (cfg_preload);
-  if (v == NULL && !tts_parse_bool (cfg_preload))
-    TTS_ERR ("%sPreload: no voice %s, loading the default one", E->prefix, cfg_preload);
-  if (v == NULL)
-    v = default_voice ();
-  if (v->model != NULL)
-    request_model (v->model);
+  stamp_load = st;
+  if (!st.exists)
+    {
+      TTS_DBG ("load request withdrawn");
+      idle_restart (0);
+      return;
+    }
+  if (g_file_get_contents (load_path, &contents, NULL, NULL))
+    {
+      g_strstrip (contents);
+      TTS_DBG ("load request: %s", contents);
+      load_voice (*contents != '\0' ? contents : "1", load_path);
+    }
+  g_free (contents);
 }
 
 /* the worker owns the normalizer and the copy: it takes their new settings
@@ -1494,6 +1624,11 @@ config_check (void)
   if (cfg_preload != NULL && g_strcmp0 (old_preload, cfg_preload) != 0)
     preload ();
   g_free (old_preload);
+
+  /* the idle timeout may have changed: the worker looks again */
+  g_mutex_lock (&q_lock);
+  g_cond_broadcast (&q_cond);
+  g_mutex_unlock (&q_lock);
 }
 
 int
@@ -1624,12 +1759,13 @@ module_loop (void)
   for (;;)
     {
       struct pollfd fd = { STDIN_FILENO, POLLIN, 0 };
-      /* wakes up to see the configuration change: two stat() calls */
+      /* wakes up to see the configuration change: three stat() calls */
       int ret = poll (&fd, 1, CONFIG_CHECK_MS);
 
       if (ret == 0)
         {
           config_check ();
+          load_request_check ();
           continue;
         }
 
