@@ -1,0 +1,21 @@
+name: build and test
+on:
+  push:
+  pull_request:
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        mode: [full, minimal]
+    runs-on: ubuntu-24.04
+    # full needs libonnxruntime-tts-dev and libsherpa-onnx-tts-dev in the PPA
+    continue-on-error: ${{ matrix.mode == 'full' }}
+    steps:
+      - uses: actions/checkout@v4
+      - run: scripts/ci.sh ${{ matrix.mode }}
+      - if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: meson-logs-${{ matrix.mode }}
+          path: _ci/meson-logs/
