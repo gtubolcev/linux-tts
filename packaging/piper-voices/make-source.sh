@@ -88,9 +88,11 @@ tar -xzf "$ET" -C "$S/espeak-ng-ru" --strip-components=1 --no-same-owner \
 cp "$HERE/../../sherpa/espeak-ru/ru_rules_stress" "$HERE/../../sherpa/espeak-ru/merge-stress-rules.py" \
   "$S/espeak-ng-ru/stress/"
 find "$S" -type d -exec chmod 755 {} + -o -type f -exec chmod 644 {} +
-# the tarballs carry 1970 times, which dpkg-source dislikes
-NOW=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-tar --sort=name --mtime="$NOW" --owner=0 --group=0 --numeric-owner \
+# the tarballs carry 1970 times, which dpkg-source dislikes; the date of the
+# last commit that changed what goes in keeps the tarball the same for every
+# series (the PPA takes one orig tarball per version)
+MTIME=$(git -C "$HERE" log -1 --format=%cI -- . ../../sherpa/espeak-ru)
+tar --sort=name --mtime="$MTIME" --owner=0 --group=0 --numeric-owner \
   -C "$OUT" -cf - "piper-voices-$UPSTREAM" | xz -T0 -6 > "$OUT/piper-voices_$UPSTREAM.orig.tar.xz"
 
 # debian/
