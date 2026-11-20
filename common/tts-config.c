@@ -18,30 +18,45 @@ same_file (const char *a, const char *b)
   return same;
 }
 
-gboolean
-tts_config_read (const char *configfile, gchar **contents)
+void
+tts_config_paths (const char *configfile, gchar **user, gchar **sys)
 {
   const char *dir = g_getenv ("TTS_SYS_CONF_DIR");
-  gchar *user = NULL, *sys = NULL, *base, *syspath;
-
-  *contents = NULL;
-  if (configfile == NULL || !g_file_get_contents (configfile, &user, NULL, NULL))
-    return FALSE;
+  gchar *base;
 
   if (dir == NULL || *dir == '\0')
     dir = TTS_SYS_CONF_DIR;
   base = g_path_get_basename (configfile);
-  syspath = g_build_filename (dir, base, NULL);
-  if (!same_file (configfile, syspath)
-      && g_file_get_contents (syspath, &sys, NULL, NULL))
-    {
-      *contents = g_strconcat (sys, "\n# ---- ", configfile, "\n", user, NULL);
-      g_free (sys);
-      g_free (user);
-    }
+  *sys = g_build_filename (dir, base, NULL);
+  /* speech-dispatcher gives the system file when the user had none at its
+   * start; the user's file may come later (the settings dialog) */
+  if (same_file (configfile, *sys))
+    *user = g_build_filename (g_get_user_config_dir (), "speech-dispatcher", "modules", base, NULL);
   else
-    *contents = user;
-  g_free (syspath);
+    *user = g_strdup (configfile);
   g_free (base);
-  return TRUE;
+}
+
+gboolean
+tts_config_read (const char *configfile, gchar **contents)
+{
+  gchar *user = NULL, *sys = NULL, *upath, *spath;
+
+  *contents = NULL;
+  if (configfile == NULL)
+    return FALSE;
+  tts_config_paths (configfile, &upath, &spath);
+  if (!g_file_get_contents (upath, &user, NULL, NULL))
+    user = NULL;
+  if (!g_file_get_contents (spath, &sys, NULL, NULL))
+    sys = NULL;
+  if (sys != NULL && user != NULL)
+    *contents = g_strconcat (sys, "\n# ---- ", upath, "\n", user, NULL);
+  else
+    *contents = g_strdup (sys != NULL ? sys : user);
+  g_free (sys);
+  g_free (user);
+  g_free (upath);
+  g_free (spath);
+  return *contents != NULL;
 }

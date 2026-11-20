@@ -465,6 +465,40 @@ def t_preload(m):
     check("loaded ru (1)" in m.stderr(), "no preload: " + m.stderr())
 
 
+def t_config_reload(m):
+    """the settings dialog changes the file without restarting the server"""
+    path = os.path.join(m.dir.name, "dummy.conf")
+    base = open(path).read()
+
+    def write(extra):
+        with open(path + ".new", "w") as f:
+            f.write(base + extra)
+        os.replace(path + ".new", path)     # as g_file_set_contents
+
+    m.set(language="en", voice_type="female1")
+    m.speak("One.")
+    m.expect("702 END")
+    copies = os.path.join(m.dir.name, "copies")
+    os.mkdir(copies)
+    write('DummyVoice "en" "dummy-en-male-1"\nAudioCopyDir %s\n' % copies)
+    m.speak("Two.")
+    m.expect("702 END")
+    check(os.path.exists(os.path.join(copies, "output1.wav")), "no copy after the change")
+    write("")
+    m.speak("Three.")
+    m.expect("702 END")
+    check([s.split("|")[0] for s in m.said()] == ["dummy-en-female-1", "dummy-en-male-1",
+                                                  "dummy-en-female-1"], m.said())
+    check(not os.path.exists(os.path.join(copies, "output2.wav")), "copy still on")
+    # without a message: the main thread looks every 2 s
+    check("loaded ru" not in m.stderr(), "ru loaded early")
+    write("DummyPreload dummy-ru-female-1\n")
+    end = time.time() + 4
+    while "loaded ru (" not in m.stderr() and time.time() < end:
+        time.sleep(0.1)
+    check("loaded ru (" in m.stderr(), "Preload not taken: " + m.stderr()[-800:])
+
+
 TESTS = [
     (t_basic, ""),
     (t_empty, ""),
@@ -490,6 +524,7 @@ TESTS = [
     (t_quit_during_load, "DummyLoadMs 5000\n"),
     (t_eof_during_speech, "DummySynthMs 100\n"),
     (t_preload, 'DummyPreload yes\nDummyVoice "ru" "dummy-ru-female-1"\n'),
+    (t_config_reload, ""),
 ]
 
 

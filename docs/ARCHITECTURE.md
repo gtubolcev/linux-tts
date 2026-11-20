@@ -80,6 +80,13 @@ piece of text. The frame does the rest the same way for everyone:
 - the common keys: `<Prefix>Voice`, `<Prefix>Preload` (1 or a voice),
   `<Prefix>IdleTimeout`, `<Prefix>FirstChunk`, `<Prefix>MaxModels`,
   `<Prefix>MaxRate`, `<Prefix>ModelMaxSpeed`, `Debug`.
+- the configuration: the system file, then the user's file on top
+  (`common/tts-config.c`); the user's one holds only what differs. The main
+  thread looks every 2 s and on each message whether either file changed and
+  then reads the frame's keys again (voices, Preload, IdleTimeout, rate scale,
+  normalizer, AudioCopyDir); the worker takes the new normalizer and copy
+  settings before its next message. So the settings dialog needs no server
+  restart for them; the engine's own keys still do.
 
 `tests/sd_dummy.c` is a fake engine; `tests/module-protocol.py` checks the
 protocol against it in `meson test` (also under ASan), and with
