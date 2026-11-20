@@ -1,0 +1,8 @@
+[Unit]
+Description=Check whether the patched speech-dispatcher/rhvoice of the PPA need a rebuild
+
+[Service]
+Type=oneshot
+# exit 1 means "rebuild needed" and is reported with notify-send, not a failure
+ExecStart=%h/Dokumente/ClaudeFolder/TTS/linux-tts/scripts/check-distro-versions.py --quiet --notify
+SuccessExitStatus=1 2
