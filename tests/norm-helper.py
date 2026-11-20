@@ -27,6 +27,10 @@ class Normalizer:
             raise ImportError("fake broken install")
         time.sleep(float(os.environ.get("FAKE_NORM_LOAD", "0.5")))
     def normalize(self, text):
+        flag = os.environ.get("FAKE_DIE_FLAG")
+        if "DIE" in text and flag and not os.path.exists(flag):
+            open(flag, "w").close()
+            os._exit(1)
         if "SLOW" in text:
             time.sleep(3)
         if "BOOM" in text:
@@ -92,6 +96,14 @@ def wait_gone(rt, secs):
             return True
         time.sleep(0.2)
     return False
+
+
+def alive(pid):
+    try:
+        with open("/proc/%d/stat" % pid) as f:
+            return f.read().rsplit(")", 1)[1].split()[0] != "Z"
+    except OSError:
+        return False
 
 
 def check(name, ok, detail=""):
@@ -176,12 +188,62 @@ def t_broken():
 
 def t_slow_and_boom():
     rt = runtime("slow")
-    r = client(rt, ["BOOM", "SLOW", "after"], "--timeout", "300", "--idle", "1")
+    r = client(rt, ["BOOM", "SLOW", "busy", "after"], "--timeout", "300", "--idle", "1")
     a = answers(r.stdout)
     check("boom: text unchanged", a[0][1] == "BOOM", r.stdout)
     check("slow: unchanged after the timeout", a[1][1] == "SLOW" and int(a[1][0]) < 1500, r.stdout)
-    check("slow: then unnormalized for a while, no waiting", a[2][1] == "after"
-          and int(a[2][0]) < 100, r.stdout)
+    # the server still works on SLOW: a second late answer in a row
+    check("slow: one more try", a[2][1] == "busy" and int(a[2][0]) < 1500, r.stdout)
+    check("slow: then unnormalized for a while, no waiting", a[3][1] == "after"
+          and int(a[3][0]) < 100, r.stdout)
+    wait_gone(rt, 8)
+
+
+def t_late_once():
+    """one late answer costs only that text"""
+    rt = runtime("late")
+    r = client(rt, ["SLOW", "x"], "--timeout", "2500", "--idle", "1")
+    a = answers(r.stdout)
+    check("late once: the next text normalized", len(a) == 2 and a[0][1] == "SLOW"
+          and a[1][1].startswith("N[x]"), r.stdout)
+    wait_gone(rt, 8)
+
+
+def t_crash_reconnect():
+    """the server dies during a request: a new one at once, the same text
+    normalized, no pause"""
+    rt = runtime("crash")
+    flag = os.path.join(rt, "died")
+    r = client(rt, ["a", "DIE", "b"], "--idle", "1", env={"FAKE_DIE_FLAG": flag})
+    a = answers(r.stdout)
+    pids = [x[1].rsplit("]", 1)[1] for x in a if x[1].startswith("N[")]
+    check("crash: it died", os.path.exists(flag))
+    check("crash: all three normalized", len(a) == 3 and all(x[1].startswith("N[") for x in a),
+          r.stdout)
+    check("crash: by a new server", len(pids) == 3 and pids[0] != pids[1] == pids[2], pids)
+    wait_gone(rt, 5)
+
+
+def t_update():
+    """a changed helper script: the old server goes, its module gets the new one"""
+    rt = runtime("update")
+    p = client(rt, None, "--idle", "5")
+    p.stdin.write("a\n")
+    p.stdin.flush()
+    first = p.stdout.readline().rstrip("\n").split("\t", 1)[1]
+    old = int(first.rsplit("]", 1)[1])
+    os.utime(HELPER, None)
+    t = time.monotonic()
+    while alive(old) and time.monotonic() - t < 5:
+        time.sleep(0.1)
+    p.stdin.write("b\n")
+    p.stdin.flush()
+    second = p.stdout.readline().rstrip("\n").split("\t", 1)[1]
+    p.stdin.close()
+    p.wait(10)
+    check("update: old server left", not alive(old), (first, second))
+    check("update: new server answers", second.startswith("N[b]")
+          and second.rsplit("]", 1)[1] != first.rsplit("]", 1)[1], (first, second))
     wait_gone(rt, 8)
 
 
@@ -224,7 +286,7 @@ def t_load_race():
 
 try:
     for t in (t_shared, t_mode, t_stale, t_restart_after_idle, t_broken, t_slow_and_boom,
-              t_cancel, t_no_helper, t_load_race):
+              t_late_once, t_crash_reconnect, t_update, t_cancel, t_no_helper, t_load_race):
         t()
 finally:
     for name in os.listdir(ROOT):

@@ -10,7 +10,8 @@
 # "<id><TAB><normalized text>".  Any failure on one request answers with the
 # text as it came, so the module never waits for a timeout because of one odd
 # sentence.  The server exits when no module has been connected for --idle
-# seconds.
+# seconds, and at once when this script or the private ru_normalizr changed
+# (a package update): its modules see it go and start the new code.
 #
 # Without --socket it serves one module over stdin/stdout (the protocol of
 # older modules, which start it as a child).
@@ -37,6 +38,18 @@ if os.path.isdir(PRIVATE):
 def log(msg):
     sys.stderr.write("tts-normalize: %s\n" % msg)
     sys.stderr.flush()
+
+
+def code_stamp():
+    """what this script and the private ru_normalizr look like on disk"""
+    out = []
+    for p in (os.path.realpath(__file__), os.path.join(PRIVATE, "ru_normalizr")):
+        try:
+            st = os.stat(p)
+            out.append((st.st_ino, st.st_size, st.st_mtime_ns))
+        except OSError:
+            out.append(None)
+    return out
 
 
 def one_line(text):
@@ -118,6 +131,7 @@ class Server:
         self.clients = 0
         self.last = time.monotonic()
         self.lock = threading.Lock()
+        self.stamp = code_stamp()
 
     def client(self, conn):
         with self.lock:
@@ -179,6 +193,9 @@ class Server:
                     idle = self.idle_for()
                     # a broken installation does not stay: its clients got ERROR
                     if idle >= self.idle or (loaded and self.engine.error and idle >= 1):
+                        break
+                    if code_stamp() != self.stamp:
+                        log("updated; the modules start the new version")
                         break
                     continue
                 conn.settimeout(None)

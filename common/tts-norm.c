@@ -33,7 +33,11 @@
 #define TTS_NORM_HELPER "/usr/libexec/speech-dispatcher-modules/tts-normalize"
 #endif
 
+/* after a second failure in a row, a helper that did not start, ... */
 #define RETRY_AFTER_US (60 * G_TIME_SPAN_SECOND)
+/* after ERROR from the helper (ru_normalizr missing or broken): each try
+ * costs a Python start and seconds of CPU */
+#define RETRY_BROKEN_US (10 * 60 * G_TIME_SPAN_SECOND)
 #define MAX_TEXT 16384          /* bytes per request; longer passes through */
 /* the answer may take timeout_ms plus this per byte (ru_normalizr does
  * ~100 bytes/ms; a long sentence must not look like a hung helper) */
@@ -53,6 +57,7 @@ struct TtsNorm
   TtsNormCancel cancel;
   gchar *sock;                  /* the helper's socket */
   guint requests, timeouts;     /* for the log: how often the text went unnormalized */
+  guint strikes;                /* requests failed in a row */
 };
 
 void
@@ -160,16 +165,39 @@ tts_norm_stop (TtsNorm *n)
 
 
 
-/* stop and do not start again for a while */
+/* Let go of the helper.  A first failure (a late answer, a helper that
+ * went away) only costs this text: the next one tries again.  A second
+ * one in a row, or a helper that cannot start (PAUSE_US), and the text
+ * goes unnormalized for a while. */
+static void
+fail_for (TtsNorm *n, const gchar *why, gint64 pause_us)
+{
+  n->timeouts++;
+  n->strikes++;
+  tts_norm_stop (n);
+  if (pause_us == 0 && n->strikes >= 2)
+    pause_us = RETRY_AFTER_US;
+  if (pause_us == 0)
+    g_printerr ("tts-norm: %s; this text goes unnormalized (failure %u; %u requests so far)\n",
+                why, n->timeouts, n->requests);
+  else
+    g_printerr ("tts-norm: %s; text goes to the engine unnormalized for %d s"
+                " (failure %u; %u requests so far)\n",
+                why, (int) (pause_us / G_TIME_SPAN_SECOND), n->timeouts, n->requests);
+  if (pause_us != 0)
+    n->retry_after = g_get_monotonic_time () + pause_us;
+}
+
 static void
 fail (TtsNorm *n, const gchar *why)
 {
-  g_printerr ("tts-norm: %s; text goes to the engine unnormalized for %d s"
-              " (failure %u; %u requests so far)\n",
-              why, (int) (RETRY_AFTER_US / G_TIME_SPAN_SECOND), n->timeouts + 1, n->requests);
-  n->timeouts++;
-  tts_norm_stop (n);
-  n->retry_after = g_get_monotonic_time () + RETRY_AFTER_US;
+  fail_for (n, why, RETRY_AFTER_US);
+}
+
+static void
+fail_once (TtsNorm *n, const gchar *why)
+{
+  fail_for (n, why, 0);
 }
 
 static int
@@ -204,9 +232,12 @@ spawn_helper (TtsNorm *n)
 
   g_snprintf (idle, sizeof (idle), "%d", n->cfg.idle_s);
   /* without G_SPAWN_DO_NOT_REAP_CHILD glib forks twice: init reaps it */
+  /* not this module's stderr: it serves the other modules too, and what
+   * it has to say comes as ERROR over the socket */
   if (!g_spawn_async (NULL, argv, NULL,
                       G_SPAWN_SEARCH_PATH | G_SPAWN_STDIN_FROM_DEV_NULL
-                      | G_SPAWN_STDOUT_TO_DEV_NULL, NULL, NULL, NULL, &error))
+                      | G_SPAWN_STDOUT_TO_DEV_NULL | G_SPAWN_STDERR_TO_DEV_NULL,
+                      NULL, NULL, NULL, &error))
     {
       fail (n, error->message);
       g_error_free (error);
@@ -332,9 +363,12 @@ read_line (TtsNorm *n, gint64 deadline, gboolean *gone, gboolean *cancelled)
     }
 }
 
+typedef enum { WAIT_OK, WAIT_FAILED, WAIT_GONE } WaitResult;
+
 /* waits for READY up to the start timeout; a stopped message leaves the
- * helper loading for the next one */
-static gboolean
+ * helper loading for the next one.  WAIT_GONE: a helper we did not start
+ * went away as we connected (it was exiting, idle or updated). */
+static WaitResult
 wait_ready (TtsNorm *n)
 {
   gint64 deadline = n->started + (gint64) n->cfg.start_ms * 1000;
@@ -344,7 +378,7 @@ wait_ready (TtsNorm *n)
     {
       if (!cancelled)
         fail (n, "the normalizer helper did not start in time");
-      return FALSE;
+      return WAIT_FAILED;
     }
   while (!n->ready)
     {
@@ -353,30 +387,28 @@ wait_ready (TtsNorm *n)
         {
           if (gone && !n->spawned)
             {
-              /* it was exiting (idle) as we connected: start a new one */
               tts_norm_stop (n);
-              tts_norm_start (n);
-              return n->active && wait_ready (n);
+              return WAIT_GONE;
             }
           if (gone)
             fail (n, "the normalizer helper exited while loading");
           else if (!cancelled)
             fail (n, "the normalizer helper did not load in time");
-          return FALSE;
+          return WAIT_FAILED;
         }
       if (g_str_equal (line, "READY"))
         n->ready = TRUE;
       else if (g_str_has_prefix (line, "ERROR\t"))
         {
           gchar *why = g_strdup_printf ("normalizer: %s", line + 6);
-          fail (n, why);
+          fail_for (n, why, RETRY_BROKEN_US);
           g_free (why);
           g_free (line);
-          return FALSE;
+          return WAIT_FAILED;
         }
       g_free (line);
     }
-  return TRUE;
+  return WAIT_OK;
 }
 
 static gboolean
@@ -414,8 +446,10 @@ send_all (int fd, const gchar *buf, gsize len)
   return TRUE;
 }
 
+/* the normalized text, or NULL: *gone when the helper went away (the
+ * caller may try once more), else the failure is dealt with here */
 static gchar *
-ask (TtsNorm *n, const gchar *text, const gchar *lang)
+ask (TtsNorm *n, const gchar *text, const gchar *lang, gboolean *gone_out)
 {
   gchar *clean = clean_text (text);
   guint64 id = ++n->next_id;
@@ -439,10 +473,11 @@ ask (TtsNorm *n, const gchar *text, const gchar *lang)
       g_free (line);
     }
   /* a stopped message: the late answer is skipped by its id */
+  *gone_out = gone && !cancelled;
   if (result == NULL)
     {
-      if (!cancelled)
-        fail (n, gone ? "the normalizer helper exited" : "the normalizer did not answer in time");
+      if (!cancelled && !gone)
+        fail_once (n, "the normalizer did not answer in time");
     }
   else if (!g_utf8_validate (result, -1, NULL)
            || (*result == '\0' && *g_strstrip (clean) != '\0'))
@@ -471,9 +506,35 @@ tts_norm_text (TtsNorm *n, const gchar *text, const gchar *lang)
       if (!g_ascii_isspace (*p))
         break;
     }
-  tts_norm_start (n);
-  if (n->active && wait_ready (n))
-    out = ask (n, text, "ru");
+  /* a helper that went away (crashed, exiting when idle, updated) is
+   * started again at once, once */
+  for (int attempt = 0; attempt < 2 && out == NULL; attempt++)
+    {
+      gboolean gone = FALSE;
+      WaitResult r;
+
+      tts_norm_start (n);
+      if (!n->active)
+        break;
+      r = wait_ready (n);
+      if (r == WAIT_GONE && attempt == 0)
+        continue;
+      if (r != WAIT_OK)
+        {
+          if (r == WAIT_GONE)
+            fail_once (n, "the normalizer helper went away twice");
+          break;
+        }
+      out = ask (n, text, "ru", &gone);
+      if (out != NULL)
+        n->strikes = 0;
+      if (!gone)
+        break;
+      if (attempt == 0)
+        tts_norm_stop (n);
+      else
+        fail_once (n, "the normalizer helper exited");
+    }
   return out != NULL ? out : g_strdup (text);
 }
 
