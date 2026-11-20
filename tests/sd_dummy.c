@@ -37,6 +37,9 @@ dummy_config (const gchar *key, const gchar *value)
 static gboolean
 dummy_init (gchar **msg)
 {
+#ifdef HAVE_SONIC
+  fputs ("dummy: sonic\n", stderr);
+#endif
   tts_voice_add ("dummy-en-female-1", "en", "female", model_en, NULL);
   tts_voice_add ("dummy-en-male-1", "en", "male", model_en, NULL);
   tts_voice_add ("dummy-ru-female-1", "ru", "female", model_ru, NULL);
@@ -67,10 +70,14 @@ dummy_unload (gpointer model)
 static gboolean
 dummy_speak (const TtsPiece *p, GError **error)
 {
-  glong n = g_utf8_strlen (p->text, -1) * 100;
+  /* as a model does: 100 samples a character at speed 1 */
+  double speed = tts_model_speed (p->settings);
+  glong n = (glong) (g_utf8_strlen (p->text, -1) * 100 / speed);
   gint16 *s;
 
   fprintf (stderr, "dummy: say %s|%s\n", p->voice->name, p->text);
+  if (p->settings->rate != 0)
+    fprintf (stderr, "dummy: speed %.2f\n", speed);
   if (strstr (p->text, "FAIL") != NULL)
     {
       g_set_error (error, G_FILE_ERROR, G_FILE_ERROR_INVAL, "asked to fail");

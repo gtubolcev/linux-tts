@@ -360,8 +360,8 @@ static gboolean
 speak_text (const gchar *text, const TtsPiece *p, GError **error)
 {
   Model *m = p->voice->model;
-  /* rate -100..100 -> half .. double speed */
-  float speed = (float) pow (2.0, p->settings->rate / 100.0);
+  /* the frame speeds the audio up further */
+  float speed = (float) tts_model_speed (p->settings);
   gint64 t0 = g_get_monotonic_time ();
   gchar *ipa = ru_g2p_phonemize (g2p, text);
   glong len = g_utf8_strlen (ipa, -1);

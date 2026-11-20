@@ -69,8 +69,17 @@ piece of text. The frame does the rest the same way for everyone:
 - the text: SSML with its marks, CHAR/KEY, the normalizer, the stress stage
   (per engine), the sentence splitter with `<Prefix>FirstChunk`, the audio
   copy;
+- CHAR and KEY (`common/tts-keys.c`): the letter, punctuation or key name as
+  words of the voice's language (ru, de, en; "control_alt_delete" ->
+  "контрол альт делит"), past the normalizer;
+- rate and volume: rate 0..100 is speed 1..`<Prefix>MaxRate` (default 4,
+  -100 is 0.5). An engine asks `tts_model_speed()` for its speed parameter,
+  which goes up to `<Prefix>ModelMaxSpeed` (default 2; more spoils most
+  models); the frame speeds the audio up by the rest with libsonic, at the
+  same pitch. Volume above 0 makes it up to 2 times louder with soft peaks;
 - the common keys: `<Prefix>Voice`, `<Prefix>Preload` (1 or a voice),
-  `<Prefix>IdleTimeout`, `<Prefix>FirstChunk`, `<Prefix>MaxModels`, `Debug`.
+  `<Prefix>IdleTimeout`, `<Prefix>FirstChunk`, `<Prefix>MaxModels`,
+  `<Prefix>MaxRate`, `<Prefix>ModelMaxSpeed`, `Debug`.
 
 `tests/sd_dummy.c` is a fake engine; `tests/module-protocol.py` checks the
 protocol against it in `meson test` (also under ASan), and with

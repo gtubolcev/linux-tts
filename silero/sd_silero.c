@@ -770,8 +770,8 @@ generate (const gchar *text, const TtsPiece *p, GByteArray *pcm, int *sample_rat
   {
     gchar rate[G_ASCII_DTOSTR_BUF_SIZE], pitch[G_ASCII_DTOSTR_BUF_SIZE];
 
-    /* rate -100..100 -> 0.5..2 times; pitch -100..100 -> 0.75..1.25 */
-    g_ascii_formatd (rate, sizeof (rate), "%.3f", pow (2.0, p->settings->rate / 100.0));
+    /* rate: the model's part of the speed; pitch -100..100 -> 0.75..1.25 */
+    g_ascii_formatd (rate, sizeof (rate), "%.3f", tts_model_speed (p->settings));
     g_ascii_formatd (pitch, sizeof (pitch), "%.3f", 1.0 + p->settings->pitch / 400.0);
     body = g_strdup_printf ("{\"text\": \"%s\", \"speaker\": \"%s\", \"rate\": %s, \"pitch\": %s}",
                             esc, (const gchar *) p->voice->data, rate, pitch);
