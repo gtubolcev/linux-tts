@@ -129,6 +129,7 @@ def t_shared():
     # a module that disconnects does not stop it for the others
     procs[0].stdin.close()
     procs[0].wait(10)
+    time.sleep(1.5)   # past the server's 1 s check for an update (and a fresh __pycache__)
     procs[1].stdin.write("ещё\n")
     procs[1].stdin.flush()
     o = procs[1].stdout.readline().rstrip("\n").split("\t", 1)[1]

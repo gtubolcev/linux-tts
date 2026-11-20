@@ -41,9 +41,14 @@ def log(msg):
 
 
 def code_stamp():
-    """what this script and the private ru_normalizr look like on disk"""
+    """what this script and the private ru_normalizr look like on disk.
+
+    The package's __init__.py, not its directory: importing it from a writable
+    directory creates __pycache__ there, which changes the directory's mtime and
+    made the server take itself for updated and leave under its clients.  An
+    upgrade by dpkg writes every file anew, __init__.py too."""
     out = []
-    for p in (os.path.realpath(__file__), os.path.join(PRIVATE, "ru_normalizr")):
+    for p in (os.path.realpath(__file__), os.path.join(PRIVATE, "ru_normalizr", "__init__.py")):
         try:
             st = os.stat(p)
             out.append((st.st_ino, st.st_size, st.st_mtime_ns))
