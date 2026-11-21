@@ -6,9 +6,13 @@
  * (the "vocab"), model.onnx and voices/<name>.bin.  voices.txt lists the
  * voices as "<name> <male|female|-> [<onnx file>]" (a voice may need its own
  * fine-tuned model); without it every voices/<name>.bin is a voice of
- * model.onnx.  A voice is called kokoro-<lang>-<name>.  Only Russian has a
- * text front end so far (ru-g2p.c: stress marks from the Vosk dictionary,
- * espeak-ng with an acute-aware ru_dict).
+ * model.onnx.  A voice is called kokoro-<lang>-<name>.  Russian has its own
+ * text front end (ru-g2p.c: stress marks from the Vosk dictionary, espeak-ng
+ * with an acute-aware ru_dict).  kokoro-mul is the model of Kokoro-82M v1.0
+ * (hexgrad), whose voices tell their language by the first letter of the
+ * name (af_heart: American English, female); its English, Spanish, French,
+ * Hindi, Italian and Brazilian Portuguese voices get misaki's espeak-ng
+ * front end (espeak-g2p.c), the Japanese and Chinese ones are skipped.
  *
  * One model is kept at a time.  The protocol, the threads, the text and the
  * audio are tts-module's.
@@ -32,6 +36,7 @@
 #include "tts-module.h"
 
 #include "kokoro.h"
+#include "espeak-g2p.h"
 #include "ru-g2p.h"
 #include "ru-stress.h"
 
@@ -42,6 +47,7 @@ typedef struct
 {
   gchar *onnx;              /* path */
   gchar *config;            /* config.json */
+  const gchar *warmup;      /* IPA for the first run */
   KokoroModel *km;          /* set by the loader */
 } Model;
 
@@ -106,7 +112,7 @@ kokoro_config (const gchar *key, const gchar *value)
 /* ------------------------------------------------------------------ models */
 
 static Model *
-model_get (const gchar *onnx, const gchar *config)
+model_get (const gchar *onnx, const gchar *config, const gchar *lang)
 {
   Model *m;
 
@@ -119,6 +125,7 @@ model_get (const gchar *onnx, const gchar *config)
   m = g_new0 (Model, 1);
   m->onnx = g_strdup (onnx);
   m->config = g_strdup (config);
+  m->warmup = strcmp (lang, "ru") == 0 ? "prʲivʲˈet, kˈɑk dʲɪlˈɑ?" : "həlˈO, hˌW ɑɹ jˈu?";
   g_ptr_array_add (models, m);
   return m;
 }
@@ -143,7 +150,8 @@ add_voice (const gchar *dir, const gchar *lang, const gchar *name,
            const gchar *gender, const gchar *onnx_file)
 {
   GError *error = NULL;
-  gchar *full = g_strdup_printf ("kokoro-%s-%s", lang, name);
+  gchar *low = g_ascii_strdown (lang, -1);
+  gchar *full = g_strdup_printf ("kokoro-%s-%s", low, name);
   gchar *bin = g_strdup_printf ("%s.bin", name);
   gchar *style_path = g_build_filename (dir, "voices", bin, NULL);
   gchar *onnx = g_build_filename (dir, onnx_file != NULL ? onnx_file : "model.onnx", NULL);
@@ -167,8 +175,9 @@ add_voice (const gchar *dir, const gchar *lang, const gchar *name,
     }
   if (gender != NULL && strcmp (gender, "male") != 0 && strcmp (gender, "female") != 0)
     gender = NULL;
-  tts_voice_add (full, lang, gender, model_get (onnx, config), style);
+  tts_voice_add (full, lang, gender, model_get (onnx, config, lang), style);
 out:
+  g_free (low);
   g_free (full);
   g_free (bin);
   g_free (style_path);
@@ -178,6 +187,45 @@ out:
 
 
 
+/* The language of a voice of Kokoro-82M v1.0 by the first letter of its
+ * name (misaki's lang_code), and its gender by the second; NULL for a
+ * language without a front end here */
+static const gchar *
+mul_voice_lang (const gchar *name, const gchar **gender)
+{
+  static const gchar *const codes[][2] = {
+    { "a", "en-US" }, { "b", "en-GB" }, { "e", "es" }, { "f", "fr" },
+    { "h", "hi" }, { "i", "it" }, { "p", "pt-BR" },
+  };
+
+  if (strlen (name) < 3 || name[2] != '_')
+    return NULL;
+  if (*gender == NULL)
+    *gender = name[1] == 'f' ? "female" : name[1] == 'm' ? "male" : NULL;
+  for (guint i = 0; i < G_N_ELEMENTS (codes); i++)
+    if (name[0] == codes[i][0][0])
+      return kokoro_g2p_speaks (codes[i][1]) ? codes[i][1] : NULL;
+  return NULL;
+}
+
+static void
+add_dir_voice (const gchar *dir, const gchar *lang, const gchar *name,
+               const gchar *gender, const gchar *onnx_file)
+{
+  if (strcmp (lang, "mul") == 0)
+    {
+      const gchar *voice_lang = mul_voice_lang (name, &gender);
+
+      if (voice_lang == NULL)
+        {
+          DBG ("skipping %s of %s: no text front end for its language", name, dir);
+          return;
+        }
+      lang = voice_lang;
+    }
+  add_voice (dir, lang, name, gender, onnx_file);
+}
+
 static void
 add_model_dir (const gchar *dir, const gchar *base)
 {
@@ -185,7 +233,7 @@ add_model_dir (const gchar *dir, const gchar *base)
   const gchar *p = base + strlen ("kokoro-");
 
   lang = g_strndup (p, strcspn (p, "-_"));
-  if (strcmp (lang, "ru") != 0)
+  if (strcmp (lang, "ru") != 0 && strcmp (lang, "mul") != 0)
     {
       DBG ("skipping %s: no text front end for \"%s\"", dir, lang);
       g_free (lang);
@@ -204,7 +252,7 @@ add_model_dir (const gchar *dir, const gchar *base)
             continue;
           if (!g_shell_parse_argv (*l, &n, &f, NULL))
             continue;
-          add_voice (dir, lang, f[0], n > 1 ? f[1] : NULL, n > 2 ? f[2] : NULL);
+          add_dir_voice (dir, lang, f[0], n > 1 ? f[1] : NULL, n > 2 ? f[2] : NULL);
           g_strfreev (f);
         }
       g_strfreev (lines);
@@ -223,7 +271,7 @@ add_model_dir (const gchar *dir, const gchar *base)
         g_dir_close (d);
       g_ptr_array_sort (names, (GCompareFunc) g_strcmp0);
       for (guint i = 0; i < names->len; i++)
-        add_voice (dir, lang, g_ptr_array_index (names, i), NULL, NULL);
+        add_dir_voice (dir, lang, g_ptr_array_index (names, i), NULL, NULL);
       g_ptr_array_free (names, TRUE);
       g_free (vdir);
     }
@@ -274,6 +322,13 @@ kokoro_init (gchar **msg)
       *msg = g_strdup_printf ("the Vulkan plugin %s is not installed", vulkan_ep ());
       return FALSE;
     }
+  /* the voices of a language espeak-ng lacks are left out */
+  if (!espeak_g2p_init (cfg_espeak_data, &error))
+    {
+      *msg = g_strdup (error->message);
+      g_error_free (error);
+      return FALSE;
+    }
   user = g_build_filename (g_get_user_data_dir (), "kokoro-tts", NULL);
   models = g_ptr_array_new ();
   scan_models (user);
@@ -284,8 +339,11 @@ kokoro_init (gchar **msg)
       *msg = g_strdup_printf ("no Kokoro voices in %s", cfg_models_dir);
       return FALSE;
     }
-  g2p = ru_g2p_new (*cfg_dictionary != '\0' ? cfg_dictionary : NULL, cfg_espeak_data, &error);
-  if (g2p == NULL)
+  /* the stress dictionary only for Russian voices */
+  for (guint i = 0; i < tts_voices ()->len && g2p == NULL && error == NULL; i++)
+    if (strcmp (((TtsVoice *) g_ptr_array_index (tts_voices (), i))->language, "ru") == 0)
+      g2p = ru_g2p_new (*cfg_dictionary != '\0' ? cfg_dictionary : NULL, cfg_espeak_data, &error);
+  if (error != NULL)
     {
       *msg = g_strdup (error->message);
       g_error_free (error);
@@ -344,7 +402,7 @@ kokoro_load (gpointer model, GError **error)
   /* the first run allocates the buffers (on Vulkan it also builds the
    * pipelines, ~1.7 s); pay it here, not on the first message ("привет, как
    * дела?").  A model the plugin accepts but cannot run fails here. */
-  wav = kokoro_synth (m->km, first_style_of (m), "prʲivʲˈet, kˈɑk dʲɪlˈɑ?", 1.0f, &n, error);
+  wav = kokoro_synth (m->km, first_style_of (m), m->warmup, 1.0f, &n, error);
   if (wav == NULL)
     {
       kokoro_model_free (m->km);
@@ -381,7 +439,8 @@ speak_text (const gchar *text, const TtsPiece *p, GError **error)
   /* the frame speeds the audio up further */
   float speed = (float) tts_model_speed (p->settings);
   gint64 t0 = g_get_monotonic_time ();
-  gchar *ipa = ru_g2p_phonemize (g2p, text);
+  const gchar *lang = p->voice->language;
+  gchar *ipa = strcmp (lang, "ru") == 0 ? ru_g2p_phonemize (g2p, text) : kokoro_g2p (lang, text);
   glong len = g_utf8_strlen (ipa, -1);
   gsize n = 0;
   float *wav;

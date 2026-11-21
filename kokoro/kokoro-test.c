@@ -7,12 +7,16 @@
  *   kokoro-test synth <espeak-path> <dict> <onnx> <config> <voice.bin> <out-prefix> [speed]
  *       < lines: writes <out-prefix>NN.wav per line; with KOKORO_VULKAN_EP=<plugin.so>
  *       on the graphics card
+ *   KOKORO_LANG=<lang> (en-US, en-GB, es, fr, hi, it, pt-BR): that language's
+ *       espeak-ng front end instead of the Russian one (ipa and synth; give
+ *       "-" as the dictionary)
  *
  * Copyright (C) 2026 Grigory Tuboltsev
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 
 #include "kokoro.h"
+#include "espeak-g2p.h"
 #include "ru-g2p.h"
 
 #include <stdio.h>
@@ -55,6 +59,7 @@ main (int argc, char **argv)
   int n = 0;
   const gchar *mode = argc > 1 ? argv[1] : "";
   gboolean synth = strcmp (mode, "synth") == 0;
+  const gchar *lang = g_getenv ("KOKORO_LANG");
 
   if (argc < 3 || (synth && argc < 8))
     {
@@ -78,6 +83,8 @@ main (int argc, char **argv)
         r = ru_g2p_accentuate (g, line);
       else if (strcmp (mode, "raw") == 0)
         r = ru_g2p_phonemize_marked (g, line);
+      else if (lang != NULL && *lang != '\0' && strcmp (lang, "ru") != 0)
+        r = kokoro_g2p (lang, line);
       else
         r = ru_g2p_phonemize (g, line);
       if (synth)

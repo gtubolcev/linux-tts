@@ -11,8 +11,8 @@
 
 #include "ru-g2p.h"
 #include "ru-stress.h"
+#include "espeak-g2p.h"
 
-#include <espeak-ng/speak_lib.h>
 #include <string.h>
 
 #define ACUTE 0x0301
@@ -20,10 +20,7 @@
 struct RuG2p
 {
   RuStress *stress;     /* NULL: no dictionary, no stress marks */
-  GRegex *marks_re;     /* phonemizer's punctuation */
 };
-
-static gboolean espeak_ready;
 
 
 
@@ -126,23 +123,9 @@ ru_g2p_new (const gchar *dict, const gchar *espeak_path, GError **error)
 {
   RuG2p *g;
 
-  if (!espeak_ready)
-    {
-      if (espeak_Initialize (AUDIO_OUTPUT_SYNCHRONOUS, 0, espeak_path,
-                             espeakINITIALIZE_DONT_EXIT) < 0
-          || espeak_SetVoiceByName ("ru") != EE_OK)
-        {
-          g_set_error (error, G_FILE_ERROR, G_FILE_ERROR_FAILED,
-                       "espeak-ng: cannot load the Russian voice from %s", espeak_path);
-          return NULL;
-        }
-      espeak_ready = TRUE;
-    }
+  if (!espeak_g2p_init (espeak_path, error) || !espeak_g2p_check_voice ("ru", error))
+    return NULL;
   g = g_new0 (RuG2p, 1);
-  /* phonemizer: (\s*(?:[others]|(?<![0-9])[,.]|[,.](?![0-9]))+\s*)+ */
-  g->marks_re = g_regex_new ("(\\s*(?:[;:!?¡¿—…\"«»“”(){}\\[\\]]"
-                             "|(?<![0-9])[,.]|[,.](?![0-9]))+\\s*)+",
-                             G_REGEX_OPTIMIZE, 0, NULL);
   if (dict != NULL)
     {
       GError *e = NULL;
@@ -162,265 +145,8 @@ ru_g2p_free (RuG2p *g)
   if (g == NULL)
     return;
   ru_stress_free (g->stress);
-  if (g->marks_re != NULL)
-    g_regex_unref (g->marks_re);
   g_free (g);
 }
-
-/* phonemizer EspeakBackend._phonemize_aux + _postprocess_line for one chunk,
- * tie '^', with stress, remove-flags, strip=False (a trailing space) */
-static gchar *
-espeak_chunk (const gchar *text)
-{
-  const void *ptr = text;
-  GString *res = g_string_new (NULL);
-  gchar *line, **words;
-  GString *out;
-  GRegex *re;
-
-  while (ptr != NULL)
-    {
-      const char *ph = espeak_TextToPhonemes (&ptr, espeakCHARS_UTF8,
-                                              espeakPHONEMES_IPA | espeakPHONEMES_TIE
-                                              | (0x0361 << 8));
-      if (ph != NULL && *ph != '\0')
-        {
-          if (res->len > 0)
-            g_string_append_c (res, ' ');
-          g_string_append (res, ph);
-        }
-    }
-  line = g_strstrip (g_string_free (res, FALSE));
-  line = replace_all (line, "\n", " ");
-  /* Python str.replace('  ', ' '): one pass, non-overlapping */
-  line = replace_all (line, "  ", " ");
-  if (strstr (line, "__") != NULL)
-    {
-      re = g_regex_new ("_+", 0, 0, NULL);
-      gchar *t = g_regex_replace_literal (re, line, -1, 0, "_", 0, NULL);
-      g_regex_unref (re);
-      g_free (line);
-      line = t;
-    }
-  line = replace_all (line, "_ ", " ");
-  /* RemoveFlags: (en) ... */
-  re = g_regex_new ("\\(.+?\\)", 0, 0, NULL);
-  {
-    gchar *t = g_regex_replace_literal (re, line, -1, 0, "", 0, NULL);
-    g_free (line);
-    line = t;
-  }
-  g_regex_unref (re);
-  if (*line == '\0')
-    return line;
-  words = g_strsplit (line, " ", -1);
-  out = g_string_new (NULL);
-  for (int i = 0; words[i] != NULL; i++)
-    {
-      gchar *w = replace_all (g_strdup (g_strstrip (words[i])), "͡", "^");
-      if (i > 0)
-        g_string_append_c (out, ' ');
-      g_string_append (out, w);
-      g_free (w);
-    }
-  g_string_append_c (out, ' ');
-  g_strfreev (words);
-  g_free (line);
-  return g_string_free (out, FALSE);
-}
-
-static gboolean
-is_inline_mark (const gchar *mark)
-{
-  gboolean any = FALSE;
-  for (const gchar *p = mark; *p != '\0'; p = g_utf8_next_char (p))
-    {
-      gunichar c = g_utf8_get_char (p);
-      if (g_unichar_isspace (c))
-        continue;
-      if (g_utf8_strchr ("\"«»“”‘’„‹›()[]{}", -1, c) == NULL)
-        return FALSE;
-      any = TRUE;
-    }
-  return any;
-}
-
-static int
-count_words (const gchar *s)
-{
-  int n = 0;
-  gchar **w = g_strsplit (s, " ", -1);
-  for (int i = 0; w[i] != NULL; i++)
-    if (*w[i] != '\0')
-      n++;
-  g_strfreev (w);
-  return n;
-}
-
-/* Part of a line: a chunk (index into chunks) or a mark */
-typedef struct
-{
-  int chunk;            /* -1 for a mark */
-  gchar *mark;
-} Part;
-
-/* phonemizer phonemize([text], preserve_punctuation=True, strip=False) */
-static gchar *
-phonemize_punct (RuG2p *g, const gchar *text)
-{
-  GMatchInfo *mi;
-  GPtrArray *chunks = g_ptr_array_new_with_free_func (g_free);
-  GPtrArray *ph;
-  GArray *parts = g_array_new (FALSE, FALSE, sizeof (Part));
-  gchar **in_context;
-  gint cursor = 0;
-  GString *out = g_string_new (NULL);
-  const gchar *mark = NULL;
-
-  /* preserve() */
-  g_regex_match (g->marks_re, text, 0, &mi);
-  while (g_match_info_matches (mi))
-    {
-      gint s, e;
-      Part p;
-      g_match_info_fetch_pos (mi, 0, &s, &e);
-      if (s > cursor)
-        {
-          p.chunk = chunks->len;
-          p.mark = NULL;
-          g_array_append_val (parts, p);
-          g_ptr_array_add (chunks, g_strndup (text + cursor, s - cursor));
-        }
-      p.chunk = -1;
-      p.mark = g_strndup (text + s, e - s);
-      g_array_append_val (parts, p);
-      cursor = e;
-      g_match_info_next (mi, NULL);
-    }
-  g_match_info_free (mi);
-  if (text[cursor] != '\0')
-    {
-      Part p = { chunks->len, NULL };
-      g_array_append_val (parts, p);
-      g_ptr_array_add (chunks, g_strdup (text + cursor));
-    }
-
-  ph = g_ptr_array_new_with_free_func (g_free);
-  for (guint i = 0; i < chunks->len; i++)
-    g_ptr_array_add (ph, espeak_chunk (chunks->pdata[i]));
-  in_context = g_new0 (gchar *, chunks->len + 1);
-
-  /* inline_groups(): chunks separated by inline marks only, phonemized as a
-   * whole too; restore() uses them when the word counts agree */
-  for (guint i = 0; i < parts->len;)
-    {
-      GArray *group = g_array_new (FALSE, FALSE, sizeof (int));
-      guint j = i;
-      while (j < parts->len && g_array_index (parts, Part, j).chunk < 0)
-        j++;
-      if (j >= parts->len)
-        {
-          g_array_free (group, TRUE);
-          break;
-        }
-      g_array_append_val (group, g_array_index (parts, Part, j).chunk);
-      while (j + 2 < parts->len
-             && g_array_index (parts, Part, j + 2).chunk >= 0
-             && is_inline_mark (g_array_index (parts, Part, j + 1).mark))
-        {
-          j += 2;
-          g_array_append_val (group, g_array_index (parts, Part, j).chunk);
-        }
-      i = j + 1;
-      if (group->len > 1)
-        {
-          GString *joined = g_string_new (NULL);
-          gchar *whole, **pieces;
-          int total = 0, *counts = g_new (int, group->len);
-          gboolean ok = TRUE;
-
-          for (guint k = 0; k < group->len; k++)
-            {
-              int c = g_array_index (group, int, k);
-              if (k > 0)
-                g_string_append_c (joined, ' ');
-              g_string_append (joined, chunks->pdata[c]);
-              counts[k] = count_words (ph->pdata[c]);
-              ok = ok && counts[k] > 0;
-              total += counts[k];
-            }
-          whole = espeak_chunk (joined->str);
-          if (ok && count_words (whole) == total)
-            {
-              /* cut before the first word of each chunk but the first */
-              GString *piece = g_string_new (NULL);
-              int nwords = 0, k = 0, start = counts[0];
-              gboolean first = TRUE;
-              pieces = g_strsplit (whole, " ", -1);
-              for (int n = 0; pieces[n] != NULL; n++)
-                {
-                  if (*pieces[n] != '\0')
-                    {
-                      if (nwords == start && k + 1 < (int) group->len)
-                        {
-                          in_context[g_array_index (group, int, k)] = g_string_free (piece, FALSE);
-                          piece = g_string_new (NULL);
-                          first = TRUE;
-                          k++;
-                          start += counts[k];
-                        }
-                      nwords++;
-                    }
-                  if (!first)
-                    g_string_append_c (piece, ' ');
-                  g_string_append (piece, pieces[n]);
-                  first = FALSE;
-                }
-              in_context[g_array_index (group, int, k)] = g_string_free (piece, FALSE);
-              g_strfreev (pieces);
-            }
-          g_free (whole);
-          g_free (counts);
-          g_string_free (joined, TRUE);
-        }
-      g_array_free (group, TRUE);
-    }
-
-  /* restore() */
-  for (guint i = 0; i < parts->len; i++)
-    {
-      Part *p = &g_array_index (parts, Part, i);
-      if (p->chunk < 0)
-        {
-          if (out->len > 0 && out->str[out->len - 1] == ' ')
-            g_string_truncate (out, out->len - 1);
-          g_string_append (out, p->mark);
-          mark = p->mark;
-        }
-      else
-        {
-          const gchar *c = in_context[p->chunk] != NULL ? in_context[p->chunk]
-                                                         : ph->pdata[p->chunk];
-          if (*c != '\0')
-            {
-              g_string_append (out, c);
-              mark = NULL;
-            }
-        }
-    }
-  if (mark != NULL && !g_str_has_suffix (mark, " "))
-    g_string_append_c (out, ' ');
-
-  for (guint i = 0; i < parts->len; i++)
-    g_free (g_array_index (parts, Part, i).mark);
-  g_array_free (parts, TRUE);
-  g_strfreev (in_context);
-  g_ptr_array_free (ph, TRUE);
-  g_ptr_array_free (chunks, TRUE);
-  return g_string_free (out, FALSE);
-}
-
-
 
 /* ---------------------------------------------------------- respelling */
 
@@ -736,6 +462,7 @@ ru_g2p_phonemize_marked (RuG2p *g, const gchar *marked)
   gchar *low = g_utf8_strdown (b, -1);
   gchar *s = respell (low), *ps, *r;
 
+  (void) g;
   g_free (b);
   g_free (low);
   /* misaki: angles to curly quotes, parentheses to angles */
@@ -743,7 +470,7 @@ ru_g2p_phonemize_marked (RuG2p *g, const gchar *marked)
   s = replace_all (s, "»", "”");
   s = replace_all (s, "(", "«");
   s = replace_all (s, ")", "»");
-  ps = phonemize_punct (g, s);
+  ps = espeak_g2p_phonemize ("ru", s);
   g_free (s);
   g_strstrip (ps);
   for (guint i = 0; i < G_N_ELEMENTS (e2m); i++)
