@@ -23,7 +23,8 @@
 	X(square_unit_attributes, square_unit_attributes)              \
 	X(versions, versions)                                          \
 	X(decimals, decimals)                                          \
-	X(fractions, fractions)
+	X(fractions, fractions)                                        \
+	X(numeric_suffixes, numeric_suffixes)
 
 #define RN_NPASS_DECL(py, c) int rn_n_##c(rn_str *t);
 RN_NPASS_FUNCS(RN_NPASS_DECL)
@@ -33,5 +34,7 @@ int rn_n_is_ordinal_suffix(const uint32_t *s, size_t n);
 int rn_n_is_cardinal_suffix(const uint32_t *s, size_t n);
 int rn_n_is_numeric_suffix(const uint32_t *s, size_t n);
 int rn_n_safe_hyphen_unit(const uint32_t *s, size_t n);
+/* normalize_numeric_suffixes(t, capitalize_text_start=caps) */
+int rn_n_numeric_suffixes_ex(rn_str *t, int caps);
 
 #endif
