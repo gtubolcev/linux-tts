@@ -13,6 +13,18 @@
 #include "rn-morph.h"
 #include "rn-mx.h"
 #include "rn-num.h"
+#include "rn-npass.h"
+
+#define RN_NPASS_WRAP(py, c)                                       \
+	static int nw_##c(const rn_str *in, rn_str *out)                 \
+	{                                                                \
+		out->n = 0;                                                  \
+		rn_mx_failed = 0;                                            \
+		if (rn_str_put(out, in->s, in->n) < 0)                       \
+			return -1;                                               \
+		return rn_n_##c(out);                                        \
+	}
+RN_NPASS_FUNCS(RN_NPASS_WRAP)
 
 static const struct {
 	const char *name;
@@ -30,6 +42,8 @@ static const struct {
 	{"run_so", rn_run_so},
 #define RN_PRE_ROW(name) {#name, rn_pre_##name},
 	RN_PRE_FUNCS(RN_PRE_ROW)
+#define RN_NPASS_ROW(py, c) {"normalize_" #py, nw_##c},
+	RN_NPASS_FUNCS(RN_NPASS_ROW)
 };
 
 static void put_utf8(FILE *f, const uint32_t *s, size_t n)
