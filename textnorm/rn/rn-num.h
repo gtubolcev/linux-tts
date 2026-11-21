@@ -30,6 +30,7 @@ extern unsigned rn_fixes;
 #define RN_FIX_GEO_MOTION 0x40000u     /* R22, "ездил в г. Тверь" */
 #define RN_FIX_ABBR_MIXED 0x80000u     /* R23, "СПбГУ" */
 #define RN_FIX_ABBR_MORE 0x100000u     /* R24, "проф.", "т. н.", "в т. ч.", "ок.", "ж. д." */
+#define RN_FIX_ABBR_SENT_CAP 0x200000u /* R25, "Ок. 5 тысяч" → "Около пяти тысяч" */
 
 #define RN_NO_GENDER (-1)
 

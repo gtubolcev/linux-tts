@@ -1,6 +1,7 @@
 /* abbreviation_context.py and the abbreviation helpers of preprocess_utils.py */
 #include <stdlib.h>
 
+#include "rn-num.h"
 #include "rn-pat.h"
 #include "rn-pre.h"
 #include "rn-pystr.h"
@@ -133,6 +134,33 @@ int rn_pre_normalize_era_abbreviations(const rn_str *in, rn_str *out)
 	               : 0;
 }
 
+/* the template ctx; R25: capitalised when the abbreviation was ("Ок. 5", "Т. 3") and starts
+ * a sentence ("см. Т. 3" stays "том") */
+static int cap_repl(const rn_match *m, rn_str *out, void *ctx)
+{
+	const uint32_t *w = ctx;
+	size_t st = m->start[0], i = st;
+	int cap = 0;
+	if ((rn_fixes & RN_FIX_ABBR_SENT_CAP) && rn_py_isupper(m->s[st])) {
+		while (i && (rn_py_isspace(m->s[i - 1]) || in_str(m->s[i - 1], RN_U("\"«„“([—–-"))))
+			i--;
+		cap = !i || in_str(m->s[i - 1], RN_U("!?…"));
+		if (i && m->s[i - 1] == '.') {
+			/* not after an abbreviation ("См. Т. 3"): a word of 4+ letters or a number */
+			size_t k = i - 1;
+			while (k && rn_py_isalpha(m->s[k - 1]))
+				k--;
+			cap = i - 1 - k >= 4 || (i - 1 == k && k && rn_py_isdigit(m->s[k - 1]));
+		}
+	}
+	if (cap) {
+		if (rn_py_upper(w, 1, out) < 0)
+			return -1;
+		w++;
+	}
+	return rn_puts(out, w);
+}
+
 int rn_pre_normalize_numeric_abbreviations(const rn_str *in, rn_str *out)
 {
 	rn_str t = {0};
@@ -141,10 +169,10 @@ int rn_pre_normalize_numeric_abbreviations(const rn_str *in, rn_str *out)
 		return -1;
 	if (rn_resub(AC(BIRTH_YEAR_ABBREVIATION_PATTERN), &t, birth_repl, NULL) < 0 ||
 	    rn_resub(AC(MASS_GRAM_ABBREVIATION_PATTERN), &t, mass_repl, NULL) < 0 ||
-	    rn_resub_tmpl(PU(APPROXIMATE_ABBREVIATION_PATTERN), &t, RN_U("около ")) < 0 ||
-	    rn_resub_tmpl(PU(BIBLIOGRAPHIC_NUMBER_ABBREVIATIONS_0_0), &t, RN_U("том ")) < 0 ||
-	    rn_resub_tmpl(PU(BIBLIOGRAPHIC_NUMBER_ABBREVIATIONS_1_0), &t, RN_U("том ")) < 0 ||
-	    rn_resub_tmpl(PU(BIBLIOGRAPHIC_NUMBER_ABBREVIATIONS_2_0), &t, RN_U("номер ")) < 0 ||
+	    rn_resub(PU(APPROXIMATE_ABBREVIATION_PATTERN), &t, cap_repl, (void *)RN_U("около ")) < 0 ||
+	    rn_resub(PU(BIBLIOGRAPHIC_NUMBER_ABBREVIATIONS_0_0), &t, cap_repl, (void *)RN_U("том ")) < 0 ||
+	    rn_resub(PU(BIBLIOGRAPHIC_NUMBER_ABBREVIATIONS_1_0), &t, cap_repl, (void *)RN_U("том ")) < 0 ||
+	    rn_resub(PU(BIBLIOGRAPHIC_NUMBER_ABBREVIATIONS_2_0), &t, cap_repl, (void *)RN_U("номер ")) < 0 ||
 	    rn_resub(PU(LEGAL_ARTICLE_REFERENCE_PATTERN), &t, legal_repl, NULL) < 0)
 		goto done;
 	r = rn_pre_normalize_era_abbreviations(&t, out);
