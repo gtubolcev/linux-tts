@@ -143,7 +143,8 @@ local, CPU, low latency, stream/interrupt, Russian + English.
 
 ### ONNX or ggml (2026-11-14)
 N. Shmyrev (privately, to the user): ONNX gives nothing, write everything in the ".cpp"
-way, on ggml. Decision: ONNX modules stay, onnx-vulkan-rs frozen, the GPU path goes
+way, on ggml. Decision: ONNX modules stay, onnx-vulkan-rs frozen (resumed 2026-11-19 as the stopgap
+for weak CPUs until ggml), the GPU path goes
 through ggml with a pilot on kokoro.cpp (xfce4-speech-settings PLAN.md). Facts: Ubuntu 26.04
 has libggml0 0.9.11 with separate backend packages (vulkan, hip, blas); ggml Vulkan
 already worked here for ZONOS3 (below). Which ggml TTS projects Shmyrev means: asked,
