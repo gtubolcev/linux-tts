@@ -43,9 +43,10 @@ static void word(buf *b, int *first, const char *s)
 
 typedef struct {
 	int gcase, gender, plural, animate;
+	unsigned fixes;
 } kw;
 
-static const kw KW_DEFAULT = {0, 0, 0, 1};
+static const kw KW_DEFAULT = {0, 0, 0, 1, 0};
 
 static kw kw_case(int c)
 {
@@ -77,6 +78,8 @@ static const char *pluralize(unsigned n, const char *const forms[3])
 
 static void chunk_cardinal(buf *b, int *first, int h, int t, int o, int i, kw k)
 {
+	if (i > 0 && (k.fixes & N2W_FIX_MAGNITUDE))
+		k.animate = 0;   /* N1: counts тысяча/миллион, inanimate */
 	if (h > 0)
 		word(b, first, EL(N2W_HUNDREDS, h, k));
 	if (t > 1)
@@ -87,6 +90,10 @@ static void chunk_cardinal(buf *b, int *first, int h, int t, int o, int i, kw k)
 		kw f = k;
 		if (i == 1)
 			f.gender = N2W_FEMN;   /* thousands are feminine */
+		if (i > 0 && (k.fixes & N2W_FIX_MAGNITUDE)) {
+			f.gender = i == 1 ? N2W_FEMN : N2W_MASC;
+			f.plural = 0;
+		}
 		word(b, first, EL(N2W_ONES, o, f));
 	}
 }
@@ -241,7 +248,7 @@ int n2w_ru_cardinal(const char *number, n2w_opts o, char *out, size_t cap)
 	buf b = {out, cap, 0, 0};
 	if (!number || !check_opts(o))
 		return -1;
-	kw k = {o.gcase, o.gender, o.plural != 0, o.animate != 0};
+	kw k = {o.gcase, o.gender, o.plural != 0, o.animate != 0, o.fixes};
 	const char *s = number;
 	int neg = *s == '-';
 	if (neg)
@@ -265,13 +272,15 @@ int n2w_ru_cardinal(const char *number, n2w_opts o, char *out, size_t cap)
 		return -1;
 	strip_zeros(&l, &ln);
 	kw f = kw_gender(N2W_FEMN);
+	f.fixes = o.fixes;
+	int fix = (o.fixes & N2W_FIX_FLOAT_SIGN) != 0;
 	int lzero = ln == 1 && l[0] == '0';
-	if (neg && !lzero)
+	if (neg && (!lzero || fix))
 		put(&b, "минус ");
 	int2word(&b, l, ln, 1, f);
 	put(&b, " ");
 	unsigned m = mod100(l, ln);
-	if (neg && !lzero)
+	if (neg && !lzero && !fix)
 		m = (100 - m) % 100;   /* Python's % of a negative number */
 	put(&b, pluralize(m, N2W_POINTWORD));
 	put(&b, " ");
@@ -303,7 +312,7 @@ int n2w_ru_ordinal(const char *number, n2w_opts o, char *out, size_t cap)
 	buf b = {out, cap, 0, 0};
 	if (!number || !check_opts(o))
 		return -1;
-	kw k = {o.gcase, o.gender, o.plural != 0, o.animate != 0};
+	kw k = {o.gcase, o.gender, o.plural != 0, o.animate != 0, o.fixes};
 	const char *s = number;
 	int neg = *s == '-';
 	if (neg)

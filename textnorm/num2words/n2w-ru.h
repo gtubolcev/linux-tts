@@ -8,6 +8,9 @@
  *
  * Returns the length of the result (UTF-8, without the NUL) and writes as much as fits into
  * out (always NUL-terminated if cap > 0), like snprintf; -1 where num2words raises.
+ *
+ * opts.fixes selects corrections of num2words bugs (textnorm/QUIRKS.md); 0 gives num2words'
+ * output exactly, which the oracle tests use.
  */
 #ifndef N2W_RU_H
 #define N2W_RU_H
@@ -22,10 +25,19 @@ typedef struct {
 	enum n2w_gender gender;  /* gender= ('m'/'masculine', 'f'/'feminine', 'n'/'neuter') */
 	int plural;              /* plural= */
 	int animate;             /* animate=; num2words' default is True */
+	unsigned fixes;          /* N2W_FIX_* */
 } n2w_opts;
 
-/* num2words' defaults: nominative, masculine, singular, animate */
-#define N2W_DEFAULTS ((n2w_opts){N2W_NOMN, N2W_MASC, 0, 1})
+/* QUIRKS.md N1: thousands, millions … are nouns: their numeral agrees with тысяча (f) or
+ * миллион (m), inanimate, singular ("две тысячи" not "двух тысячи" in the animate
+ * accusative, "одна миллион" -> "один миллион" for feminine, "одни тысяча" -> "одна") */
+#define N2W_FIX_MAGNITUDE 1u
+/* N2: floats: keep the minus of "-0.5", and "минус одна целая" (not "целых") */
+#define N2W_FIX_FLOAT_SIGN 2u
+#define N2W_FIX_ALL (N2W_FIX_MAGNITUDE | N2W_FIX_FLOAT_SIGN)
+
+/* num2words' defaults: nominative, masculine, singular, animate; all fixes */
+#define N2W_DEFAULTS ((n2w_opts){N2W_NOMN, N2W_MASC, 0, 1, N2W_FIX_ALL})
 
 int n2w_ru_cardinal(const char *number, n2w_opts o, char *out, size_t cap);
 int n2w_ru_ordinal(const char *number, n2w_opts o, char *out, size_t cap);
