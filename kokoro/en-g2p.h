@@ -6,8 +6,11 @@
  * rules, capitals and stress, and the splitting of glued words.  The
  * part-of-speech tags come from en-tagger, a C port of spaCy's
  * en_core_web_sm tagger, when its files are in the dictionary folder;
- * without them they are guessed from the neighbours.  Numbers go to the
- * fallback whole.
+ * without them they are guessed from the neighbours.  Numbers, ordinals,
+ * years, decimals and $ £ € amounts are read as misaki reads them (the
+ * number words written here, not taken from num2words).  Beyond misaki: a
+ * few homographs the tag cannot tell apart (bass, lead, bow, row, tear,
+ * does) by cue words around them, off in compat mode.
  *
  * Copyright (C) 2026 Grigory Tuboltsev
  * SPDX-License-Identifier: GPL-3.0-or-later
@@ -27,6 +30,9 @@ typedef gchar *(*EnFallback) (const gchar *word, gpointer data);
  * and the tagger's en-tagger.* if they are there */
 EnLexicon *en_lexicon_open (const gchar *dir, gboolean british, GError **error);
 void en_lexicon_free (EnLexicon *lex);
+
+/* TRUE: exactly misaki's output, without our homograph rules (default FALSE) */
+void en_lexicon_set_compat (EnLexicon *lex, gboolean compat);
 
 /* the phonemes of @text, misaki's G2P version 1.0 output; thread-safe */
 gchar *en_g2p (EnLexicon *lex, const gchar *text, EnFallback fallback, gpointer data);
