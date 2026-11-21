@@ -21,7 +21,9 @@ en_core_web_sm 3.8.0 does (misaki takes its tags from there), written by
 
     python3 -I en-tagger-export.py misaki/ spacy_lookups_data-1.0.5-py2.py3-none-any.whl
 
-- `en-tagger.bin`: the tok2vec and tagger weights (float32, 6.3 MB);
+- `en-tagger.bin`: the tok2vec and tagger weights (float16, 3.1 MB, widened
+  to float32 on loading; 3 of the 37612 tags of the test corpus then differ
+  from spaCy's, all near ties);
 - `en-tagger-norm.tsv`: spaCy's norms (BASE_NORMS over spacy-lookups-data's
   lexeme_norm);
 - `en-tagger-rules.tsv`: the tokenizer's special cases, `text<TAB>orth\x1fnorm…`;
