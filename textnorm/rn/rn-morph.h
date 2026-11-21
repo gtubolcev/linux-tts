@@ -15,5 +15,10 @@ char *rn_to_utf8(const uint32_t *s, size_t n, char *buf, size_t *cap);
 /* _reference_noun_form(lemma, case) of references.py, appended to out; lemma and gcase
  * are static strings (the cache keys on the lemma pointer) */
 int rn_noun_form(rn_str *out, const char *lemma, const char *gcase);
+/* parse_word(s) of _morph.py (pymorphy3 lowercases): the parses in a, their count, -1 */
+int rn_parse(cmorphy3_arena *a, const uint32_t *s, size_t n, cmorphy3_form **out);
+/* "NOUN" in tag; tag.case == gcase */
+int rn_tag_has(uint16_t tag, const char *grammeme);
+int rn_tag_case_is(uint16_t tag, const char *gcase);
 
 #endif

@@ -43,7 +43,13 @@
 	X(normalize_clause_references)                                                          \
 	X(normalize_numbered_references)                                                        \
 	X(normalize_isbn_identifiers)                                                           \
-	X(normalize_number_signs)
+	X(normalize_number_signs)                                                               \
+	X(normalize_identifier_letter_suffixes)                                                 \
+	X(normalize_vehicle_registration_plates)                                                \
+	X(normalize_phone_numbers)                                                              \
+	X(normalize_labelled_identifiers)                                                       \
+	X(drop_superscript_footnote_markers)                                                    \
+	X(fix_glued_numbers)
 
 #define RN_PRE_DECL(name) int rn_pre_##name(const rn_str *in, rn_str *out);
 RN_PRE_FUNCS(RN_PRE_DECL)

@@ -104,3 +104,30 @@ int rn_noun_form(rn_str *out, const char *lemma, const char *gcase)
 	cmorphy3_arena_free(a);
 	return r;
 }
+
+int rn_parse(cmorphy3_arena *a, const uint32_t *s, size_t n, cmorphy3_form **out)
+{
+	char small[256], *b = small;
+	size_t cap = sizeof small;
+	if (4 * n + 1 > cap) {
+		b = NULL;
+		cap = 0;
+	}
+	char *u = rn_to_utf8(s, n, b, &cap);
+	if (!u)
+		return -1;
+	int r = cmorphy3_parse(rn_morph, a, u, out);
+	if (u != small)
+		free(u);
+	return r;
+}
+
+int rn_tag_has(uint16_t tag, const char *grammeme)
+{
+	return cmorphy3_gset_has(cmorphy3_tag_gset(rn_morph, tag), cmorphy3_grammeme(rn_morph, grammeme));
+}
+
+int rn_tag_case_is(uint16_t tag, const char *gcase)
+{
+	return cmorphy3_tag_get(rn_morph, tag, CMORPHY3_CASE) == cmorphy3_grammeme(rn_morph, gcase);
+}
