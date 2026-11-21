@@ -11,7 +11,18 @@ match its output byte for byte, except for a reviewed list of deliberate fixes.
   and every pipeline stage (`steps`), so the port can be checked pass by pass.
 - `tests/golden/core.jsonl.zst` — oracle output for `core.jsonl` (14 170 records,
   `{"id","in","out","steps"}`).
-- `morph/` — pymorphy3 in C (reads the pymorphy3-dicts-ru data converted to one mmapped file).
+- `morph/` — pymorphy3 2.0.6 in C (`morph.h`, `morph.c`): parse, lexeme, inflect,
+  word_is_known, tag categories; same parses, scores (bit for bit) and forms as pymorphy3 with
+  the pure-Python DAWG reader.
+  - `mkmorph.py DICT_DIR ru-morph.bin` converts pymorphy3-dicts-ru to one mmapped file (16 MB).
+  - `gen-unidata.py > unidata.h`: Unicode tables (lower(), isalpha, …) taken from the oracle's
+    Python 3.12.3, so str methods behave the same.
+  - Check: `morph-dump ru-morph.bin < words` and `morph-dump.py < words` (pymorphy3, run in
+    claude-ru-normalizr), then `compare-dump.py ref.jsonl c.jsonl`: parses, lexemes of the first
+    3 parses and 27 inflections each. 2026-11-21: 63 373 words (core corpus tokens + edge cases)
+    identical; ASan/UBSan clean; 63k words with all lexemes/inflections in 8.5 s.
+  - Known oracle nondeterminism: `tag.animacy` of the 4 Inmx tags carrying both anim and inan
+    depends on PYTHONHASHSEED in Python; the C code takes the first in the tag string.
 
 ## Oracle environment (goldens of 2026-11-21)
 - ru_normalizr: our fork, `_tmp/ru-normalizr` HEAD cb5f247 (1.3.0 + agreement fixes).
