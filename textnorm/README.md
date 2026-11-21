@@ -66,7 +66,10 @@ and listed in `QUIRKS.md` for review.
     opens it from `$RN_MORPH_DICT`.
   - `rn-pre.[ch]`: the preprocess helpers, one `rn_pre_<name>` per Python function, also
     stages of rn-stage-test under the Python name (checked on trace-sub pairs). 2026-11-21:
-    the 25 functions in `RN_PRE_FUNCS` exact on core.
+    the 27 functions in `RN_PRE_FUNCS` exact on core.
+  - `rn-units.[ch]`: UnitRegistry.resolve and resolve_unit_expression; `gen-units.py RN_SRC
+    rn-units-data.h` (in claude-ru-normalizr) dumps rn's unit tables. Check: `units-check.py`
+    vs `units-check.c` over 95 026 corpus tokens, identical (2026-11-21).
 
 ## Oracle environment (goldens of 2026-11-21)
 - ru_normalizr: our fork, `_tmp/ru-normalizr` HEAD cb5f247 (1.3.0 + agreement fixes).

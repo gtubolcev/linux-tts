@@ -8,6 +8,7 @@
 #include "rn-pat.h"
 #include "rn-pre.h"
 #include "rn-pystr.h"
+#include "rn-units.h"
 #include "rn-util.h"
 
 #define N(a) (sizeof a / sizeof *a)
@@ -605,6 +606,143 @@ int rn_pre_normalize_punctuation_spacing(const rn_str *in, rn_str *out)
 	    rn_resub_tmpl(PU(DOUBLE_DOT_TYPO_PATTERN), &t, RN_U(".")) < 0 ||
 	    rn_resub_tmpl(PU(COMMA_DOT_TYPO_PATTERN), &t, RN_U(".")) < 0 ||
 	    rn_resub_tmpl(rn_pat(RN_MATH_FORMULAS_MULTI_SPACE_RE), &t, RN_U(" ")) < 0)
+		goto done;
+	WORK_END(out)
+}
+
+/* ---- units ---- */
+
+static int repl_unit_slash(const rn_match *m, rn_str *out, void *ctx)
+{
+	(void)ctx;
+	if (!rn_unit_resolve_expr(m->s + m->start[0], m->end[0] - m->start[0], NULL))
+		return put_group(m, 0, out);
+	return put_group(m, 1, out) < 0 || rn_str_putc(out, RN_UNIT_SLASH) < 0 ||
+	       put_group(m, 2, out) < 0 ? -1 : 0;
+}
+
+int rn_pre_protect_unit_slashes(const rn_str *in, rn_str *out)
+{
+	return rn_sub(PU(UNIT_SLASH_PATTERN), in->s, in->n, repl_unit_slash, NULL, 0, out) < 0
+	       ? -1 : 0;
+}
+
+static int in_set(uint32_t c, const char32_t *set)
+{
+	for (; *set; set++)
+		if ((uint32_t)*set == c)
+			return 1;
+	return 0;
+}
+
+static int u32eq(const uint32_t *s, size_t n, const char32_t *w)
+{
+	size_t i = 0;
+	for (; i < n && w[i]; i++)
+		if (s[i] != (uint32_t)w[i])
+			return 0;
+	return i == n && !w[i];
+}
+
+static int is_thousands_unit(const uint32_t *s, size_t n)
+{
+	static const char32_t *const MAG[] = {U"руб", U"долл", U"евро", U"тыс", U"млн", U"млрд"};
+	if (!n)
+		return 0;
+	if (n == 1 && in_set(s[0], U"₽$€£¥%‰"))
+		return 1;
+	rn_str f = {0};
+	if (rn_py_casefold(s, n, &f) < 0) {
+		rn_str_free(&f);
+		return 0;
+	}
+	int r = -1;
+	for (size_t i = 0; i < N(MAG) && r < 0; i++)
+		if (u32eq(f.s, f.n, MAG[i]))
+			r = 1;
+	if (r < 0 && f.n == 1 && in_set(f.s[0], U"свакоиуя"))
+		r = 0;
+	rn_str_free(&f);
+	if (r >= 0)
+		return r;
+	return rn_unit_resolve(s, n) != NULL;
+}
+
+/* the digits of a group without the character c */
+static int put_without(const rn_match *m, int g, uint32_t c, rn_str *out)
+{
+	size_t n;
+	const uint32_t *s = rn_group(m, g, &n);
+	for (size_t i = 0; i < n; i++)
+		if (s[i] != c && rn_str_putc(out, s[i]) < 0)
+			return -1;
+	return 0;
+}
+
+static int repl_number_spaces(const rn_match *m, rn_str *out, void *ctx)
+{
+	(void)ctx;
+	for (size_t i = m->start[0]; i < m->end[0]; i++) {
+		uint32_t c = m->s[i];
+		if (c != ' ' && c != 0xA0 && c != 0x2009 && c != 0x202F && rn_str_putc(out, c) < 0)
+			return -1;
+	}
+	return 0;
+}
+
+static int repl_drop_dots1(const rn_match *m, rn_str *out, void *ctx)
+{
+	(void)ctx;
+	return put_without(m, 1, '.', out);
+}
+
+static int repl_drop_commas1(const rn_match *m, rn_str *out, void *ctx)
+{
+	(void)ctx;
+	return put_without(m, 1, ',', out);
+}
+
+static int repl_dotted_range(const rn_match *m, rn_str *out, void *ctx)
+{
+	(void)ctx;
+	int l = rn_re_group(PU(DOTTED_THOUSANDS_RANGE_PATTERN), "left");
+	int d = rn_re_group(PU(DOTTED_THOUSANDS_RANGE_PATTERN), "dash");
+	int r = rn_re_group(PU(DOTTED_THOUSANDS_RANGE_PATTERN), "right");
+	size_t ln, rn_;
+	const uint32_t *ls = rn_group(m, l, &ln), *rs = rn_group(m, r, &rn_);
+	int dot = 0;
+	for (size_t i = 0; i < ln; i++)
+		dot |= ls[i] == '.';
+	for (size_t i = 0; i < rn_; i++)
+		dot |= rs[i] == '.';
+	if (!dot)
+		return put_group(m, 0, out);
+	return put_without(m, l, '.', out) < 0 || put_group(m, d, out) < 0 ||
+	       put_without(m, r, '.', out) < 0 ? -1 : 0;
+}
+
+static int repl_thousands_unit(const rn_match *m, rn_str *out, void *ctx)
+{
+	uint32_t sep = *(const uint32_t *)ctx;
+	size_t un;
+	const uint32_t *u = rn_group(m, 2, &un);   /* (?P<number>)(?=...(?P<unit>)) */
+	if (!is_thousands_unit(u, un))
+		return put_group(m, 0, out);
+	return put_without(m, 1, sep, out);
+}
+
+int rn_pre_clean_numbers(const rn_str *in, rn_str *out)
+{
+	static const uint32_t DOT = '.', COMMA = ',';
+	WORK_BEGIN(in)
+	if (rn_resub(PU(NUMBER_CLEANUP_PATTERN), &t, repl_number_spaces, NULL) < 0 ||
+	    rn_resub(PU(L709), &t, repl_drop_dots1, NULL) < 0 ||
+	    rn_resub(PU(L714), &t, repl_drop_dots1, NULL) < 0 ||
+	    rn_resub(PU(DOTTED_THOUSANDS_RANGE_PATTERN), &t, repl_dotted_range, NULL) < 0 ||
+	    rn_resub(PU(COMMA_GROUPED_NUMBER_PATTERN), &t, repl_drop_commas1, NULL) < 0 ||
+	    rn_resub(PU(COMMA_THOUSANDS_BEFORE_UNIT_PATTERN), &t, repl_thousands_unit,
+	             (void *)&COMMA) < 0 ||
+	    rn_resub(PU(THOUSANDS_BEFORE_UNIT_PATTERN), &t, repl_thousands_unit, (void *)&DOT) < 0)
 		goto done;
 	WORK_END(out)
 }
