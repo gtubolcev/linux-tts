@@ -1,3 +1,11 @@
+onnxruntime-ep-vulkan (0.0.1~git8625ef9-2) noble; urgency=medium
+
+  * Count the implicit inputs of Loop/If in the fusion graph: ONNX Runtime
+    rejected the fused groups of Kokoro (VULKAN_EP_COMPILE=1).
+  * Resize of rank-3 tensors (1-D upsampling of audio decoders).
+
+ -- Grigory Tuboltsev <gtubolcev@gmail.com>  Sat, 21 Nov 2026 03:30:00 +0100
+
 onnxruntime-ep-vulkan (0.0.1~git8625ef9-1) noble; urgency=medium
 
   * Package onnx-vulkan-rs at commit 8625ef9 as a plugin EP for the

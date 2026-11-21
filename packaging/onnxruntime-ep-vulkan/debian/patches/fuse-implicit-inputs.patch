@@ -1,0 +1,79 @@
+From 752abe0be924307eadf115e53cc287b3374014fa Mon Sep 17 00:00:00 2001
+From: Grigory Tuboltsev <gtubolcev@gmail.com>
+Date: Sat, 21 Nov 2026 02:35:25 +0100
+Forwarded: https://github.com/automataIA/onnx-vulkan-rs/pull/6
+Subject: [PATCH] fix(ep): count implicit inputs in the fusion dependency graph
+
+The convex grouping of GetCapability saw only the explicit inputs of each
+node. A Loop, If or Scan also reads outer-scope values through its
+subgraphs (implicit inputs), so a path from a claimed node through such a
+node back into the group was invisible: ONNX Runtime then refused the
+whole group ("set nodes that cannot be fused together") and the model ran
+on the CPU. Seen on Kokoro (StyleTTS 2), whose duration expansion is a Loop.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_0189a4fjzwCYtu3cdFwkeWTT
+---
+ crates/vulkan-ep/src/compile/graph_ir.rs | 31 ++++++++++++++++++++++++
+ crates/vulkan-ep/src/ep.rs               |  3 ++-
+ 2 files changed, 33 insertions(+), 1 deletion(-)
+
+diff --git a/crates/vulkan-ep/src/compile/graph_ir.rs b/crates/vulkan-ep/src/compile/graph_ir.rs
+index f86cb5f..ba7106f 100644
+--- a/crates/vulkan-ep/src/compile/graph_ir.rs
++++ b/crates/vulkan-ep/src/compile/graph_ir.rs
+@@ -453,6 +453,37 @@ pub unsafe fn fused_node_io(node: *const sys::OrtNode) -> Result<(Vec<String>, V
+     Ok((inputs, outputs))
+ }
+ 
++/// Every value a node reads, for the dependency graph of `GetCapability`:
++/// its explicit inputs plus the implicit ones, the outer-scope values that the
++/// subgraphs of a `Loop`, `If` or `Scan` read. Without the implicit inputs the
++/// fusion does not see the path that goes through such a node, and ONNX
++/// Runtime rejects the whole group ("nodes that cannot be fused together").
++///
++/// # Safety
++/// `node` valid for the call duration.
++pub unsafe fn node_dependency_inputs(node: *const sys::OrtNode) -> Result<Vec<String>> {
++    let api = apis().ort;
++    unsafe {
++        let mut names = node_value_names(api, node, true)?;
++        let mut n = 0usize;
++        check(
++            (api.Node_GetNumImplicitInputs.expect("Node_GetNumImplicitInputs"))(node, &mut n),
++            "Node_GetNumImplicitInputs",
++        )?;
++        if n > 0 {
++            let mut vis: Vec<*const sys::OrtValueInfo> = vec![ptr::null(); n];
++            check(
++                (api.Node_GetImplicitInputs.expect("Node_GetImplicitInputs"))(node, vis.as_mut_ptr(), n),
++                "Node_GetImplicitInputs",
++            )?;
++            for vi in vis {
++                names.push(value_info_name(vi)?);
++            }
++        }
++        Ok(names)
++    }
++}
++
+ /// Names of a node's input or output values.
+ /// Records the element type of every value this node reads or writes.
+ ///
+diff --git a/crates/vulkan-ep/src/ep.rs b/crates/vulkan-ep/src/ep.rs
+index 8c50249..fdce528 100644
+--- a/crates/vulkan-ep/src/ep.rs
++++ b/crates/vulkan-ep/src/ep.rs
+@@ -174,7 +174,8 @@ unsafe fn fuse_supported(
+     let mut supported = Vec::with_capacity(nodes.len());
+     let only = op_filter();
+     for (&node, ir) in nodes.iter().zip(&irs) {
+-        let (ins, outs) = unsafe { crate::compile::graph_ir::fused_node_io(node)? };
++        let (_, outs) = unsafe { crate::compile::graph_ir::fused_node_io(node)? };
++        let ins = unsafe { crate::compile::graph_ir::node_dependency_inputs(node)? };
+         let op = unsafe { node_op(node) }?;
+         // `VULKAN_EP_OPS=Op1,Op2` restricts fusion to those ops: useful to
+         // bisect which kernel introduces a divergence on a real model.
+-- 
+2.53.0
+
