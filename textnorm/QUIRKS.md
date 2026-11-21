@@ -27,6 +27,10 @@ Examples marked "core" are from the oracle output `tests/golden/core.jsonl.zst`.
 | R3 | Date case after "сейчас" depends on обособление (memory: open case from the user) | "Сейчас 01.06.2026г." → "первого июня" | later, design first |
 | R4 | Page ranges: the preposition "с" stays "с" before an ordinal that starts with с/вт + consonant (norm: "со") | "на с. 108–113" → "на страницах с сто восьмой по сто тринадцатую" (should be "со сто восьмой"; also "со второй") | ask |
 | R5 | Roman ranges with the noun first ("вв. XIV–XV"): the output lowers the written word instead of the inflected noun, so the abbreviation stays unread; the series path reads it | "Памятники вв. XIV–XV" → "четырнадцатого — пятнадцатого вв." → fixed "…пятнадцатого веков"; "в. XIV–XV" → "века" (not in core/big) | fixed, `RN_FIX_ROMAN_RANGE_NOUN` (`rn_fixes`) |
+| R6 | Time "H:MM" without a governing preposition is read with a comma, as two numbers | "в 14:30" → "в четырнадцать, тридцать" → fixed "в четырнадцать тридцать"; ":00" → "девять ноль-ноль"; "21.12.25, 17:49" (forum stamps, ~5000 in big) | fixed, `RN_FIX_TIME_NO_COMMA` |
+| R7 | Seconds are read masculine | "12:00:01" → "…один секунда", "двадцать два секунды" → "одна секунда", "двадцать две секунды" | fixed, `RN_FIX_SECONDS_FEMN` |
+| R8 | After с/от/до/после the minutes are genitive but masculine | "с 10:21" → "с десяти часов двадцати одного минуты" → "двадцати одной минуты" | fixed, `RN_FIX_TIME_GENT_FEMN` |
+| R9 | After с/от/до/после zero minutes are read out | "с 9:00 до 18:00" (core) → "с девяти часов ноля минут…" → "с девяти часов до восемнадцати часов" | fixed, `RN_FIX_TIME_GENT_ZERO` |
 
 ## pymorphy3 (`cmorphy3/`)
 

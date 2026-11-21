@@ -25,6 +25,7 @@ static const struct {
 	{"_run_caps_normalization", rn_run_caps},
 	{"remove_numeric_footnotes", rn_remove_numeric_footnotes},
 	{"run_roman", rn_run_roman},
+	{"run_dates_time", rn_run_dates_time},
 #define RN_PRE_ROW(name) {#name, rn_pre_##name},
 	RN_PRE_FUNCS(RN_PRE_ROW)
 };

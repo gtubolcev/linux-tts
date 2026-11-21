@@ -10,6 +10,10 @@ extern unsigned rn_n2w_fixes;
 /* RN_FIX_* (QUIRKS.md, R…) used by the rn passes; 0 (the default) = the oracle's output */
 extern unsigned rn_fixes;
 #define RN_FIX_ROMAN_RANGE_NOUN 0x1u   /* R5 */
+#define RN_FIX_TIME_NO_COMMA 0x2u      /* R6 */
+#define RN_FIX_SECONDS_FEMN 0x4u       /* R7 */
+#define RN_FIX_TIME_GENT_FEMN 0x8u     /* R8 */
+#define RN_FIX_TIME_GENT_ZERO 0x10u    /* R9 */
 
 #define RN_NO_GENDER (-1)
 

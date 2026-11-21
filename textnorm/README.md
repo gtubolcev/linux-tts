@@ -89,6 +89,10 @@ and listed in `QUIRKS.md` for review.
   - `rn-roman.c`: normalize_roman (13 steps), stage `run_roman`. 2026-11-21: exact on core
     (13 968 pairs) and big (75 757), ASan/UBSan clean. `RN_FIXES=0x1` in rn-stage-test turns
     on the fixes (`rn_fixes`, QUIRKS.md R5).
+  - `rn-dates.c`: normalize_dates_and_time, stage `run_dates_time`. 2026-11-21: exact on core
+    (13 814 pairs), big (75 743) and 34 probes of every branch; ASan/UBSan clean. Fixes
+    R6–R9 (time reading) are `RN_FIXES` 0x2–0x10.
+  - `rn-unitform.c`: resolve_unit_form (a unit by an inflected name; needs the morphology).
   - `rn-units.[ch]`: UnitRegistry.resolve and resolve_unit_expression; `gen-units.py RN_SRC
     rn-units-data.h` (in claude-ru-normalizr) dumps rn's unit tables. Check: `units-check.py`
     vs `units-check.c` over 95 026 corpus tokens, identical (2026-11-21).
