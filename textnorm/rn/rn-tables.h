@@ -16,6 +16,7 @@ enum rn_table {
 	RN_T_NUMERIC_SUFFIXES,
 	RN_T_GLUED_PREPOSITIONS,
 	RN_T_LABEL_NOUN_LEMMAS,
+	RN_T_KNOWN_ABBREVIATIONS,
 };
 
 /* the entry for key (UTF-8), NULL if absent */

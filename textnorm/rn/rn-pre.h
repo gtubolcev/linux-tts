@@ -52,7 +52,10 @@
 	X(fix_glued_numbers)                                                                    \
 	X(normalize_era_abbreviations)                                                          \
 	X(normalize_numeric_abbreviations)                                                      \
-	X(normalize_international_phone_numbers)
+	X(normalize_international_phone_numbers)                                                \
+	X(expand_address_abbreviations)                                                         \
+	X(normalize_first_word_caps)                                                            \
+	X(normalize_caps_lines)
 
 #define RN_PRE_DECL(name) int rn_pre_##name(const rn_str *in, rn_str *out);
 RN_PRE_FUNCS(RN_PRE_DECL)

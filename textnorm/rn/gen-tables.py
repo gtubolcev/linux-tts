@@ -37,6 +37,7 @@ TABLES = {
     "NUMERIC_SUFFIXES": dict.fromkeys(NS.NUMERIC_SUFFIXES),
     "GLUED_PREPOSITIONS": dict.fromkeys(I.GLUED_PREPOSITIONS),
     "LABEL_NOUN_LEMMAS": dict.fromkeys(H.LABEL_NOUN_LEMMAS),
+    "KNOWN_ABBREVIATIONS": dict(K.KNOWN_ABBREVIATIONS),
 }
 
 with open(sys.argv[2], "w", encoding="utf-8") as f:

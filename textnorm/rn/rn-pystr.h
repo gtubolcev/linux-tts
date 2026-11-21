@@ -19,6 +19,8 @@ int rn_py_decimal(uint32_t c);   /* unicodedata.decimal(c), -1 if none */
 int rn_py_lower(const uint32_t *s, size_t n, rn_str *out);
 int rn_py_upper(const uint32_t *s, size_t n, rn_str *out);
 int rn_py_casefold(const uint32_t *s, size_t n, rn_str *out);
+/* s.capitalize(): the first character in title case, the rest lowered */
+int rn_py_capitalize(const uint32_t *s, size_t n, rn_str *out);
 /* str.isupper() / islower() / isdigit() / isalpha() of a whole string */
 int rn_py_str_isupper(const uint32_t *s, size_t n);
 int rn_py_str_islower(const uint32_t *s, size_t n);

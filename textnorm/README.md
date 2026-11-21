@@ -60,13 +60,13 @@ and listed in `QUIRKS.md` for review.
     (in, out) of single rn functions. 2026-11-21: run_urls, protect, run_math exact on core
     (14 157 pairs) and big (75 771).
   - Python str semantics: `gen-pyuni.py` (run in the oracle's Python) writes `rn-pyuni.h`;
-    `rn-pystr.[ch]` isalpha/isdecimal/…/lower/upper/casefold, str.replace/strip/find;
+    `rn-pystr.[ch]` isalpha/isdecimal/…/lower/upper/casefold/capitalize, str.replace/strip/find;
     `pystr-check.c` vs `pystr-check.py` agree on all 1 112 070 code points.
   - `rn-morph.[ch]`: one cmorphy3 handle for the passes (word_is_known); rn-stage-test
     opens it from `$RN_MORPH_DICT`.
   - `rn-pre.[ch]`: the preprocess helpers, one `rn_pre_<name>` per Python function, also
     stages of rn-stage-test under the Python name (checked on trace-sub pairs). 2026-11-21:
-    the 48 functions in `RN_PRE_FUNCS` exact on core: `rn-pre.c` (cleanup helpers),
+    the 51 functions in `RN_PRE_FUNCS` exact on core: `rn-pre.c` (cleanup helpers),
     `rn-numbering.c` (numbering.py), `rn-refs.c` (references.py), `rn-ident.c`
     (identifiers.py).
   - `rn-num.[ch]`: rn's num2words wrappers (cardinal/ordinal with its fallbacks, roman).
@@ -77,7 +77,12 @@ and listed in `QUIRKS.md` for review.
     dumps its metadata to `rn-phonemeta.h` (libphonenumber metadata, Apache-2.0).
     Check: `phone-check.py gen > numbers` (example numbers of every region, variants,
     random), `phone-check.py` vs `phone-check` (C): 143 648 inputs (22 153 valid) identical
-    (2026-11-21). `rn-phones.c` phones.py, `rn-abbr.c` the numeric/era abbreviations.
+    (2026-11-21). `rn-phones.c` phones.py, `rn-abbr.c` the numeric/era abbreviations,
+    `rn-address.c` address.py, `rn-caps.c` caps.py (first-word and caps-line decapping).
+  - `rn-stage.c`: `_run_preprocess_steps` (as normalize_text calls it, without caps),
+    `_run_caps_normalization`, remove_numeric_footnotes (rn-stage-test stage names; the
+    last is checked on the gap `_run_caps_normalization>run_dates_time`). 2026-11-21: all
+    three exact on core (14 154 pairs) and big (75 763), ASan/UBSan clean.
   - `rn-units.[ch]`: UnitRegistry.resolve and resolve_unit_expression; `gen-units.py RN_SRC
     rn-units-data.h` (in claude-ru-normalizr) dumps rn's unit tables. Check: `units-check.py`
     vs `units-check.c` over 95 026 corpus tokens, identical (2026-11-21).

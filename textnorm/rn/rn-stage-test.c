@@ -19,6 +19,9 @@ static const struct {
 	{"run_urls", rn_run_urls},
 	{"run_math", rn_run_math},
 	{"protect", rn_run_protect},
+	{"_run_preprocess_steps", rn_run_preprocess},
+	{"_run_caps_normalization", rn_run_caps},
+	{"remove_numeric_footnotes", rn_remove_numeric_footnotes},
 #define RN_PRE_ROW(name) {#name, rn_pre_##name},
 	RN_PRE_FUNCS(RN_PRE_ROW)
 };
@@ -124,5 +127,10 @@ int main(int argc, char **argv)
 	clock_gettime(CLOCK_MONOTONIC, &t1);
 	printf("%s: %ld pairs, %ld mismatches, %ld errors, %.2f s\n", argv[1], total, bad, errors,
 	       t1.tv_sec - t0.tv_sec + (t1.tv_nsec - t0.tv_nsec) / 1e9);
+	fflush(stdout);
+	fclose(f);
+	rn_str_free(&in);
+	rn_str_free(&want);
+	rn_str_free(&got);
 	return bad || errors;
 }
