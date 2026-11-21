@@ -664,8 +664,8 @@ def t_eof_during_speech(m):
 
 
 def t_preload(m):
-    time.sleep(0.6)
-    check("loaded ru (1)" in m.stderr(), "no preload: " + m.stderr())
+    # wait, not a fixed sleep: on a loaded builder the load takes longer
+    check(wait_stderr(m, "loaded ru (1)", 10), "no preload: " + m.stderr())
 
 
 def wait_stderr(m, text, secs):
