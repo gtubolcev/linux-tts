@@ -1098,7 +1098,7 @@ static int r_paren(const rn_match *m, rn_str *o, void *ctx)
 	int ordinal = k >= 2 && (eq(t[k - 2].s, t[k - 2].n, U"под") || eq(t[k - 2].s, t[k - 2].n, U"при"));
 	free_tokens(t, all > 0 ? all : 0);
 	put(o, op, on);
-	if (ordinal)
+	if (ordinal || rn_fixes & RN_FIX_YEAR_PAREN)   /* R16: "(1305)" is a year */
 		yow(o, y.d, N2W_NOMN, 0);
 	else if (n2w(o, 0, y.d, N2W_NOMN, 0) < 0)
 		put8(o, y.d);
@@ -1566,7 +1566,8 @@ static int r_numeric_range(const rn_match *m, rn_str *o, void *ctx)
 	(void)ctx;
 	size_t an, bn;
 	const uint32_t *a = rn_group(m, 1, &an), *b = rn_group(m, 2, &bn);
-	if (an >= 4 || bn >= 4 || inverted_quantity(m->s, m->start[0]))
+	/* R17: a range, read later as "пять — семь" */
+	if (rn_fixes & RN_FIX_NUM_RANGE_DASH || an >= 4 || bn >= 4 || inverted_quantity(m->s, m->start[0]))
 		return whole(m, o);
 	put(o, a, an);
 	putlit(o, U", ");
