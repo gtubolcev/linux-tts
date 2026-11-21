@@ -36,6 +36,30 @@ and listed in `QUIRKS.md` for review.
     claude-ru-normalizr) and `n2w-dump` over 144 option combos each (`n2w-dump` without `--fixes`), then `cmp`.
     2026-11-21: 4 401 936 lines identical, ASan/UBSan clean; 6 s against 91 s in Python.
 
+- `rn/` — the ru_normalizr passes (in progress). Regexes run on PCRE2 (libpcre2-32: UTF-32
+  text, so offsets are Python's code point indices) with Python's semantics (`rn-re.h`:
+  search/match/fullmatch, finditer with Python's empty-match rule).
+  - `gen-patterns.py RN_SRC CORPUS OUT` (in claude-ru-normalizr) records every pattern rn
+    compiles (import time and while normalizing the corpus), translates each from Python's
+    parse tree to PCRE2 (single characters as the exact sets Python matches, IGNORECASE
+    pre-expanded, `\w`/`\d`/`\s`/`\b`/`^`/`$` with Python's meaning) and writes
+    `patterns.jsonl`, `rn-patterns.h` (enum + PCRE2 strings, named after rn's module
+    variables) and `rn-unidata.h` (Python's `\w` and `\d` as ranges; `rn_re_compile()`
+    puts them in place of `\p{L}\p{N}_` / `\p{Nd}`, so PCRE2's Unicode version does not
+    matter: noble's 10.42 has Unicode 14, the oracle 15.0).
+  - Check: `mk-parity-texts.py tests/golden/core.jsonl.zst texts.bin` (all distinct strings of
+    the goldens, steps included, plus all code points in pieces of 2000), then `re-parity` (C) and
+    `py-re-parity.py` (Python) print per pattern the match count and a digest of all group
+    spans; `re-charsets py-charsets.txt` compares the classes code point by code point.
+  - `rn-patterns.h`, `rn-unidata.h` are generated (committed so the C build needs no
+    oracle). `rn-ph.[ch]` placeholders.py; passes (`rn-pass.h`): `rn-urls.c` run_urls,
+    `rn-protect.c` protect_windows_paths / protect_overlong_numbers, `rn-math.c` run_math.
+  - Check a pass: `oracle/stage-pairs.py GOLDEN STAGE pairs.bin` (STAGE such as run_math, or
+    `run_urls>run_math` for the unrecorded gap between two stages), then
+    `rn-stage-test STAGE pairs.bin`. Sub-steps inside a stage: `oracle/trace-sub.py` records
+    (in, out) of single rn functions. 2026-11-21: run_urls, protect, run_math exact on core
+    (14 157 pairs) and big (75 771).
+
 ## Oracle environment (goldens of 2026-11-21)
 - ru_normalizr: our fork, `_tmp/ru-normalizr` HEAD cb5f247 (1.3.0 + agreement fixes).
 - Python 3.12.3 (docker image claude-ru-normalizr on mikhail), pymorphy3 2.0.6,
