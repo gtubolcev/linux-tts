@@ -12,9 +12,8 @@ static const struct {
 	const rn_kv *kv;
 	size_t n;
 } TABLES[] = {
-	T(RU_LETTER_NAMES),   T(EN_LETTER_NAMES),    T(RU_DOUBLED_VOWEL_LETTER_NAMES),
-	T(EN_DOUBLED_VOWEL_LETTER_NAMES), T(NUMERIC_SUFFIXES), T(GLUED_PREPOSITIONS),
-	T(LABEL_NOUN_LEMMAS), T(KNOWN_ABBREVIATIONS),
+#define RN_TABLE_ROW(name) T(name),
+	RN_TABLE_LIST(RN_TABLE_ROW)
 };
 
 static int cmp(const void *k, const void *e)
