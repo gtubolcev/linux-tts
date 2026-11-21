@@ -23,6 +23,7 @@ extern unsigned rn_fixes;
 #define RN_FIX_YEAR_RANGE_WORD 0x800u  /* R15 */
 #define RN_FIX_YEAR_PAREN 0x1000u      /* R16 */
 #define RN_FIX_NUM_RANGE_DASH 0x2000u  /* R17 */
+#define RN_FIX_YEAR_BARE_AGREE 0x4000u /* R19 */
 
 #define RN_NO_GENDER (-1)
 

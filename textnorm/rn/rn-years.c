@@ -1088,6 +1088,9 @@ static int paren_agree(const uint32_t *s, size_t start, int *c, int *plural)
 			return 0;
 	const cmorphy3_form *f;
 	int count = rn_mparse(s + a, b - a, &f);
+	for (int i = 0; i < count; i++)   /* "Это 2100 …", "то 1207": a particle or conjunction */
+		if (rn_pos(f[i].tag) == rn_g.PRCL || rn_pos(f[i].tag) == rn_g.CONJ)
+			return 0;
 	for (int i = 0; i < count; i++) {
 		int ps = rn_pos(f[i].tag);
 		static const char *const lemmas[] = {
@@ -1666,6 +1669,67 @@ static int has_decimal(const rn_str *s)
 	return 0;
 }
 
+/* a word after the number with a genitive plural NOUN/ADJF parse: "2000 человек", "1500
+ * рублей", "2000 новых домов" count things; "прошлого 1742 заслуженного жалованья", "того
+ * 1210 лета" are years; Fixd ("и" as a letter name) does not count */
+static int gent_word_follows(const uint32_t *s, size_t n, size_t end)
+{
+	rn_match m;
+	if (!match_at(P(NEXT_WORD), s, n, end, &m))
+		return 0;
+	size_t wn;
+	const uint32_t *w = rn_group(&m, 1, &wn);
+	const cmorphy3_form *f;
+	int count = rn_mparse(w, wn, &f);
+	for (int i = 0; i < count; i++) {
+		int ps = rn_pos(f[i].tag);
+		if ((ps == rn_g.NOUN || ps == rn_g.ADJF) && !rn_has(f[i].tag, rn_g.Fixd) &&
+		    rn_number(f[i].tag) == rn_g.plur && rn_canon_case(rn_case(f[i].tag)) == rn_g.gent)
+			return 1;
+	}
+	return 0;
+}
+
+/* R19: "в следующем 1207", "в этом 1999," without a year word: a bare four-digit year after
+ * этот/тот/следующий… in a singular form agrees with it, as in brackets (R16). Plural forms
+ * are left alone: "последние 2000 лет", "эти 1500 рублей" count things. */
+static int bare_agree(rn_str *cur)
+{
+	rn_str o = {0};
+	const uint32_t *s = cur->s;
+	size_t n = cur->n, done = 0;
+	for (size_t i = 0; i < n; i++) {
+		if (!rn_py_isdecimal(s[i]) || !i || !rn_is_space(s[i - 1]))
+			continue;
+		size_t j = i;
+		while (j < n && rn_py_isdecimal(s[j]))
+			j++;
+		if (j - i != 4)
+			goto skip;
+		/* not 1207-м, 1207,5, 1207.5, 1207abc */
+		if (j < n && (rn_py_isalnum(s[j]) || s[j] == '_' || s[j] == '-' ||
+		              ((s[j] == ',' || s[j] == '.') && j + 1 < n && rn_py_isdecimal(s[j + 1]))))
+			goto skip;
+		long v = yval_s(s + i, 4);
+		int c, pl;
+		if (!plausible(v) || gent_word_follows(s, n, j) || !paren_agree(s, i, &c, &pl) || pl)
+			goto skip;
+		put(&o, s + done, i - done);
+		yow_s(&o, s + i, 4, c, 0);
+		done = j;
+	skip:
+		i = j - 1 < i ? i : j - 1;
+	}
+	if (!done) {
+		rn_str_free(&o);
+		return 0;
+	}
+	put(&o, s + done, n - done);
+	int r = rn_str_copy(cur, &o);
+	rn_str_free(&o);
+	return r < 0 ? -1 : 0;
+}
+
 /* R14: "1999г.", "2000гг." → "1999 г.", "2000 гг.", so the year patterns see them */
 static int unglue(rn_str *cur)
 {
@@ -1723,6 +1787,8 @@ int rn_run_years(const rn_str *in, rn_str *out)
 	for (size_t i = 0; i < sizeof SUBS / sizeof *SUBS && !err; i++)
 		if (rn_resub(rn_pat(SUBS[i].pat), &cur, SUBS[i].fn, NULL) < 0)
 			err = 1;
+	if (!err && rn_fixes & RN_FIX_YEAR_BARE_AGREE && bare_agree(&cur) < 0)
+		err = 1;
 	/* run_years: normalize_numeric_ranges over the result, after the same decimal check */
 	if (!err && has_decimal(&cur) &&
 	    rn_resub(P(NUMERIC_RANGE_PATTERN), &cur, r_numeric_range, NULL) < 0)
