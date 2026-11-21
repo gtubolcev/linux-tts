@@ -33,6 +33,13 @@ Examples marked "core" are from the oracle output `tests/golden/core.jsonl.zst`.
 | R9 | After с/от/до/после zero minutes are read out | "с 9:00 до 18:00" (core) → "с девяти часов ноля минут…" → "с девяти часов до восемнадцати часов" | fixed, `RN_FIX_TIME_GENT_ZERO` |
 | R10 | A date takes its case only from a preposition inside its own pattern (на/к/ко/перед); за, по and a preposition before a list or a numeric date are ignored → genitive | "за 31 декабря" → "за тридцать первого" → "за тридцать первое"; "по 1 марта" → "по первое"; "к 1 и 2 мая" → "к первому и второму"; "к 01.06.2026" → "к первому июня" (core 11, big 34 changes) | fixed, `RN_FIX_DATE_PREP_CASE` |
 | R11 | "Месяц + число" is read as a date before a counted noun when the number ends in 1 (the check gives up for 1, 21 …) | "до мая 21 солдат" → "до мая двадцать первого солдат" → kept "21 солдат" for the numerals stage. Only when a preposition governs the month: "ноября 1 генерал-прокурор предложил" (big) stays a date | fixed, `RN_FIX_COUNTED_ONE` |
+| R12 | Years ≥ 10000: the thousands part of the ordinal is inflected too (only the last word of a Russian ordinal changes) | "12345 года" → "двенадцати тысяч триста сорок пятого" → "двенадцать тысяч триста сорок пятого" (probe; not in core/big) | fixed, `RN_FIX_YEAR_HIGH` |
+| R13 | A list of years with "гг." at the end of a sentence loses the sentence dot | "в 1758 и 1761 гг. Конференция…" → "…годах Конференция" → "годах. Конференция" (big 9) | fixed, `RN_FIX_YEAR_LIST_DOT` |
+| R14 | "гг." glued to the number is read alone and the number stays; "1999г." is not read at all | "в 2000гг. эпоха" → "в 2000годы" → "в двухтысячных годах"; "1999г." → "тысяча девятьсот девяносто девятого года". A space is put between digits and г/гг before the year patterns, so the gram guards (v < 1000, mass context) apply as for "300 г." | fixed, `RN_FIX_YEAR_GLUED` |
+| R15 | "с X по Y годы": the singular ordinal keeps the plural word | "с 1999 по 2001 годы" → "по две тысячи первый годы" → "по две тысячи первый год" (core 3) | fixed, `RN_FIX_YEAR_RANGE_WORD` |
+| R16 | A year in brackets is read as a cardinal number, unless "под/при" stands two tokens before | "Михаил (1305)" → "(одна тысяча триста пять)", with N4 "(тысяча триста пять)"; ordinal would be "(тысяча триста пятый)"; "(1020)" in a log line is a number | ask |
+| R17 | Two small numbers with a dash and no noun after are read as a list | "страницы 5—7", "выпуск 5—7." → "5, 7" (comma = pause); a range would be "с пятой по седьмую" / "пять — семь" | ask |
+| R18 | "гг." in a text without any digit is never touched by this pass (the oracle returns early) | "Уважаемые гг. депутаты" stays | later (abbreviations pass) |
 
 ## pymorphy3 (`cmorphy3/`)
 

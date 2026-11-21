@@ -92,6 +92,9 @@ and listed in `QUIRKS.md` for review.
   - `rn-dates.c`: normalize_dates_and_time, stage `run_dates_time`. 2026-11-21: exact on core
     (13 814 pairs), big (75 743) and 34 probes of every branch; ASan/UBSan clean. Fixes
     R6–R11 (time reading, date case) are `RN_FIXES` 0x2–0x40.
+  - `rn-years.c`: normalize_years + normalize_numeric_ranges, stage `run_years`.
+    2026-11-21: exact on core (13 754 pairs), big (75 739) and 23 probes; ASan/UBSan clean.
+    Fixes R12–R15 are `RN_FIXES` 0x100–0x800.
   - `rn-so.c`: our own pass for R4 ("со сто восьмой", "со второго"), `RN_FIXES` 0x80;
     to run last. `RN_N2W_FIXES` in rn-stage-test sets the num2words fixes (N1–N4).
   - `rn-unitform.c`: resolve_unit_form (a unit by an inflected name; needs the morphology).

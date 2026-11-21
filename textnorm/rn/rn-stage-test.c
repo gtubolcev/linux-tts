@@ -26,6 +26,7 @@ static const struct {
 	{"remove_numeric_footnotes", rn_remove_numeric_footnotes},
 	{"run_roman", rn_run_roman},
 	{"run_dates_time", rn_run_dates_time},
+	{"run_years", rn_run_years},
 	{"run_so", rn_run_so},
 #define RN_PRE_ROW(name) {#name, rn_pre_##name},
 	RN_PRE_FUNCS(RN_PRE_ROW)

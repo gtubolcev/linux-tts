@@ -10,6 +10,7 @@ typedef struct {
 	int nomn, gent, datv, accs, ablt, loct, loc2, voct, sing, plur;
 	int masc, femn, neut, msf, anim, inan;
 	int Fixd, Name, Surn, Patr, Geox, Orgn, Abbr, pssv, tran, past;
+	int COMP, PRCL, INTJ, impr, Anum;
 } rn_gram;
 extern rn_gram rn_g;
 

@@ -30,7 +30,8 @@ int rn_mx_init(void)
 		G("plur", &ok), G("masc", &ok), G("femn", &ok), G("neut", &ok), G("ms-f", &ok),
 		G("anim", &ok), G("inan", &ok), G("Fixd", &ok), G("Name", &ok), G("Surn", &ok),
 		G("Patr", &ok), G("Geox", &ok), G("Orgn", &ok), G("Abbr", &ok), G("pssv", &ok),
-		G("tran", &ok), G("past", &ok),
+		G("tran", &ok), G("past", &ok), G("COMP", &ok), G("PRCL", &ok), G("INTJ", &ok),
+		G("impr", &ok), G("Anum", &ok),
 	};
 	rn_g = g;
 	return ok ? 0 : -1;

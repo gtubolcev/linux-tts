@@ -17,6 +17,10 @@ extern unsigned rn_fixes;
 #define RN_FIX_DATE_PREP_CASE 0x20u    /* R10 */
 #define RN_FIX_COUNTED_ONE 0x40u       /* R11 */
 #define RN_FIX_SO 0x80u                /* R4, rn_run_so at the end */
+#define RN_FIX_YEAR_HIGH 0x100u        /* R12 */
+#define RN_FIX_YEAR_LIST_DOT 0x200u    /* R13 */
+#define RN_FIX_YEAR_GLUED 0x400u       /* R14 */
+#define RN_FIX_YEAR_RANGE_WORD 0x800u  /* R15 */
 
 #define RN_NO_GENDER (-1)
 

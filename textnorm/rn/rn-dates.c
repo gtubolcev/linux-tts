@@ -406,7 +406,7 @@ static int prep_before(const uint32_t *s, size_t start)
 }
 
 /* mstart: where the month starts (R11) */
-static int counted_noun_follows(const uint32_t *s, size_t n, size_t mstart, size_t end,
+int rn_counted_noun_follows(const uint32_t *s, size_t n, size_t mstart, size_t end,
                                 long number)
 {
 	rn_match w;
@@ -446,7 +446,7 @@ static int r_month_first(const rn_match *m, rn_str *o, void *ctx)
 	size_t dn, mn;
 	const uint32_t *d = grp(m, p, "day", &dn), *mo = grp(m, p, "month", &mn);
 	long day = ival(d, dn);
-	if (counted_noun_follows(m->s, m->n, m->start[0], m->end[0], day))
+	if (rn_counted_noun_follows(m->s, m->n, m->start[0], m->end[0], day))
 		return whole(m, o);
 	rn_str w = {0};
 	if (day_ordinal(&w, day, N2W_GENT) < 0) {

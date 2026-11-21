@@ -21,6 +21,11 @@ int rn_run_protect(const rn_str *in, rn_str *out);   /* both, for tests */
 /* normalize_roman of roman_numerals.py (needs rn_morph and rn_mx_init) */
 int rn_run_roman(const rn_str *in, rn_str *out);
 int rn_run_dates_time(const rn_str *in, rn_str *out);
+/* run_years: normalize_years and normalize_numeric_ranges of years.py */
+int rn_run_years(const rn_str *in, rn_str *out);
+/* _counted_noun_follows of years.py for s[end:]: "до мая 1500 солдат"; mstart is where
+ * the month (or "лета") starts, for R11 (rn-dates.c) */
+int rn_counted_noun_follows(const uint32_t *s, size_t n, size_t mstart, size_t end, long number);
 /* R4 (RN_FIX_SO): "с" → "со" before "сто", "ста", "втор…"; not in the oracle */
 int rn_run_so(const rn_str *in, rn_str *out);
 
