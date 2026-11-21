@@ -1,6 +1,7 @@
 /* abbreviations.py expand_abbreviations with the tts() options: language origin, geographic
  * classifiers, declinable nouns, "т. д.", adjectives, the literal rules, person initials,
  * letter abbreviations and "&" */
+#include <pthread.h>
 #include <stdio.h>
 
 #include "rn-num.h"
@@ -8,6 +9,7 @@
 #include "rn-pass.h"
 #include "rn-pat.h"
 #include "rn-pre.h"
+#include "rn-re.h"
 #include "rn-tables.h"
 
 #define P(id) rn_pat(RN_ABBREVIATIONS_##id)
@@ -1430,6 +1432,275 @@ static void mixed_abbr(rn_str *t)
 	rn_str_free(&r);
 }
 
+/* R24: abbreviations the original has no rules for */
+#include "rn-abbr-more.h"
+
+static rn_re *xp_cache[XP_N];
+static pthread_mutex_t xp_lock = PTHREAD_MUTEX_INITIALIZER;
+
+static const rn_re *xp(int i)
+{
+	rn_re *re = __atomic_load_n(&xp_cache[i], __ATOMIC_ACQUIRE);
+	if (re)
+		return re;
+	pthread_mutex_lock(&xp_lock);
+	re = xp_cache[i];
+	if (!re) {
+		char err[256];
+		re = calloc(1, sizeof *re);
+		if (re && rn_re_compile(re, XP_SRC[i], err, sizeof err) < 0) {
+			fprintf(stderr, "rn-abbrx: pattern %d: %s\n", i, err);
+			free(re);
+			re = NULL;
+		}
+		if (re)
+			__atomic_store_n(&xp_cache[i], re, __ATOMIC_RELEASE);
+		else
+			nx_fail();
+	}
+	pthread_mutex_unlock(&xp_lock);
+	return re;
+}
+
+static void xp_resub(int i, rn_str *t, int (*repl)(const rn_match *, rn_str *, void *))
+{
+	const rn_re *re = xp(i);
+	if (re)
+		nx_resub(re, t, repl, NULL);
+}
+
+/* the case the left context gives a word at T[st]: the preposition right before it, else
+ * infer_case(), -1; *prev_noun: the word right before is a declinable noun ("статья проф.") */
+static int ctx_case(const uint32_t *T, size_t st, int *prev_noun)
+{
+	size_t a = nx_left(st, 40);
+	rn_tok *L = NULL;
+	long n = rn_simple_tokenize(T + a, st - a, &L);
+	if (n < 0) {
+		nx_fail();
+		n = 0;
+	}
+	int c = -1;
+	*prev_noun = 0;
+	rn_str w = {0};
+	if (n) {
+		const rn_tok *l = &L[n - 1];
+		lower_strip(l->s, l->n, &w);
+		int punct = nx_inset(l->s[l->n - 1], U".,:;!?…)»\"–—");
+		if (w.n && !punct) {
+			c = prep_case(&w);
+			if (c < 0) {
+				const cmorphy3_form *f = rn_mfirst(w.s, w.n);
+				*prev_noun = rn_has(f->tag, rn_g.NOUN) && !rn_has(f->tag, rn_g.Fixd);
+			}
+		}
+	}
+	free(L);
+	rn_str_free(&w);
+	if (c < 0 && !*prev_noun)
+		c = infer_case(T, nx_left(st, 160), st);
+	return c;
+}
+
+static void put_cap(rn_str *o, const rn_str *x, int upper)
+{
+	if (upper)
+		put_upper_at(o, x->s, x->n, 0);
+	else
+		nx_put(o, x->s, x->n);
+}
+
+static int vtch_repl(const rn_match *m, rn_str *o, void *ctx)
+{
+	(void)ctx;
+	nx_lit(o, m->s[m->start[0]] == U'В' ? U"В том числе" : U"в том числе");
+	return 0;
+}
+
+static int spb_repl(const rn_match *m, rn_str *o, void *ctx)
+{
+	(void)ctx;
+	(void)m;
+	nx_lit(o, U"Санкт-");
+	return 0;
+}
+
+/* "проф. Иванову" → "профессору Иванову": the case of the name the context allows */
+static int title_repl(const rn_match *m, rn_str *o, void *ctx)
+{
+	(void)ctx;
+	const rn_re *p = xp(XP_TITLE);
+	size_t an, nn;
+	const uint32_t *abbr = nx_grp(m, p, "abbr", &an);
+	const uint32_t *name = nx_grp(m, p, "name", &nn);
+	uint32_t c0 = abbr[0] | 0x20;   /* п а д, lower-case in this range */
+	const char *lemma = c0 == U'п' ? "профессор" : c0 == U'а' ? "академик" : "доцент";
+	const cmorphy3_form *f;
+	int np = rn_mparse(name, nn, &f);
+	int cases[24], nc = 0;
+	/* names first, singular first ("Иванов" is also the plural genitive) */
+	for (int pass = 0; pass < 6 && !nc; pass++)
+		for (int i = 0; i < np && nc < 24; i++) {
+			int kind = pass % 3, sing = pass < 3;
+			int ok = kind == 0   ? rn_has(f[i].tag, rn_g.Surn) || rn_has(f[i].tag, rn_g.Name)
+			         : kind == 1 ? rn_has(f[i].tag, rn_g.NOUN)
+			                     : 1;
+			ok = ok && (!sing || !rn_has(f[i].tag, rn_g.plur));
+			int c = rn_case(f[i].tag);
+			if (!ok || c < 0)
+				continue;
+			c = rn_canon_case(c);
+			int seen = 0;
+			for (int k = 0; k < nc && !seen; k++)
+				seen = cases[k] == c;
+			if (!seen)
+				cases[nc++] = c;
+		}
+	int pn, cx = ctx_case(m->s, m->start[0], &pn), r = -1;
+	int has_nomn = 0, has_gent = 0;
+	for (int k = 0; k < nc; k++) {
+		if (cx >= 0 && cases[k] == rn_canon_case(cx))
+			r = cases[k];
+		has_nomn |= cases[k] == rn_g.nomn;
+		has_gent |= cases[k] == rn_g.gent;
+	}
+	if (r < 0)
+		r = nc == 1 ? cases[0] : pn && has_gent ? rn_g.gent : has_nomn || !nc ? rn_g.nomn : cases[0];
+	rn_str x = {0};
+	const cmorphy3_form *g = noun_nomn8(lemma);
+	if (g && r != rn_g.nomn)
+		nx_safe_inflect(&x, g, gs2(r, rn_g.sing), lemma);
+	else
+		nx_put8(&x, lemma);
+	put_cap(o, &x, rn_py_isupper(abbr[0]));
+	rn_str_free(&x);
+	nx_putg(o, m, p, "space");
+	return 0;
+}
+
+/* the words of an agreed phrase after T[from]: an opening quote, then up to 6 words of
+ * [А-ЯЁа-яё-] split by spaces, the last one before any other character */
+static int phrase_words(const uint32_t *T, size_t n, size_t from, rn_tok *w, int max)
+{
+	size_t i = from;
+	if (i < n && nx_inset(T[i], U"«\"„“"))
+		i++;
+	int nw = 0;
+	while (nw < max && i < n) {
+		size_t j = i;
+		while (j < n && (is_cyr(T[j]) || T[j] == '-'))
+			j++;
+		if (j == i)
+			break;
+		w[nw++] = (rn_tok){T + i, j - i};
+		size_t k = j;
+		while (k < n && rn_py_isspace(T[k]))
+			k++;
+		if (k == j)
+			break;
+		i = k;
+	}
+	return nw;
+}
+
+/* the adjective lemma agreed with the head noun of the phrase at T[from], as adj_repl does;
+ * 0 if no head */
+static int agreed_adj(rn_str *x, const uint32_t *T, size_t n, size_t st, size_t from,
+                      const char *lemma)
+{
+	rn_tok words[6];
+	int nw = phrase_words(T, n, from, words, 6);
+	if (!nw)
+		return 0;
+	const cmorphy3_form *f0 = rn_mfirst(words[0].s, words[0].n);
+	int p0 = rn_pos(f0->tag);
+	if (p0 == rn_g.PREP || p0 == rn_g.CONJ || p0 == rn_g.PRCL || p0 == rn_g.INTJ ||
+	    p0 == rn_g.NUMR || p0 == rn_g.VERB || p0 == rn_g.INFN)
+		return 0;
+	form noun = choose_head(words, nw, infer_case(T, nx_left(st, 160), st));
+	if (!noun || !word_known8(noun->word))
+		return 0;
+	inflect_adj(x, lemma, noun, 0);
+	return 1;
+}
+
+/* "т. н. эксперты" → "так называемые эксперты" */
+static int tn_repl(const rn_match *m, rn_str *o, void *ctx)
+{
+	(void)ctx;
+	rn_str x = {0};
+	nx_lit(&x, U"так ");
+	if (!agreed_adj(&x, m->s, m->n, m->start[0], m->end[0], "называемый"))
+		nx_lit(&x, U"называемый");
+	put_cap(o, &x, m->s[m->start[0]] == U'Т');
+	rn_str_free(&x);
+	nx_putg(o, m, xp(XP_TN), "space");
+	return 0;
+}
+
+/* "ок. ста", "ок. Москвы" → "около": before a numeral or a word with a genitive form */
+static int ok_repl(const rn_match *m, rn_str *o, void *ctx)
+{
+	(void)ctx;
+	const uint32_t *T = m->s;
+	size_t i = m->end[0], j = i;
+	while (j < m->n && is_cyr(T[j]))
+		j++;
+	const cmorphy3_form *f;
+	int np = j > i ? rn_mparse(T + i, j - i, &f) : 0, ok = 0;
+	for (int k = 0; k < np && !ok; k++)
+		ok = rn_pos(f[k].tag) == rn_g.NUMR ||
+		     (rn_pos(f[k].tag) != rn_g.PREP && rn_case(f[k].tag) == rn_g.gent);
+	if (!ok)
+		return nx_whole(m, o);
+	nx_lit(o, T[m->start[0]] == U'О' ? U"Около" : U"около");
+	nx_putg(o, m, xp(XP_OK), "space");
+	return 0;
+}
+
+/* "ж. д. вокзал" → "железнодорожный вокзал", else "по ж. д." → "по железной дороге" */
+static int zd_repl(const rn_match *m, rn_str *o, void *ctx)
+{
+	(void)ctx;
+	const uint32_t *T = m->s;
+	size_t st = m->start[0], en = m->end[0];
+	int upper = T[st] == U'Ж';
+	rn_str x = {0};
+	if (en < m->n && is_cyr(T[en]) && rn_py_islower(T[en]) &&
+	    agreed_adj(&x, T, m->n, st, en, "железнодорожный")) {
+		put_cap(o, &x, upper);
+		rn_str_free(&x);
+		nx_putg(o, m, xp(XP_ZD), "space");
+		return 0;
+	}
+	x.n = 0;
+	int pn, c = ctx_case(T, st, &pn);
+	if (c < 0)
+		c = pn ? rn_g.gent : rn_g.nomn;
+	c = rn_canon_case(c);
+	const cmorphy3_form *a = adj_parse8("железный", 0), *d = noun_nomn8("дорога");
+	if (a && d && c != rn_g.nomn) {
+		nx_safe_inflect(&x, a, rn_gset_or(gs2(c, rn_g.sing), rn_gset1(rn_g.femn)), "железная");
+		nx_putc(&x, ' ');
+		nx_safe_inflect(&x, d, gs2(c, rn_g.sing), "дорога");
+	} else
+		nx_lit(&x, U"железная дорога");
+	put_cap(o, &x, upper);
+	rn_str_free(&x);
+	nx_putg(o, m, xp(XP_ZD), "space");
+	return 0;
+}
+
+static void abbr_more(rn_str *t)
+{
+	xp_resub(XP_SPB, t, spb_repl);
+	xp_resub(XP_VTCH, t, vtch_repl);
+	xp_resub(XP_TITLE, t, title_repl);
+	xp_resub(XP_TN, t, tn_repl);
+	xp_resub(XP_OK, t, ok_repl);
+	xp_resub(XP_ZD, t, zd_repl);
+}
+
 /* ---- expand_abbreviations ---- */
 
 int rn_run_abbreviations(const rn_str *in, rn_str *out)
@@ -1448,6 +1719,8 @@ int rn_run_abbreviations(const rn_str *in, rn_str *out)
 	nx_resub(P(ADJECTIVE_ABBREVIATION_PATTERN), &t, adj_repl, NULL);
 	if (rn_fixes & RN_FIX_ABBR_GG)
 		gg_gospoda(&t);
+	if (rn_fixes & RN_FIX_ABBR_MORE)
+		abbr_more(&t);
 	literal_rules(&t);
 	static const int KINDS[] = {SURNAME_INITIALS, INITIALS_SURNAME, SURNAME_SINGLE,
 	                            SINGLE_SURNAME};
