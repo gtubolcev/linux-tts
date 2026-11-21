@@ -58,6 +58,9 @@ int cmorphy3_inflect(const cmorphy3 *m, cmorphy3_arena *a, const cmorphy3_form *
 int cmorphy3_lexeme(const cmorphy3 *m, cmorphy3_arena *a, const cmorphy3_form *form, cmorphy3_form **out);
 /* MorphAnalyzer.word_is_known(word) (е may stand for ё) */
 int cmorphy3_word_is_known(const cmorphy3 *m, const char *word);
+/* next(iter(dictionary.words.iterkeys(prefix)), None) is not None: some dictionary word
+ * starts with the UTF-8 bytes of prefix (no lowercasing, no ё fuzziness) */
+int cmorphy3_has_prefix(const cmorphy3 *m, const char *prefix);
 
 /* grammemes and tags */
 int cmorphy3_grammeme(const cmorphy3 *m, const char *name);        /* index or -1 */

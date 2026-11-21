@@ -2491,6 +2491,13 @@ int cmorphy3_inflect(const cmorphy3 *m, cmorphy3_arena *a, const cmorphy3_form *
 	return ok;
 }
 
+int cmorphy3_has_prefix(const cmorphy3 *m, const char *prefix)
+{
+	/* a minimal DAWG has no dead ends: every reachable state leads to a key */
+	size_t n = strlen(prefix);
+	return n <= INT32_MAX && d_follow_bytes(&m->words, (const unsigned char *)prefix, (int)n, ROOT) >= 0;
+}
+
 int cmorphy3_word_is_known(const cmorphy3 *m, const char *word)
 {
 	cmorphy3_arena *a = cmorphy3_arena_new();

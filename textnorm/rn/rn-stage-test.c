@@ -44,6 +44,8 @@ static const struct {
 	{"run_numerals", rn_run_numerals},
 	{"run_abbreviations", rn_run_abbreviations},
 	{"run_latinization", rn_run_latinization},
+	{"run_finalize", rn_run_finalize},
+	{"normalize", rn_normalize},
 #define RN_PRE_ROW(name) {#name, rn_pre_##name},
 	RN_PRE_FUNCS(RN_PRE_ROW)
 #define RN_NPASS_ROW(py, c) {"normalize_" #py, nw_##c},
