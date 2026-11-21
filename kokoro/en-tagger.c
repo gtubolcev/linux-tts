@@ -5,8 +5,8 @@
  * special cases, exported as data) and the tagger of en_core_web_sm 3.8:
  * hash embeddings of NORM, PREFIX, SUFFIX, SHAPE, SPACY and IS_SPACE, a
  * maxout layer, four residual maxout window layers and a linear layer.  The
- * weights are the model's own (MIT), exported by en-tagger-export.py; the
- * numbers match spaCy's to float rounding.
+ * weights are the model's own (MIT), exported by en-tagger-export.py as
+ * float16 and widened to float32 on loading; the tags match spaCy's.
  *
  * Copyright (C) 2026 Grigory Tuboltsev
  * SPDX-License-Identifier: GPL-3.0-or-later
@@ -51,7 +51,7 @@ typedef struct
 
 struct _EnTagger
 {
-  GMappedFile *file;
+  gfloat *weights;      /* all of them, in the file's order */
   const gfloat *E[NFEAT];
   Maxout embed;
   Maxout layers[NLAYERS];
@@ -75,6 +75,27 @@ typedef struct
 } Pattern;
 
 static void patterns_free (gpointer p);
+
+/* IEEE 754 half precision (little-endian in the file) to float */
+static gfloat
+half_to_float (guint16 h)
+{
+  guint32 sign = (guint32) (h & 0x8000) << 16;
+  guint32 exp = (h >> 10) & 0x1f;
+  guint32 man = h & 0x3ff;
+  union { guint32 u; gfloat f; } v;
+
+  if (exp == 0x1f)              /* inf, NaN */
+    v.u = sign | 0x7f800000 | (man << 13);
+  else if (exp != 0)            /* normal */
+    v.u = sign | ((exp + 112) << 23) | (man << 13);
+  else                          /* zero, subnormal: man * 2^-24 */
+    {
+      v.f = ldexpf ((gfloat) man, -24);
+      v.u |= sign;
+    }
+  return v.f;
+}
 static void build_matcher (EnTagger *t);
 
 /* ---- hashes: spaCy's strings (MurmurHash64A, seed 1) and thinc's
@@ -341,14 +362,16 @@ en_tagger_open (const gchar *dir, GError **error)
 {
   EnTagger *t = g_new0 (EnTagger, 1);
   gchar *path;
+  GMappedFile *file;
+  const guchar *h;
   const gfloat *p;
-  gsize need = 8;
+  gsize n = 0;
 
   for (int i = 0; i < NFEAT; i++)
-    need += (gsize) ROWS[i] * WIDTH * 4;
-  need += (WIDTH * PIECES * NFEAT * WIDTH + WIDTH * PIECES + 2 * WIDTH) * 4;
-  need += NLAYERS * (WIDTH * PIECES * 3 * WIDTH + WIDTH * PIECES + 2 * WIDTH) * 4;
-  need += (NTAGS * WIDTH + NTAGS) * 4;
+    n += (gsize) ROWS[i] * WIDTH;
+  n += WIDTH * PIECES * NFEAT * WIDTH + WIDTH * PIECES + 2 * WIDTH;
+  n += NLAYERS * (WIDTH * PIECES * 3 * WIDTH + WIDTH * PIECES + 2 * WIDTH);
+  n += NTAGS * WIDTH + NTAGS;
 
   t->norms = g_hash_table_new_full (g_str_hash, g_str_equal, g_free, g_free);
   t->specials = g_hash_table_new_full (g_str_hash, g_str_equal, g_free, specials_free);
@@ -356,21 +379,21 @@ en_tagger_open (const gchar *dir, GError **error)
   t->matcher = g_hash_table_new_full (g_str_hash, g_str_equal, g_free, patterns_free);
 
   path = g_build_filename (dir, "en-tagger.bin", NULL);
-  t->file = g_mapped_file_new (path, FALSE, error);
-  if (t->file == NULL)
+  file = g_mapped_file_new (path, FALSE, error);
+  if (file == NULL)
     goto fail;
-  if (g_mapped_file_get_length (t->file) != need
-      || memcmp (g_mapped_file_get_contents (t->file), "ENTAGv1", 8) != 0
-      || ((guintptr) g_mapped_file_get_contents (t->file) & 3) != 0)
+  h = (const guchar *) g_mapped_file_get_contents (file);
+  if (g_mapped_file_get_length (file) != 8 + 2 * n || memcmp (h, "ENTAGh1", 8) != 0)
     {
+      g_mapped_file_unref (file);
       g_set_error (error, G_FILE_ERROR, G_FILE_ERROR_INVAL, "%s: not a tagger of this kind", path);
       goto fail;
     }
-#if G_BYTE_ORDER != G_LITTLE_ENDIAN
-  g_set_error (error, G_FILE_ERROR, G_FILE_ERROR_INVAL, "%s: little-endian floats only", path);
-  goto fail;
-#endif
-  p = (const gfloat *) (g_mapped_file_get_contents (t->file) + 8);
+  t->weights = g_new (gfloat, n);
+  for (gsize i = 0; i < n; i++)
+    t->weights[i] = half_to_float (h[8 + 2 * i] | (guint16) h[9 + 2 * i] << 8);
+  g_mapped_file_unref (file);
+  p = t->weights;
   for (int i = 0; i < NFEAT; i++)
     {
       t->E[i] = p;
@@ -421,8 +444,7 @@ en_tagger_free (EnTagger *t)
 {
   if (t == NULL)
     return;
-  if (t->file != NULL)
-    g_mapped_file_unref (t->file);
+  g_free (t->weights);
   g_hash_table_destroy (t->norms);
   g_hash_table_destroy (t->specials);
   g_hash_table_destroy (t->symbols);

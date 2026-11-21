@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # en-tagger-export - writes the data of en-tagger.c from spaCy's
 # en_core_web_sm 3.8 (MIT, Explosion): the tok2vec and tagger weights as
-# en-tagger.bin ("ENTAGv1\0", then little-endian float32: the six hash
+# en-tagger.bin ("ENTAGh1\0", then little-endian float16: the six hash
 # embeddings, the embedding maxout and its layer norm, four maxout+norm
 # layers, the softmax), spaCy's norms (BASE_NORMS over the lexeme_norm table
 # of spacy-lookups-data), the tokenizer's special cases, its regexes and
@@ -29,11 +29,11 @@ for w, l in [(32, 33), (40, 41), (48, 49), (56, 57)]:
 seeds = [n.attrs["seed"] for n in t2v.walk() if n.name == "hashembed"]
 assert seeds == [8, 9, 10, 11, 12, 13], seeds
 with open(out + "/en-tagger.bin", "wb") as f:
-    f.write(b"ENTAGv1\0")
+    f.write(b"ENTAGh1\0")
     for k in order:
-        f.write(np.ascontiguousarray(P[k], dtype="<f4").tobytes())
-    f.write(np.ascontiguousarray(sm.get_param("W"), dtype="<f4").tobytes())
-    f.write(np.ascontiguousarray(sm.get_param("b"), dtype="<f4").tobytes())
+        f.write(np.ascontiguousarray(P[k], dtype="<f2").tobytes())
+    f.write(np.ascontiguousarray(sm.get_param("W"), dtype="<f2").tobytes())
+    f.write(np.ascontiguousarray(sm.get_param("b"), dtype="<f2").tobytes())
 with open(out + "/en-tagger-labels.txt", "w") as f:
     f.write("\n".join(nlp.get_pipe("tagger").labels) + "\n")
 t = nlp.vocab.lookups.get_table("lexeme_norm")
