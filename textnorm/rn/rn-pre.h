@@ -49,7 +49,10 @@
 	X(normalize_phone_numbers)                                                              \
 	X(normalize_labelled_identifiers)                                                       \
 	X(drop_superscript_footnote_markers)                                                    \
-	X(fix_glued_numbers)
+	X(fix_glued_numbers)                                                                    \
+	X(normalize_era_abbreviations)                                                          \
+	X(normalize_numeric_abbreviations)                                                      \
+	X(normalize_international_phone_numbers)
 
 #define RN_PRE_DECL(name) int rn_pre_##name(const rn_str *in, rn_str *out);
 RN_PRE_FUNCS(RN_PRE_DECL)
@@ -57,5 +60,10 @@ RN_PRE_FUNCS(RN_PRE_DECL)
 
 /* classify_bracketed_numeric_content: 'n'umeric, 'r'eference or 'o'ther */
 char rn_classify_bracketed(const uint32_t *s, size_t n);
+
+/* text_scan.first_non_whitespace_index; *saw_newline may be NULL */
+size_t rn_first_non_ws(const uint32_t *s, size_t n, size_t start, int *saw_newline);
+/* abbreviation_context.should_keep_terminal_abbreviation_dot */
+int rn_keep_terminal_abbr_dot(const uint32_t *s, size_t n, size_t end);
 
 #endif

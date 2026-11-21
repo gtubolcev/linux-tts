@@ -66,12 +66,18 @@ and listed in `QUIRKS.md` for review.
     opens it from `$RN_MORPH_DICT`.
   - `rn-pre.[ch]`: the preprocess helpers, one `rn_pre_<name>` per Python function, also
     stages of rn-stage-test under the Python name (checked on trace-sub pairs). 2026-11-21:
-    the 45 functions in `RN_PRE_FUNCS` exact on core: `rn-pre.c` (cleanup helpers),
+    the 48 functions in `RN_PRE_FUNCS` exact on core: `rn-pre.c` (cleanup helpers),
     `rn-numbering.c` (numbering.py), `rn-refs.c` (references.py), `rn-ident.c`
     (identifiers.py).
   - `rn-num.[ch]`: rn's num2words wrappers (cardinal/ordinal with its fallbacks, roman).
   - `rn-tables.[ch]`: rn's constant dicts/sets (letter names, numeric suffixes, …);
     `gen-tables.py RN_SRC rn-tables-data.h` (in claude-ru-normalizr) dumps them.
+  - `rn-phone.[ch]`: the part of phonenumbers 9.0.43 that phones.py calls (parse of
+    "+digits", is_valid_number, E164/INTERNATIONAL formatting); `gen-phonemeta.py OUT.h`
+    dumps its metadata to `rn-phonemeta.h` (libphonenumber metadata, Apache-2.0).
+    Check: `phone-check.py gen > numbers` (example numbers of every region, variants,
+    random), `phone-check.py` vs `phone-check` (C): 143 648 inputs (22 153 valid) identical
+    (2026-11-21). `rn-phones.c` phones.py, `rn-abbr.c` the numeric/era abbreviations.
   - `rn-units.[ch]`: UnitRegistry.resolve and resolve_unit_expression; `gen-units.py RN_SRC
     rn-units-data.h` (in claude-ru-normalizr) dumps rn's unit tables. Check: `units-check.py`
     vs `units-check.c` over 95 026 corpus tokens, identical (2026-11-21).
