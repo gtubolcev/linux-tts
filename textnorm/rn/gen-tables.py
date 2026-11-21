@@ -16,6 +16,7 @@ from ru_normalizr.numerals import numeric_suffixes as NS  # noqa: E402
 from ru_normalizr.numerals import _constants as NC  # noqa: E402
 from ru_normalizr.numerals import _rules as NR  # noqa: E402
 from ru_normalizr import roman_numerals as R  # noqa: E402
+from ru_normalizr import abbreviation_rules as AR  # noqa: E402
 
 
 def cstr(s) -> str:
@@ -74,6 +75,23 @@ TABLES["ROMAN_HEADING_ABBREVIATION_LEMMAS"] = dict(R._ROMAN_HEADING_ABBREVIATION
 TABLES["ROMAN_ABBREVIATION_EXCEPTIONS"] = dict.fromkeys(R._ROMAN_ABBREVIATION_EXCEPTIONS)
 TABLES["CENTURY_LOCATIVE_PREPOSITIONS"] = dict.fromkeys(R._CENTURY_LOCATIVE_PREPOSITIONS)
 TABLES["HEAD_LOCATIVE_PREPOSITIONS"] = dict.fromkeys(R._HEAD_LOCATIVE_PREPOSITIONS)
+# abbreviation_rules.py
+TABLES["ADJECTIVE_ABBREVIATION_EXPANSIONS"] = dict(AR.ADJECTIVE_ABBREVIATION_EXPANSIONS)
+TABLES["GEO_CLASSIFIER_ABBREVIATIONS"] = dict(AR.GEO_CLASSIFIER_ABBREVIATIONS)
+TABLES["GEO_NAME_REQUIRED_ABBREVIATIONS"] = dict.fromkeys(AR.GEO_NAME_REQUIRED_ABBREVIATIONS)
+TABLES["RELIEF_CONTEXT_LEMMAS"] = dict.fromkeys(AR.RELIEF_CONTEXT_LEMMAS)
+# value "lemma number"
+TABLES["DECLINABLE_NOUN_ABBREVIATIONS"] = {
+    k: "%s %s" % v for k, v in AR.DECLINABLE_NOUN_ABBREVIATIONS.items()}
+# ordered lists, as {key, value} in their order: ABBREVIATION_PATTERNS as {literal hint or
+# NULL, replacement} (rn-patterns.h holds the patterns as ABBREVIATION_PATTERNS_<i>_0)
+ORDERED = {
+    "ABBREVIATION_RULES": list(zip(AR.ABBREVIATION_LITERAL_HINTS,
+                                   (r for _p, r in AR.ABBREVIATION_PATTERNS))),
+    "MOTION_VERB_ROOT_SUFFIXES": [(x, None) for x in AR.MOTION_VERB_ROOT_SUFFIXES],
+}
+for _k, _r in ORDERED["ABBREVIATION_RULES"]:
+    assert "\\" not in _r, "match.expand() would treat the backslash"
 assert R._ROMAN_ABBREVIATION_TO_CONTEXT == {
     "в": ("век", "sing"), "вв": ("век", "plur"), "кв": ("квартал", "sing"),
     "стол": ("столетие", "sing")}, "rn-roman.c hard-codes _ROMAN_ABBREVIATION_TO_CONTEXT"
@@ -87,6 +105,11 @@ with open(sys.argv[2], "w", encoding="utf-8") as f:
         f.write(f"static const rn_kv RN_{name}[] = {{\n")
         for k in sorted(table, key=lambda s: s.encode()):
             f.write(f"\t{{{cstr(k)}, {cstr(table[k])}}},\n")
+        f.write("};\n")
+    for name, items in ORDERED.items():
+        f.write(f"static const rn_kv RN_O_{name}[] = {{\n")
+        for k, v in items:
+            f.write(f"\t{{{cstr(k)}, {cstr(v)}}},\n")
         f.write("};\n")
 
 import os  # noqa: E402

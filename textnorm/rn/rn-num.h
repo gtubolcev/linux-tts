@@ -25,6 +25,10 @@ extern unsigned rn_fixes;
 #define RN_FIX_NUM_RANGE_DASH 0x2000u  /* R17 */
 #define RN_FIX_YEAR_BARE_AGREE 0x4000u /* R19 */
 #define RN_FIX_FRAC_STALE_TEXT 0x8000u /* R20 */
+#define RN_FIX_ABBR_GG 0x10000u        /* R18, "гг. депутаты" */
+#define RN_FIX_GEO_RIVER 0x20000u      /* R21, "р. Волга" */
+#define RN_FIX_GEO_MOTION 0x40000u     /* R22, "ездил в г. Тверь" */
+#define RN_FIX_ABBR_MIXED 0x80000u     /* R23, "СПбГУ" */
 
 #define RN_NO_GENDER (-1)
 

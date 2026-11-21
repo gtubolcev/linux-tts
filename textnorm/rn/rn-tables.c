@@ -21,6 +21,24 @@ static int cmp(const void *k, const void *e)
 	return strcmp(k, ((const rn_kv *)e)->key);
 }
 
+const rn_kv *rn_table_all(enum rn_table t, size_t *n)
+{
+	*n = TABLES[t].n;
+	return TABLES[t].kv;
+}
+
+const rn_kv *rn_abbr_rules(size_t *n)
+{
+	*n = sizeof RN_O_ABBREVIATION_RULES / sizeof *RN_O_ABBREVIATION_RULES;
+	return RN_O_ABBREVIATION_RULES;
+}
+
+const rn_kv *rn_motion_suffixes(size_t *n)
+{
+	*n = sizeof RN_O_MOTION_VERB_ROOT_SUFFIXES / sizeof *RN_O_MOTION_VERB_ROOT_SUFFIXES;
+	return RN_O_MOTION_VERB_ROOT_SUFFIXES;
+}
+
 const rn_kv *rn_table_get(enum rn_table t, const char *key)
 {
 	return bsearch(key, TABLES[t].kv, TABLES[t].n, sizeof(rn_kv), cmp);

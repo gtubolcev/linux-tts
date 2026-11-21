@@ -30,5 +30,6 @@ int rn_counted_noun_follows(const uint32_t *s, size_t n, size_t mstart, size_t e
 int rn_run_so(const rn_str *in, rn_str *out);
 /* run_numerals of normalizer.py with the tts() options (rn-nrun.c) */
 int rn_run_numerals(const rn_str *in, rn_str *out);
+int rn_run_abbreviations(const rn_str *in, rn_str *out);
 
 #endif

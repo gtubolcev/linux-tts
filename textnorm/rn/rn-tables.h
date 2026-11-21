@@ -24,6 +24,14 @@ const rn_kv *rn_table_get32(enum rn_table t, const uint32_t *s, size_t n);
 #define rn_in(t, key) (rn_table_get(RN_T_##t, key) != NULL)
 #define rn_in32(t, s, n) (rn_table_get32(RN_T_##t, s, n) != NULL)
 
+/* all entries, sorted by key bytes */
+const rn_kv *rn_table_all(enum rn_table t, size_t *n);
+/* abbreviation_rules.py in order: ABBREVIATION_PATTERNS as {literal hint or NULL,
+ * replacement} (pattern i is RN_ABBREVIATION_RULES_ABBREVIATION_PATTERNS_<i>_0), and
+ * MOTION_VERB_ROOT_SUFFIXES as {suffix, NULL} */
+const rn_kv *rn_abbr_rules(size_t *n);
+const rn_kv *rn_motion_suffixes(size_t *n);
+
 /* resolve_letter_name(letter, vowel_mode) of constants.py: NULL for None */
 const char *rn_letter_name(uint32_t letter, int double_vowels);
 
