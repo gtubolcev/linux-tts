@@ -29,7 +29,9 @@
 	X(insert_missing_space_before_paren)                                                    \
 	X(normalize_script_homoglyphs)                                                          \
 	X(normalize_ascii_quote_pairs)                                                          \
-	X(normalize_punctuation_spacing)
+	X(normalize_punctuation_spacing)                                                       \
+	X(protect_unit_slashes)                                                                 \
+	X(clean_numbers)
 
 #define RN_PRE_DECL(name) int rn_pre_##name(const rn_str *in, rn_str *out);
 RN_PRE_FUNCS(RN_PRE_DECL)
