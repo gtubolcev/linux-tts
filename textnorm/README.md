@@ -66,7 +66,12 @@ and listed in `QUIRKS.md` for review.
     opens it from `$RN_MORPH_DICT`.
   - `rn-pre.[ch]`: the preprocess helpers, one `rn_pre_<name>` per Python function, also
     stages of rn-stage-test under the Python name (checked on trace-sub pairs). 2026-11-21:
-    the 27 functions in `RN_PRE_FUNCS` exact on core.
+    the 45 functions in `RN_PRE_FUNCS` exact on core: `rn-pre.c` (cleanup helpers),
+    `rn-numbering.c` (numbering.py), `rn-refs.c` (references.py), `rn-ident.c`
+    (identifiers.py).
+  - `rn-num.[ch]`: rn's num2words wrappers (cardinal/ordinal with its fallbacks, roman).
+  - `rn-tables.[ch]`: rn's constant dicts/sets (letter names, numeric suffixes, …);
+    `gen-tables.py RN_SRC rn-tables-data.h` (in claude-ru-normalizr) dumps them.
   - `rn-units.[ch]`: UnitRegistry.resolve and resolve_unit_expression; `gen-units.py RN_SRC
     rn-units-data.h` (in claude-ru-normalizr) dumps rn's unit tables. Check: `units-check.py`
     vs `units-check.c` over 95 026 corpus tokens, identical (2026-11-21).
