@@ -27,6 +27,7 @@
 	X(numeric_suffixes, numeric_suffixes)                          \
 	X(numeric_unit_ranges, numeric_unit_ranges)                    \
 	X(remaining_post_numeral_abbreviations, remaining_post_numeral_abbreviations) \
+	X(cardinal_numerals, cardinal_numerals)                        \
 	X(all_digits_everywhere, all_digits_everywhere)
 
 #define RN_NPASS_DECL(py, c) int rn_n_##c(rn_str *t);

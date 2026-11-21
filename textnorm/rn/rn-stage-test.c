@@ -40,6 +40,7 @@ static const struct {
 	{"run_dates_time", rn_run_dates_time},
 	{"run_years", rn_run_years},
 	{"run_so", rn_run_so},
+	{"run_numerals", rn_run_numerals},
 #define RN_PRE_ROW(name) {#name, rn_pre_##name},
 	RN_PRE_FUNCS(RN_PRE_ROW)
 #define RN_NPASS_ROW(py, c) {"normalize_" #py, nw_##c},

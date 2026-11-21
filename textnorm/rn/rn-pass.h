@@ -28,5 +28,7 @@ int rn_run_years(const rn_str *in, rn_str *out);
 int rn_counted_noun_follows(const uint32_t *s, size_t n, size_t mstart, size_t end, long number);
 /* R4 (RN_FIX_SO): "с" → "со" before "сто", "ста", "втор…"; not in the oracle */
 int rn_run_so(const rn_str *in, rn_str *out);
+/* run_numerals of normalizer.py with the tts() options (rn-nrun.c) */
+int rn_run_numerals(const rn_str *in, rn_str *out);
 
 #endif
