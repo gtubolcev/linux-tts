@@ -18,5 +18,7 @@ int rn_remove_numeric_footnotes(const rn_str *in, rn_str *out);
 int rn_protect_paths(const rn_str *in, rn_str *out, rn_ph *ph);
 int rn_protect_overlong(const rn_str *in, rn_str *out, rn_ph *ph);
 int rn_run_protect(const rn_str *in, rn_str *out);   /* both, for tests */
+/* normalize_roman of roman_numerals.py (needs rn_morph and rn_mx_init) */
+int rn_run_roman(const rn_str *in, rn_str *out);
 
 #endif

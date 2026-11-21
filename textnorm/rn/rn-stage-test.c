@@ -11,6 +11,8 @@
 #include "rn-pat.h"
 #include "rn-pre.h"
 #include "rn-morph.h"
+#include "rn-mx.h"
+#include "rn-num.h"
 
 static const struct {
 	const char *name;
@@ -22,6 +24,7 @@ static const struct {
 	{"_run_preprocess_steps", rn_run_preprocess},
 	{"_run_caps_normalization", rn_run_caps},
 	{"remove_numeric_footnotes", rn_remove_numeric_footnotes},
+	{"run_roman", rn_run_roman},
 #define RN_PRE_ROW(name) {#name, rn_pre_##name},
 	RN_PRE_FUNCS(RN_PRE_ROW)
 };
@@ -84,11 +87,17 @@ int main(int argc, char **argv)
 	char err[300];
 	struct timespec t0, t1;
 	clock_gettime(CLOCK_MONOTONIC, &t0);
+	if (getenv("RN_FIXES"))   /* RN_FIX_* mask: the fixed mode instead of the oracle's */
+		rn_fixes = (unsigned)strtoul(getenv("RN_FIXES"), NULL, 0);
 	const char *dict = getenv("RN_MORPH_DICT");
 	if (dict) {
 		const char *merr = NULL;
 		if (rn_morph_open(dict, &merr) < 0) {
 			fprintf(stderr, "%s: %s\n", dict, merr ? merr : "cannot open");
+			return 2;
+		}
+		if (rn_mx_init() < 0) {
+			fprintf(stderr, "%s: grammemes missing\n", dict);
 			return 2;
 		}
 	}

@@ -7,6 +7,9 @@
 
 /* N2W_FIX_* used by every num2words call; 0 (the default) = the oracle's output */
 extern unsigned rn_n2w_fixes;
+/* RN_FIX_* (QUIRKS.md, R…) used by the rn passes; 0 (the default) = the oracle's output */
+extern unsigned rn_fixes;
+#define RN_FIX_ROMAN_RANGE_NOUN 0x1u   /* R5 */
 
 #define RN_NO_GENDER (-1)
 
