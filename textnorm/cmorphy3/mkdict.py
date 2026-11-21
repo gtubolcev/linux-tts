@@ -1,12 +1,12 @@
 #!/usr/bin/python3 -I
-"""mkmorph.py DICT_DIR OUT.bin: convert pymorphy3-dicts-ru data to one file for tn-morph.
+"""mkdict.py DICT_DIR OUT.bin: convert pymorphy3-dicts-ru data to one file for cmorphy3.
 
 DICT_DIR is the pymorphy3 dictionary directory (meta.json, grammemes.json,
 gramtab-opencorpora-int.json, suffixes.json, paradigms.array, words.dawg,
 prediction-suffixes-N.dawg, p_t_given_w.intdawg). The output is little-endian and read with
-mmap by morph.c; the DAWG files are copied unchanged.
+mmap by cmorphy3.c; the DAWG files are copied unchanged.
 
-Layout: header "TNMORPH1", u32 version, u32 section count, then per section u32 id, u32
+Layout: header "CMORPHY3", u32 version, u32 section count, then per section u32 id, u32
 reserved, u64 offset, u64 length; sections are 8-byte aligned. Strings live in the STR
 section as u16 byte length, u16 character length, UTF-8 bytes, NUL; other sections refer to
 them by u32 offset.
@@ -180,7 +180,7 @@ for i in ids:
         body.append(0)
     table.append((i, off + len(body), len(sec[i])))
     body.extend(sec[i])
-out.extend(b"TNMORPH1" + struct.pack("<II", VERSION, len(ids)))
+out.extend(b"CMORPHY3" + struct.pack("<II", VERSION, len(ids)))
 for i, o, ln in table:
     out.extend(struct.pack("<IIQQ", i, 0, o, ln))
 while len(out) < off:

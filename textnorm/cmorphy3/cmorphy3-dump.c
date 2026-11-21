@@ -1,10 +1,10 @@
-/* morph-dump DICT.bin < words > out.jsonl: parses and inflections of each input word, in the
- * format of morph-dump.py (pymorphy3), for compare-dump.py. */
+/* cmorphy3-dump DICT.bin < words > out.jsonl: parses and inflections of each input word, in the
+ * format of pymorphy3-dump.py (pymorphy3), for compare-dump.py. */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
-#include "morph.h"
+#include "cmorphy3.h"
 
 #define NINFL_PARSES 3
 
@@ -29,12 +29,12 @@ static void jstr(const char *s)
 	putchar('"');
 }
 
-static void jparse(const tn_morph *m, const tn_parse *p)
+static void jparse(const cmorphy3 *m, const cmorphy3_form *p)
 {
 	putchar('[');
 	jstr(p->word);
 	putchar(',');
-	jstr(tn_morph_tag_str(m, p->tag));
+	jstr(cmorphy3_tag_str(m, p->tag));
 	putchar(',');
 	jstr(p->normal_form);
 	printf(",%.17g]", p->score);
@@ -44,37 +44,37 @@ int main(int argc, char **argv)
 {
 	const char *err;
 	if (argc != 2) {
-		fprintf(stderr, "usage: morph-dump DICT.bin < words\n");
+		fprintf(stderr, "usage: cmorphy3-dump DICT.bin < words\n");
 		return 2;
 	}
-	tn_morph *m = tn_morph_open(argv[1], &err);
+	cmorphy3 *m = cmorphy3_open(argv[1], &err);
 	if (!m) {
-		fprintf(stderr, "morph-dump: %s\n", err);
+		fprintf(stderr, "cmorphy3-dump: %s\n", err);
 		return 1;
 	}
-	tn_gset req[sizeof(REQS) / sizeof(REQS[0])];
+	cmorphy3_gset req[sizeof(REQS) / sizeof(REQS[0])];
 	for (size_t i = 0; i < sizeof(REQS) / sizeof(REQS[0]); i++)
-		if (!tn_morph_gset(m, REQS[i], &req[i])) {
+		if (!cmorphy3_grammemes(m, REQS[i], &req[i])) {
 			fprintf(stderr, "bad grammemes %s\n", REQS[i]);
 			return 1;
 		}
-	tn_arena *a = tn_arena_new();
+	cmorphy3_arena *a = cmorphy3_arena_new();
 	char *line = NULL;
 	size_t cap = 0;
 	ssize_t len;
 	while ((len = getline(&line, &cap, stdin)) >= 0) {
 		if (len && line[len - 1] == '\n')
 			line[--len] = 0;
-		tn_arena_reset(a);
-		tn_parse *ps;
-		int n = tn_morph_parse(m, a, line, &ps);
+		cmorphy3_arena_reset(a);
+		cmorphy3_form *ps;
+		int n = cmorphy3_parse(m, a, line, &ps);
 		if (n < 0) {
 			fprintf(stderr, "out of memory\n");
 			return 1;
 		}
 		printf("{\"w\":");
 		jstr(line);
-		printf(",\"k\":%d,\"p\":[", tn_morph_word_is_known(m, line));
+		printf(",\"k\":%d,\"p\":[", cmorphy3_word_is_known(m, line));
 		for (int i = 0; i < n; i++) {
 			if (i)
 				putchar(',');
@@ -82,8 +82,8 @@ int main(int argc, char **argv)
 		}
 		printf("],\"l\":[");
 		for (int i = 0; i < n && i < NINFL_PARSES; i++) {
-			tn_parse *lx;
-			int k = tn_morph_lexeme(m, a, &ps[i], &lx);
+			cmorphy3_form *lx;
+			int k = cmorphy3_lexeme(m, a, &ps[i], &lx);
 			if (i)
 				putchar(',');
 			putchar('[');
@@ -100,10 +100,10 @@ int main(int argc, char **argv)
 				putchar(',');
 			putchar('[');
 			for (size_t r = 0; r < sizeof(REQS) / sizeof(REQS[0]); r++) {
-				tn_parse o;
+				cmorphy3_form o;
 				if (r)
 					putchar(',');
-				if (tn_morph_inflect(m, a, &ps[i], req[r], &o) == 1)
+				if (cmorphy3_inflect(m, a, &ps[i], req[r], &o) == 1)
 					jparse(m, &o);
 				else
 					printf("null");
@@ -113,7 +113,7 @@ int main(int argc, char **argv)
 		printf("]}\n");
 	}
 	free(line);
-	tn_arena_free(a);
-	tn_morph_close(m);
+	cmorphy3_arena_free(a);
+	cmorphy3_close(m);
 	return 0;
 }

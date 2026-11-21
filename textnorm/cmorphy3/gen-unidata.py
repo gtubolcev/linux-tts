@@ -2,7 +2,7 @@
 """gen-unidata.py > unidata.h: Unicode tables matching the oracle's Python.
 
 Run it with the oracle's Python (3.12.3, Unicode 15.0) so str.lower(), str.isalpha() & co.
-in morph.c behave exactly as in pymorphy3 there. Cased / case-ignorable (for the final-sigma
+in cmorphy3.c behave exactly as in pymorphy3 there. Cased / case-ignorable (for the final-sigma
 rule of str.lower()) are read back from str.lower() itself.
 """
 import sys
@@ -73,7 +73,7 @@ for r in dec:
     print("\t{0x%X, 0x%X, %d}," % tuple(r))
 print("};")
 
-# str.lower() of single characters (U+03A3 handled by the final-sigma rule in morph.c)
+# str.lower() of single characters (U+03A3 handled by the final-sigma rule in cmorphy3.c)
 low = []
 for cp in range(MAX):
     if 0xD800 <= cp < 0xE000:

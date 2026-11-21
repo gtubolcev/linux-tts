@@ -11,13 +11,13 @@ match its output byte for byte, except for a reviewed list of deliberate fixes.
   and every pipeline stage (`steps`), so the port can be checked pass by pass.
 - `tests/golden/core.jsonl.zst` — oracle output for `core.jsonl` (14 170 records,
   `{"id","in","out","steps"}`).
-- `morph/` — pymorphy3 2.0.6 in C (`morph.h`, `morph.c`): parse, lexeme, inflect,
+- `cmorphy3/` — pymorphy3 2.0.6 in C (`cmorphy3.h`, `cmorphy3.c`; "c" instead of "py"): parse, lexeme, inflect,
   word_is_known, tag categories; same parses, scores (bit for bit) and forms as pymorphy3 with
   the pure-Python DAWG reader.
-  - `mkmorph.py DICT_DIR ru-morph.bin` converts pymorphy3-dicts-ru to one mmapped file (16 MB).
+  - `mkdict.py DICT_DIR cmorphy3-ru.bin` converts pymorphy3-dicts-ru to one mmapped file (16 MB).
   - `gen-unidata.py > unidata.h`: Unicode tables (lower(), isalpha, …) taken from the oracle's
     Python 3.12.3, so str methods behave the same.
-  - Check: `morph-dump ru-morph.bin < words` and `morph-dump.py < words` (pymorphy3, run in
+  - Check: `cmorphy3-dump cmorphy3-ru.bin < words` and `pymorphy3-dump.py < words` (pymorphy3, run in
     claude-ru-normalizr), then `compare-dump.py ref.jsonl c.jsonl`: parses, lexemes of the first
     3 parses and 27 inflections each. 2026-11-21: 63 373 words (core corpus tokens + edge cases)
     and 238 631 more from big.jsonl

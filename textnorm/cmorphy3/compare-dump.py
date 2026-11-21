@@ -1,5 +1,5 @@
 #!/usr/bin/python3 -I
-"""compare-dump.py REF.jsonl C.jsonl [N]: differences between morph-dump.py and morph-dump."""
+"""compare-dump.py REF.jsonl C.jsonl [N]: differences between pymorphy3-dump.py and cmorphy3-dump."""
 import collections
 import json
 import sys

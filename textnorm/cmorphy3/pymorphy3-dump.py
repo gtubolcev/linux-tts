@@ -1,5 +1,5 @@
 #!/usr/bin/python3 -I
-"""morph-dump.py < words > out.jsonl: the pymorphy3 reference for morph-dump.c.
+"""pymorphy3-dump.py < words > out.jsonl: the pymorphy3 reference for cmorphy3-dump.c.
 
 Uses the pure-Python DAWG reader, as the oracle (trace.py) does."""
 import json

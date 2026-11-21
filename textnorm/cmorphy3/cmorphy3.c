@@ -1,4 +1,4 @@
-/* tn-morph: pymorphy3 2.0.6 in C. See morph.h.
+/* cmorphy3: pymorphy3 2.0.6 in C. See cmorphy3.h.
  *
  * The code follows pymorphy3's analyzer units one by one (names in the comments refer to
  * pymorphy3/units/ and dawg_python/); where Python semantics matter (slicing, sum(),
@@ -7,7 +7,7 @@
  *
  * The dictionary file is third-party data: every index read from it is checked.
  */
-#include "morph.h"
+#include "cmorphy3.h"
 
 #include <fcntl.h>
 #include <math.h>
@@ -32,17 +32,17 @@ struct chunk {
 	_Alignas(16) unsigned char data[];
 };
 
-struct tn_arena {
+struct cmorphy3_arena {
 	struct chunk *head, *cur;   /* chunks before cur are full; reset keeps them all */
-	jmp_buf *oom;               /* set while a tn_morph_* call runs */
+	jmp_buf *oom;               /* set while a cmorphy3_* call runs */
 };
 
-tn_arena *tn_arena_new(void)
+cmorphy3_arena *cmorphy3_arena_new(void)
 {
-	return calloc(1, sizeof(tn_arena));
+	return calloc(1, sizeof(cmorphy3_arena));
 }
 
-void tn_arena_reset(tn_arena *a)
+void cmorphy3_arena_reset(cmorphy3_arena *a)
 {
 	if (!a)
 		return;
@@ -51,7 +51,7 @@ void tn_arena_reset(tn_arena *a)
 	a->cur = a->head;
 }
 
-void tn_arena_free(tn_arena *a)
+void cmorphy3_arena_free(cmorphy3_arena *a)
 {
 	if (!a)
 		return;
@@ -63,7 +63,7 @@ void tn_arena_free(tn_arena *a)
 	free(a);
 }
 
-void *tn_arena_alloc(tn_arena *a, size_t n)
+void *cmorphy3_arena_alloc(cmorphy3_arena *a, size_t n)
 {
 	if (n > SIZE_MAX / 2)
 		goto oom;
@@ -102,10 +102,10 @@ oom:
 	return NULL;
 }
 
-char *tn_arena_strdup(tn_arena *a, const char *s)
+char *cmorphy3_arena_strdup(cmorphy3_arena *a, const char *s)
 {
 	size_t n = strlen(s) + 1;
-	char *p = tn_arena_alloc(a, n);
+	char *p = cmorphy3_arena_alloc(a, n);
 	if (p)
 		memcpy(p, s, n);
 	return p;
@@ -165,13 +165,13 @@ static const uint32_t *u_lower_entry(uint32_t c)
 	return NULL;
 }
 
-static void *aalloc(tn_arena *a, size_t n)
+static void *aalloc(cmorphy3_arena *a, size_t n)
 {
-	return tn_arena_alloc(a, n);
+	return cmorphy3_arena_alloc(a, n);
 }
 
 /* UTF-8 → code points; invalid bytes become U+FFFD */
-static ustr u_from_utf8(tn_arena *a, const char *s, size_t len)
+static ustr u_from_utf8(cmorphy3_arena *a, const char *s, size_t len)
 {
 	uint32_t *o = aalloc(a, (len + 1) * sizeof(uint32_t));
 	int n = 0;
@@ -234,7 +234,7 @@ static int utf8_put(unsigned char *o, uint32_t c)
 	return 4;
 }
 
-static char *u_to_utf8(tn_arena *a, ustr s)
+static char *u_to_utf8(cmorphy3_arena *a, ustr s)
 {
 	unsigned char *o = aalloc(a, (size_t)s.n * 4 + 1);
 	size_t k = 0;
@@ -244,7 +244,7 @@ static char *u_to_utf8(tn_arena *a, ustr s)
 	return (char *)o;
 }
 
-static ustr u_cat(tn_arena *a, ustr x, ustr y)
+static ustr u_cat(cmorphy3_arena *a, ustr x, ustr y)
 {
 	uint32_t *o = aalloc(a, ((size_t)x.n + y.n + 1) * sizeof(uint32_t));
 	if (x.n)
@@ -254,7 +254,7 @@ static ustr u_cat(tn_arena *a, ustr x, ustr y)
 	return (ustr){o, x.n + y.n};
 }
 
-static ustr u_cat3(tn_arena *a, ustr x, ustr y, ustr z)
+static ustr u_cat3(cmorphy3_arena *a, ustr x, ustr y, ustr z)
 {
 	return u_cat(a, u_cat(a, x, y), z);
 }
@@ -307,7 +307,7 @@ static const uint32_t HYPHEN[] = {'-'};
 static const ustr U_HYPHEN = {HYPHEN, 1};
 
 /* str.lower(), with the final-sigma rule of CPython's handle_capital_sigma() */
-static ustr u_lower(tn_arena *a, ustr s)
+static ustr u_lower(cmorphy3_arena *a, ustr s)
 {
 	uint32_t *o = aalloc(a, ((size_t)s.n * 3 + 1) * sizeof(uint32_t));
 	int n = 0;
@@ -781,7 +781,7 @@ typedef struct {
 	int n, cap;
 } ditemvec;
 
-static void div_push(tn_arena *a, ditemvec *x, ditem it)
+static void div_push(cmorphy3_arena *a, ditemvec *x, ditem it)
 {
 	if (x->n == x->cap) {
 		int cap = x->cap ? x->cap * 2 : 4;
@@ -795,7 +795,7 @@ static void div_push(tn_arena *a, ditemvec *x, ditem it)
 }
 
 /* RecordDAWG._value_for_index: fmt ">HH" (fields 2) or ">IHH" (fields 3) */
-static void records_for_index(tn_arena *a, const dawg *d, long index, int fields, ditem *it)
+static void records_for_index(cmorphy3_arena *a, const dawg *d, long index, int fields, ditem *it)
 {
 	completer c;
 	int cap = 8, n = 0;
@@ -832,7 +832,7 @@ static void records_for_index(tn_arena *a, const dawg *d, long index, int fields
 
 /* BytesDAWG._similar_items with the replaces {'е': 'ё'}; buf holds the key with the
  * replacements made so far (positions < pos) */
-static void similar_items_rec(tn_arena *a, const dawg *d, uint32_t *buf, int n, int pos,
+static void similar_items_rec(cmorphy3_arena *a, const dawg *d, uint32_t *buf, int n, int pos,
                               long index, int fields, ditemvec *res)
 {
 	ditemvec extra = {0};
@@ -870,7 +870,7 @@ done:
 		div_push(a, res, extra.v[i]);
 }
 
-static ditemvec similar_items(tn_arena *a, const dawg *d, ustr key, int fields)
+static ditemvec similar_items(cmorphy3_arena *a, const dawg *d, ustr key, int fields)
 {
 	ditemvec res = {0};
 	uint32_t *buf = aalloc(a, ((size_t)key.n + 1) * sizeof(uint32_t));
@@ -902,11 +902,11 @@ static int similar_key_exists(const dawg *d, ustr key, int pos, long index)
 /* ------------------------------------------------------------ dictionary */
 
 struct tagrec {
-	tn_gset g;
+	cmorphy3_gset g;
 	const char *str;
 	uint16_t first;   /* first grammeme (OpencorporaTag._POS) */
 	uint16_t eq;      /* tags with the same grammeme tuple compare equal */
-	int8_t cat[TN_NCATEGORIES];
+	int8_t cat[CMORPHY3_NCATEGORIES];
 };
 
 enum {
@@ -916,14 +916,14 @@ enum {
 
 #define MAX_KNOWN_PREFIXES 160
 
-struct tn_morph {
+struct cmorphy3 {
 	void *map;
 	size_t maplen;
 	const unsigned char *strs;
 	size_t nstrs;
 	int ngram;
 	const char **gname;
-	tn_gset *incompat;
+	cmorphy3_gset *incompat;
 	int ntags;
 	struct tagrec *tags;
 	int nsuffix, npprefix;
@@ -937,9 +937,9 @@ struct tn_morph {
 	const char *revision;
 	uint16_t sp[SP_COUNT];
 
-	tn_gset cat[TN_NCATEGORIES], pos_set, nonproductive, feature;
+	cmorphy3_gset cat[CMORPHY3_NCATEGORIES], pos_set, nonproductive, feature;
 	int g_masc, g_femn, g_gen1, g_gent, g_loc1, g_loct, g_voy, g_vey;
-	tn_gset adv_req;   /* ADJF, sing, datv */
+	cmorphy3_gset adv_req;   /* ADJF, sing, datv */
 	int rare_from[7], rare_to[7];
 
 	int nknown;
@@ -970,14 +970,14 @@ static const char *const KNOWN_PREFIXES[] = {
 static const char *const PARTICLES[] = {"-то", "-ка", "-таки", "-де", "-тко", "-тка", "-с", "-ста"};
 static const char INITIAL_LETTERS[] = "АБВГДЕЁЖЗИЙКЛМНОПРСТУФХЦЧШЩЭЮЯ";
 
-static const char *const CAT_NAMES[TN_NCATEGORIES] = {
+static const char *const CAT_NAMES[CMORPHY3_NCATEGORIES] = {
 	"NOUN ADJF ADJS COMP VERB INFN PRTF PRTS GRND NUMR ADVB NPRO PRED PREP CONJ PRCL INTJ",
 	"anim inan", "perf impf", "nomn gent datv accs ablt loct voct gen1 gen2 acc2 loc1 loc2",
 	"masc femn neut", "incl excl", "indc impr", "sing plur", "1per 2per 3per",
 	"pres past futr", "tran intr", "actv pssv",
 };
 
-static void gset_add(tn_gset *s, int i)
+static void gset_add(cmorphy3_gset *s, int i)
 {
 	if (i < 0)
 		return;
@@ -987,42 +987,42 @@ static void gset_add(tn_gset *s, int i)
 		s->hi |= 1ull << (i - 64);
 }
 
-static tn_gset gs_or(tn_gset a, tn_gset b)
+static cmorphy3_gset gs_or(cmorphy3_gset a, cmorphy3_gset b)
 {
-	return (tn_gset){a.lo | b.lo, a.hi | b.hi};
+	return (cmorphy3_gset){a.lo | b.lo, a.hi | b.hi};
 }
 
-static tn_gset gs_and(tn_gset a, tn_gset b)
+static cmorphy3_gset gs_and(cmorphy3_gset a, cmorphy3_gset b)
 {
-	return (tn_gset){a.lo & b.lo, a.hi & b.hi};
+	return (cmorphy3_gset){a.lo & b.lo, a.hi & b.hi};
 }
 
-static tn_gset gs_andnot(tn_gset a, tn_gset b)
+static cmorphy3_gset gs_andnot(cmorphy3_gset a, cmorphy3_gset b)
 {
-	return (tn_gset){a.lo & ~b.lo, a.hi & ~b.hi};
+	return (cmorphy3_gset){a.lo & ~b.lo, a.hi & ~b.hi};
 }
 
-static tn_gset gs_xor(tn_gset a, tn_gset b)
+static cmorphy3_gset gs_xor(cmorphy3_gset a, cmorphy3_gset b)
 {
-	return (tn_gset){a.lo ^ b.lo, a.hi ^ b.hi};
+	return (cmorphy3_gset){a.lo ^ b.lo, a.hi ^ b.hi};
 }
 
-static int gs_empty(tn_gset a)
+static int gs_empty(cmorphy3_gset a)
 {
 	return !a.lo && !a.hi;
 }
 
-static int gs_eq(tn_gset a, tn_gset b)
+static int gs_eq(cmorphy3_gset a, cmorphy3_gset b)
 {
 	return a.lo == b.lo && a.hi == b.hi;
 }
 
-static int gs_count(tn_gset a)
+static int gs_count(cmorphy3_gset a)
 {
 	return __builtin_popcountll(a.lo) + __builtin_popcountll(a.hi);
 }
 
-int tn_morph_grammeme(const tn_morph *m, const char *name)
+int cmorphy3_grammeme(const cmorphy3 *m, const char *name)
 {
 	for (int i = 0; i < m->ngram; i++)
 		if (strcmp(m->gname[i], name) == 0)
@@ -1030,7 +1030,7 @@ int tn_morph_grammeme(const tn_morph *m, const char *name)
 	return -1;
 }
 
-static int grammeme_n(const tn_morph *m, const char *name, size_t len)
+static int grammeme_n(const cmorphy3 *m, const char *name, size_t len)
 {
 	for (int i = 0; i < m->ngram; i++)
 		if (strlen(m->gname[i]) == len && memcmp(m->gname[i], name, len) == 0)
@@ -1038,19 +1038,19 @@ static int grammeme_n(const tn_morph *m, const char *name, size_t len)
 	return -1;
 }
 
-const char *tn_morph_grammeme_name(const tn_morph *m, int i)
+const char *cmorphy3_grammeme_name(const cmorphy3 *m, int i)
 {
 	return i >= 0 && i < m->ngram ? m->gname[i] : NULL;
 }
 
-int tn_morph_grammeme_count(const tn_morph *m)
+int cmorphy3_grammeme_count(const cmorphy3 *m)
 {
 	return m->ngram;
 }
 
-int tn_morph_gset(const tn_morph *m, const char *names, tn_gset *out)
+int cmorphy3_grammemes(const cmorphy3 *m, const char *names, cmorphy3_gset *out)
 {
-	tn_gset s = {0, 0};
+	cmorphy3_gset s = {0, 0};
 	const char *p = names;
 	while (*p) {
 		while (*p == ',' || *p == ' ')
@@ -1070,52 +1070,52 @@ int tn_morph_gset(const tn_morph *m, const char *names, tn_gset *out)
 	return 1;
 }
 
-int tn_morph_tag_count(const tn_morph *m)
+int cmorphy3_tag_count(const cmorphy3 *m)
 {
 	return m->ntags;
 }
 
-const char *tn_morph_tag_str(const tn_morph *m, uint16_t tag)
+const char *cmorphy3_tag_str(const cmorphy3 *m, uint16_t tag)
 {
 	return tag < m->ntags ? m->tags[tag].str : "";
 }
 
-tn_gset tn_morph_tag_gset(const tn_morph *m, uint16_t tag)
+cmorphy3_gset cmorphy3_tag_gset(const cmorphy3 *m, uint16_t tag)
 {
-	return tag < m->ntags ? m->tags[tag].g : (tn_gset){0, 0};
+	return tag < m->ntags ? m->tags[tag].g : (cmorphy3_gset){0, 0};
 }
 
-int tn_morph_tag_get(const tn_morph *m, uint16_t tag, enum tn_category c)
+int cmorphy3_tag_get(const cmorphy3 *m, uint16_t tag, enum cmorphy3_category c)
 {
-	if (tag >= m->ntags || c < 0 || c >= TN_NCATEGORIES)
+	if (tag >= m->ntags || c < 0 || c >= CMORPHY3_NCATEGORIES)
 		return -1;
 	return m->tags[tag].cat[c];
 }
 
-tn_gset tn_morph_fix_rare_cases(const tn_morph *m, tn_gset g)
+cmorphy3_gset cmorphy3_fix_rare_cases(const cmorphy3 *m, cmorphy3_gset g)
 {
-	tn_gset r = g;
+	cmorphy3_gset r = g;
 	for (int i = 0; i < 7; i++) {
-		if (m->rare_from[i] >= 0 && tn_gset_has(g, m->rare_from[i])) {
-			tn_gset one = {0, 0};
+		if (m->rare_from[i] >= 0 && cmorphy3_gset_has(g, m->rare_from[i])) {
+			cmorphy3_gset one = {0, 0};
 			gset_add(&one, m->rare_from[i]);
 			r = gs_andnot(r, one);
 		}
 	}
 	for (int i = 0; i < 7; i++)
-		if (m->rare_from[i] >= 0 && tn_gset_has(g, m->rare_from[i]))
+		if (m->rare_from[i] >= 0 && cmorphy3_gset_has(g, m->rare_from[i]))
 			gset_add(&r, m->rare_to[i]);
 	return r;
 }
 
-const char *tn_morph_revision(const tn_morph *m)
+const char *cmorphy3_revision(const cmorphy3 *m)
 {
 	return m->revision;
 }
 
 /* ------------------------------------------------------------ file */
 
-static const char *str_at(const tn_morph *m, uint32_t off, int *clen)
+static const char *str_at(const cmorphy3 *m, uint32_t off, int *clen)
 {
 	if (off > m->nstrs || m->nstrs - off < 5)
 		return NULL;
@@ -1157,7 +1157,7 @@ static int load_dawg(const unsigned char *p, uint64_t len, int completion, dawg 
 	return 1;
 }
 
-static ustr ustr_from_static(tn_morph *m, const char *s, size_t *used, size_t cap)
+static ustr ustr_from_static(cmorphy3 *m, const char *s, size_t *used, size_t cap)
 {
 	/* decode into m->ubuf */
 	uint32_t *o = m->ubuf + *used;
@@ -1180,7 +1180,7 @@ static ustr ustr_from_static(tn_morph *m, const char *s, size_t *used, size_t ca
 	return (ustr){o, (int)n};
 }
 
-static ustr *load_strings(tn_morph *m, const unsigned char *p, uint64_t len, int *count)
+static ustr *load_strings(cmorphy3 *m, const unsigned char *p, uint64_t len, int *count)
 {
 	uint32_t n;
 	if (len < 4)
@@ -1206,7 +1206,7 @@ static ustr *load_strings(tn_morph *m, const unsigned char *p, uint64_t len, int
 			free(v);
 			return NULL;
 		}
-		/* strings were written by mkmorph.py from valid JSON: decode strictly */
+		/* strings were written by mkdict.py from valid JSON: decode strictly */
 		const unsigned char *q = (const unsigned char *)s;
 		int k = 0;
 		while (*q) {
@@ -1240,7 +1240,7 @@ static void free_strings(ustr *v, int n)
 	free(v);
 }
 
-void tn_morph_close(tn_morph *m)
+void cmorphy3_close(cmorphy3 *m)
 {
 	if (!m)
 		return;
@@ -1259,13 +1259,13 @@ void tn_morph_close(tn_morph *m)
 	do {                   \
 		if (err)       \
 			*err = msg; \
-		tn_morph_close(m); \
+		cmorphy3_close(m); \
 		return NULL;   \
 	} while (0)
 
-tn_morph *tn_morph_open(const char *path, const char **err)
+cmorphy3 *cmorphy3_open(const char *path, const char **err)
 {
-	tn_morph *m = calloc(1, sizeof(tn_morph));
+	cmorphy3 *m = calloc(1, sizeof(cmorphy3));
 	if (!m) {
 		if (err)
 			*err = "out of memory";
@@ -1288,8 +1288,8 @@ tn_morph *tn_morph_open(const char *path, const char **err)
 	}
 	const unsigned char *base = m->map;
 	uint32_t ver, nsec;
-	if (memcmp(base, "TNMORPH1", 8) != 0)
-		FAIL("not a tn-morph dictionary");
+	if (memcmp(base, "CMORPHY3", 8) != 0)
+		FAIL("not a cmorphy3 dictionary");
 	memcpy(&ver, base + 8, 4);
 	memcpy(&nsec, base + 12, 4);
 	if (ver != 1)
@@ -1324,7 +1324,7 @@ tn_morph *tn_morph_open(const char *path, const char **err)
 		FAIL("bad grammeme table");
 	m->ngram = (int)ng;
 	m->gname = calloc(ng, sizeof(char *));
-	m->incompat = calloc(ng, sizeof(tn_gset));
+	m->incompat = calloc(ng, sizeof(cmorphy3_gset));
 	if (!m->gname || !m->incompat)
 		FAIL("out of memory");
 	for (uint32_t i = 0; i < ng; i++) {
@@ -1339,7 +1339,7 @@ tn_morph *tn_morph_open(const char *path, const char **err)
 	}
 
 	/* categories and the grammeme sets the units use */
-	for (int c = 0; c < TN_NCATEGORIES; c++) {
+	for (int c = 0; c < CMORPHY3_NCATEGORIES; c++) {
 		const char *p = CAT_NAMES[c];
 		while (*p) {
 			const char *e = strchr(p, ' ');
@@ -1349,28 +1349,28 @@ tn_morph *tn_morph_open(const char *path, const char **err)
 			p = *e ? e + 1 : e;
 		}
 	}
-	m->pos_set = m->cat[TN_POS];
-	if (!tn_morph_gset(m, "NUMR,NPRO,PRED,PREP,CONJ,PRCL,INTJ,Apro", &m->nonproductive) ||
-	    !tn_morph_gset(m, "ADJF,sing,datv", &m->adv_req))
+	m->pos_set = m->cat[CMORPHY3_POS];
+	if (!cmorphy3_grammemes(m, "NUMR,NPRO,PRED,PREP,CONJ,PRCL,INTJ,Apro", &m->nonproductive) ||
+	    !cmorphy3_grammemes(m, "ADJF,sing,datv", &m->adv_req))
 		FAIL("grammemes missing");
-	m->feature = gs_or(gs_or(m->cat[TN_POS], m->cat[TN_NUMBER]),
-	                   gs_or(m->cat[TN_CASE], gs_or(m->cat[TN_PERSON], m->cat[TN_TENSE])));
-	m->g_masc = tn_morph_grammeme(m, "masc");
-	m->g_femn = tn_morph_grammeme(m, "femn");
-	m->g_gen1 = tn_morph_grammeme(m, "gen1");
-	m->g_gent = tn_morph_grammeme(m, "gent");
-	m->g_loc1 = tn_morph_grammeme(m, "loc1");
-	m->g_loct = tn_morph_grammeme(m, "loct");
-	m->g_voy = tn_morph_grammeme(m, "V-oy");
-	m->g_vey = tn_morph_grammeme(m, "V-ey");
+	m->feature = gs_or(gs_or(m->cat[CMORPHY3_POS], m->cat[CMORPHY3_NUMBER]),
+	                   gs_or(m->cat[CMORPHY3_CASE], gs_or(m->cat[CMORPHY3_PERSON], m->cat[CMORPHY3_TENSE])));
+	m->g_masc = cmorphy3_grammeme(m, "masc");
+	m->g_femn = cmorphy3_grammeme(m, "femn");
+	m->g_gen1 = cmorphy3_grammeme(m, "gen1");
+	m->g_gent = cmorphy3_grammeme(m, "gent");
+	m->g_loc1 = cmorphy3_grammeme(m, "loc1");
+	m->g_loct = cmorphy3_grammeme(m, "loct");
+	m->g_voy = cmorphy3_grammeme(m, "V-oy");
+	m->g_vey = cmorphy3_grammeme(m, "V-ey");
 	if (m->g_masc < 0 || m->g_femn < 0 || m->g_gent < 0 || m->g_loct < 0)
 		FAIL("grammemes missing");
 	{
 		static const char *const rf[7] = {"gen1", "gen2", "acc1", "acc2", "loc1", "loc2", "voct"};
 		static const char *const rt[7] = {"gent", "gent", "accs", "accs", "loct", "loct", "nomn"};
 		for (int i = 0; i < 7; i++) {
-			m->rare_from[i] = tn_morph_grammeme(m, rf[i]);
-			m->rare_to[i] = tn_morph_grammeme(m, rt[i]);
+			m->rare_from[i] = cmorphy3_grammeme(m, rf[i]);
+			m->rare_to[i] = cmorphy3_grammeme(m, rt[i]);
 			if (m->rare_to[i] < 0)
 				m->rare_from[i] = -1;
 		}
@@ -1397,8 +1397,8 @@ tn_morph *tn_morph_open(const char *path, const char **err)
 		t->str = str_at(m, so, NULL);
 		if (!t->str || t->first >= ng || t->eq > i || (ng < 128 && (ng <= 64 ? (t->g.hi || (ng < 64 && (t->g.lo >> ng))) : (t->g.hi >> (ng - 64)))))
 			FAIL("bad tag");
-		for (int c = 0; c < TN_NCATEGORIES; c++) {
-			tn_gset x = gs_and(t->g, m->cat[c]);
+		for (int c = 0; c < CMORPHY3_NCATEGORIES; c++) {
+			cmorphy3_gset x = gs_and(t->g, m->cat[c]);
 			t->cat[c] = -1;
 			if (gs_empty(x))
 				continue;
@@ -1410,7 +1410,7 @@ tn_morph *tn_morph_open(const char *path, const char **err)
 				while (*e && *e != ',' && *e != ' ')
 					e++;
 				int g = grammeme_n(m, p, (size_t)(e - p));
-				if (tn_gset_has(x, g)) {
+				if (cmorphy3_gset_has(x, g)) {
 					t->cat[c] = (int8_t)g;
 					break;
 				}
@@ -1513,10 +1513,10 @@ typedef struct meth {
 	uint8_t kind, inst;
 	uint16_t para, idx;
 	ustr str;
-	const struct tn_stack *l, *r;
+	const struct cmorphy3_stack *l, *r;
 } meth;
 
-struct tn_stack {
+struct cmorphy3_stack {
 	int n;
 	const meth *m[];
 };
@@ -1525,7 +1525,7 @@ typedef struct {
 	ustr word, nf;
 	uint16_t tag;
 	double score;
-	const tn_stack *stack;
+	const cmorphy3_stack *stack;
 } ip;
 
 typedef struct {
@@ -1533,7 +1533,7 @@ typedef struct {
 	int n, cap;
 } ipvec;
 
-static void ipv_push(tn_arena *a, ipvec *x, ip p)
+static void ipv_push(cmorphy3_arena *a, ipvec *x, ip p)
 {
 	if (x->n == x->cap) {
 		int cap = x->cap ? x->cap * 2 : 8;
@@ -1546,8 +1546,8 @@ static void ipv_push(tn_arena *a, ipvec *x, ip p)
 	x->v[x->n++] = p;
 }
 
-static const meth *mk_meth(tn_arena *a, int kind, int inst, ustr str, int para, int idx,
-                           const tn_stack *l, const tn_stack *r)
+static const meth *mk_meth(cmorphy3_arena *a, int kind, int inst, ustr str, int para, int idx,
+                           const cmorphy3_stack *l, const cmorphy3_stack *r)
 {
 	meth *m = aalloc(a, sizeof(meth));
 	m->kind = (uint8_t)kind;
@@ -1560,36 +1560,36 @@ static const meth *mk_meth(tn_arena *a, int kind, int inst, ustr str, int para, 
 	return m;
 }
 
-static const tn_stack *stack1(tn_arena *a, const meth *m0)
+static const cmorphy3_stack *stack1(cmorphy3_arena *a, const meth *m0)
 {
-	tn_stack *s = aalloc(a, sizeof(tn_stack) + sizeof(meth *));
+	cmorphy3_stack *s = aalloc(a, sizeof(cmorphy3_stack) + sizeof(meth *));
 	s->n = 1;
 	s->m[0] = m0;
 	return s;
 }
 
-static const tn_stack *stack_push(tn_arena *a, const tn_stack *s, const meth *m)
+static const cmorphy3_stack *stack_push(cmorphy3_arena *a, const cmorphy3_stack *s, const meth *m)
 {
-	tn_stack *o = aalloc(a, sizeof(tn_stack) + (size_t)(s->n + 1) * sizeof(meth *));
+	cmorphy3_stack *o = aalloc(a, sizeof(cmorphy3_stack) + (size_t)(s->n + 1) * sizeof(meth *));
 	o->n = s->n + 1;
 	memcpy(o->m, s->m, (size_t)s->n * sizeof(meth *));
 	o->m[s->n] = m;
 	return o;
 }
 
-static const tn_stack *stack_pop(tn_arena *a, const tn_stack *s)
+static const cmorphy3_stack *stack_pop(cmorphy3_arena *a, const cmorphy3_stack *s)
 {
-	tn_stack *o = aalloc(a, sizeof(tn_stack) + (size_t)(s->n > 0 ? s->n - 1 : 0) * sizeof(meth *));
+	cmorphy3_stack *o = aalloc(a, sizeof(cmorphy3_stack) + (size_t)(s->n > 0 ? s->n - 1 : 0) * sizeof(meth *));
 	o->n = s->n > 0 ? s->n - 1 : 0;
 	memcpy(o->m, s->m, (size_t)o->n * sizeof(meth *));
 	return o;
 }
 
 /* (method0,) + stack[1:] */
-static const tn_stack *stack_replace0(tn_arena *a, const tn_stack *s, const meth *m0)
+static const cmorphy3_stack *stack_replace0(cmorphy3_arena *a, const cmorphy3_stack *s, const meth *m0)
 {
 	int n = s->n > 0 ? s->n : 1;
-	tn_stack *o = aalloc(a, sizeof(tn_stack) + (size_t)n * sizeof(meth *));
+	cmorphy3_stack *o = aalloc(a, sizeof(cmorphy3_stack) + (size_t)n * sizeof(meth *));
 	o->n = n;
 	if (s->n > 1)
 		memcpy(o->m + 1, s->m + 1, (size_t)(s->n - 1) * sizeof(meth *));
@@ -1597,7 +1597,7 @@ static const tn_stack *stack_replace0(tn_arena *a, const tn_stack *s, const meth
 	return o;
 }
 
-static int stack_eq(const tn_stack *x, const tn_stack *y);
+static int stack_eq(const cmorphy3_stack *x, const cmorphy3_stack *y);
 
 static int meth_eq(const meth *x, const meth *y)
 {
@@ -1617,7 +1617,7 @@ static int meth_eq(const meth *x, const meth *y)
 	}
 }
 
-static int stack_eq(const tn_stack *x, const tn_stack *y)
+static int stack_eq(const cmorphy3_stack *x, const cmorphy3_stack *y)
 {
 	if (x == y)
 		return 1;
@@ -1636,7 +1636,7 @@ typedef struct {
 	uint16_t eq;
 	uint8_t kind;    /* 0 None, 1 para id, 2 methods stack */
 	uint16_t para;
-	const tn_stack *stack;
+	const cmorphy3_stack *stack;
 } seenkey;
 
 typedef struct {
@@ -1645,7 +1645,7 @@ typedef struct {
 	int nonempty;    /* also set by HyphenAdverbAnalyzer, which adds a whole parse */
 } seenset;
 
-static seenkey make_key(const tn_morph *m, ustr word, uint16_t tag, const tn_stack *s)
+static seenkey make_key(const cmorphy3 *m, ustr word, uint16_t tag, const cmorphy3_stack *s)
 {
 	seenkey k = {word, m->tags[tag].eq, 0, 0, NULL};
 	if (s->n > 0) {
@@ -1676,7 +1676,7 @@ static int seen_has(const seenset *s, const seenkey *k)
 	return 0;
 }
 
-static void seen_add(tn_arena *a, seenset *s, seenkey k)
+static void seen_add(cmorphy3_arena *a, seenset *s, seenkey k)
 {
 	if (s->n == s->cap) {
 		int cap = s->cap ? s->cap * 2 : 16;
@@ -1690,7 +1690,7 @@ static void seen_add(tn_arena *a, seenset *s, seenkey k)
 	s->nonempty = 1;
 }
 
-static void add_parse_if_not_seen(const tn_morph *m, tn_arena *a, ip p, ipvec *res, seenset *seen)
+static void add_parse_if_not_seen(const cmorphy3 *m, cmorphy3_arena *a, ip p, ipvec *res, seenset *seen)
 {
 	seenkey k = make_key(m, p.word, p.tag, p.stack);
 	if (seen_has(seen, &k))
@@ -1701,35 +1701,35 @@ static void add_parse_if_not_seen(const tn_morph *m, tn_arena *a, ip p, ipvec *r
 
 /* ------------------------------------------------------------ paradigms */
 
-static int para_len(const tn_morph *m, uint32_t para)
+static int para_len(const cmorphy3 *m, uint32_t para)
 {
 	return (int)((m->para_start[para + 1] - m->para_start[para]) / 3);
 }
 
-static int para_ok(const tn_morph *m, uint32_t para, uint32_t idx)
+static int para_ok(const cmorphy3 *m, uint32_t para, uint32_t idx)
 {
 	return para < m->npara && idx < (uint32_t)para_len(m, para);
 }
 
-static uint16_t para_tag(const tn_morph *m, uint32_t para, uint32_t idx)
+static uint16_t para_tag(const cmorphy3 *m, uint32_t para, uint32_t idx)
 {
 	const uint16_t *p = m->para_data + m->para_start[para];
 	return p[para_len(m, para) + idx];
 }
 
-static ustr para_suffix(const tn_morph *m, uint32_t para, uint32_t idx)
+static ustr para_suffix(const cmorphy3 *m, uint32_t para, uint32_t idx)
 {
 	return m->suffix[m->para_data[m->para_start[para] + idx]];
 }
 
-static ustr para_prefix(const tn_morph *m, uint32_t para, uint32_t idx)
+static ustr para_prefix(const cmorphy3 *m, uint32_t para, uint32_t idx)
 {
 	const uint16_t *p = m->para_data + m->para_start[para];
 	return m->pprefix[p[2 * para_len(m, para) + idx]];
 }
 
 /* Dictionary.build_stem */
-static ustr build_stem(const tn_morph *m, uint32_t para, uint32_t idx, ustr word)
+static ustr build_stem(const cmorphy3 *m, uint32_t para, uint32_t idx, ustr word)
 {
 	ustr pre = para_prefix(m, para, idx), suf = para_suffix(m, para, idx);
 	if (suf.n)
@@ -1738,7 +1738,7 @@ static ustr build_stem(const tn_morph *m, uint32_t para, uint32_t idx, ustr word
 }
 
 /* Dictionary.build_normal_form */
-static ustr build_normal_form(const tn_morph *m, tn_arena *a, uint32_t para, uint32_t idx, ustr word)
+static ustr build_normal_form(const cmorphy3 *m, cmorphy3_arena *a, uint32_t para, uint32_t idx, ustr word)
 {
 	if (idx == 0)
 		return word;
@@ -1746,19 +1746,19 @@ static ustr build_normal_form(const tn_morph *m, tn_arena *a, uint32_t para, uin
 	return u_cat3(a, para_prefix(m, para, 0), stem, para_suffix(m, para, 0));
 }
 
-static int tag_productive(const tn_morph *m, uint16_t tag)
+static int tag_productive(const cmorphy3 *m, uint16_t tag)
 {
 	return gs_empty(gs_and(m->tags[tag].g, m->nonproductive));
 }
 
-static int tag_unknown(const tn_morph *m, uint16_t tag)
+static int tag_unknown(const cmorphy3 *m, uint16_t tag)
 {
-	return !tn_gset_has(m->pos_set, m->tags[tag].first);
+	return !cmorphy3_gset_has(m->pos_set, m->tags[tag].first);
 }
 
 /* ------------------------------------------------------------ analyzer */
 
-static ipvec morph_parse(const tn_morph *m, tn_arena *a, ustr word);
+static ipvec morph_parse(const cmorphy3 *m, cmorphy3_arena *a, ustr word);
 
 /* sum() of floats in Python >= 3.12 (Neumaier compensation) */
 static double py_fsum(const double *x, int n)
@@ -1778,7 +1778,7 @@ static double py_fsum(const double *x, int n)
 }
 
 /* stable sort by score, descending (sorted(..., reverse=True) keeps equal items in order) */
-static void sort_by_score(tn_arena *a, ip *v, int n)
+static void sort_by_score(cmorphy3_arena *a, ip *v, int n)
 {
 	if (n < 2)
 		return;
@@ -1799,7 +1799,7 @@ static void sort_by_score(tn_arena *a, ip *v, int n)
 }
 
 /* ProbabilityEstimator.apply_to_parses */
-static void estimate(const tn_morph *m, tn_arena *a, ustr word_lower, ipvec *res)
+static void estimate(const cmorphy3 *m, cmorphy3_arena *a, ustr word_lower, ipvec *res)
 {
 	if (res->n == 0)
 		return;
@@ -1838,7 +1838,7 @@ static void estimate(const tn_morph *m, tn_arena *a, ustr word_lower, ipvec *res
 }
 
 /* DictionaryAnalyzer.parse */
-static void unit_dictionary(const tn_morph *m, tn_arena *a, ustr word_lower, int inst, ipvec *res)
+static void unit_dictionary(const cmorphy3 *m, cmorphy3_arena *a, ustr word_lower, int inst, ipvec *res)
 {
 	ditemvec items = similar_items(a, &m->words, word_lower, 2);
 	for (int i = 0; i < items.n; i++) {
@@ -1859,26 +1859,26 @@ static void unit_dictionary(const tn_morph *m, tn_arena *a, ustr word_lower, int
 }
 
 /* _InitialsAnalyzer.parse */
-static void unit_initials(const tn_morph *m, tn_arena *a, ustr word, ustr word_lower, int patr,
+static void unit_initials(const cmorphy3 *m, cmorphy3_arena *a, ustr word, ustr word_lower, int patr,
                           ipvec *res)
 {
 	if (word.n != 1 || u_index(m->initials, word.s[0]) < 0)
 		return;
-	const tn_stack *s = stack1(a, mk_meth(a, patr ? M_ABBR_PATR : M_ABBR_FIRST, 0, word, 0, 0, NULL, NULL));
+	const cmorphy3_stack *s = stack1(a, mk_meth(a, patr ? M_ABBR_PATR : M_ABBR_FIRST, 0, word, 0, 0, NULL, NULL));
 	for (int i = 0; i < 12; i++) {
 		ip p = {word_lower, word_lower, m->sp[(patr ? SP_INIT_PATR : SP_INIT_FIRST) + i], 0.1, s};
 		ipv_push(a, res, p);
 	}
 }
 
-static void shape_parse(tn_arena *a, ustr word, ustr word_lower, int kind, uint16_t tag, ipvec *res)
+static void shape_parse(cmorphy3_arena *a, ustr word, ustr word_lower, int kind, uint16_t tag, ipvec *res)
 {
 	ip p = {word_lower, word_lower, tag, 0.9, stack1(a, mk_meth(a, kind, 0, word, 0, 0, NULL, NULL))};
 	ipv_push(a, res, p);
 }
 
 /* NumberAnalyzer.check_shape: 0, SP_INTG or SP_REAL */
-static int number_shape(tn_arena *a, ustr word)
+static int number_shape(cmorphy3_arena *a, ustr word)
 {
 	if (word.n == 0)
 		return 0;
@@ -1896,7 +1896,7 @@ static int number_shape(tn_arena *a, ustr word)
 }
 
 /* HyphenSeparatedParticleAnalyzer.parse */
-static void unit_particle(const tn_morph *m, tn_arena *a, ustr wl, ipvec *res, seenset *seen)
+static void unit_particle(const cmorphy3 *m, cmorphy3_arena *a, ustr wl, ipvec *res, seenset *seen)
 {
 	if (u_index(wl, '-') < 0)
 		return;
@@ -1920,7 +1920,7 @@ static void unit_particle(const tn_morph *m, tn_arena *a, ustr wl, ipvec *res, s
 
 /* HyphenAdverbAnalyzer.parse; morph.tag() of the rest has the same set of tags as
  * morph.parse(), and only that set matters here */
-static void unit_hyphen_adverb(const tn_morph *m, tn_arena *a, ustr word, ustr wl, ipvec *res,
+static void unit_hyphen_adverb(const cmorphy3 *m, cmorphy3_arena *a, ustr word, ustr wl, ipvec *res,
                                seenset *seen)
 {
 	if (wl.n < 5 || !u_startswith(wl, m->po_hyphen))
@@ -1928,7 +1928,7 @@ static void unit_hyphen_adverb(const tn_morph *m, tn_arena *a, ustr word, ustr w
 	ipvec ps = morph_parse(m, a, u_slice(wl, 3, wl.n));
 	int ok = 0;
 	for (int i = 0; i < ps.n && !ok; i++)
-		ok = tn_gset_subset(m->adv_req, m->tags[ps.v[i].tag].g);
+		ok = cmorphy3_gset_subset(m->adv_req, m->tags[ps.v[i].tag].g);
 	if (!ok)
 		return;
 	ip p = {wl, wl, m->sp[SP_ADVB], 0.7, stack1(a, mk_meth(a, M_HADVB, 0, word, 0, 0, NULL, NULL))};
@@ -1936,7 +1936,7 @@ static void unit_hyphen_adverb(const tn_morph *m, tn_arena *a, ustr word, ustr w
 	ipv_push(a, res, p);
 }
 
-static int has_known_prefix(const tn_morph *m, ustr w)
+static int has_known_prefix(const cmorphy3 *m, ustr w)
 {
 	for (int i = 0; i < m->nknown; i++)
 		if (u_startswith(w, m->known[i]))
@@ -1944,14 +1944,14 @@ static int has_known_prefix(const tn_morph *m, ustr w)
 	return 0;
 }
 
-static tn_gset similarity_features(const tn_morph *m, uint16_t tag)
+static cmorphy3_gset similarity_features(const cmorphy3 *m, uint16_t tag)
 {
-	tn_gset g = gs_and(m->tags[tag].g, m->feature);
-	tn_gset r = g;
+	cmorphy3_gset g = gs_and(m->tags[tag].g, m->feature);
+	cmorphy3_gset r = g;
 	int from[2] = {m->g_gen1, m->g_loc1}, to[2] = {m->g_gent, m->g_loct};
 	for (int i = 0; i < 2; i++) {
-		if (from[i] >= 0 && tn_gset_has(r, from[i])) {
-			tn_gset one = {0, 0};
+		if (from[i] >= 0 && cmorphy3_gset_has(r, from[i])) {
+			cmorphy3_gset one = {0, 0};
 			gset_add(&one, from[i]);
 			r = gs_andnot(r, one);
 			gset_add(&r, to[i]);
@@ -1962,7 +1962,7 @@ static tn_gset similarity_features(const tn_morph *m, uint16_t tag)
 
 /* HyphenatedWordsAnalyzer.parse; its parses are not added to seen_parses (the
  * seen_parses.update(seen_parses.copy()) there changes nothing) */
-static void unit_hyphenated(const tn_morph *m, tn_arena *a, ustr wl, ipvec *res)
+static void unit_hyphenated(const cmorphy3 *m, cmorphy3_arena *a, ustr wl, ipvec *res)
 {
 	int h = u_index(wl, '-');
 	if (h < 0 || wl.s[0] == '-' || wl.s[wl.n - 1] == '-')
@@ -1976,13 +1976,13 @@ static void unit_hyphenated(const tn_morph *m, tn_arena *a, ustr wl, ipvec *res)
 	ipvec lp = morph_parse(m, a, left);
 	ipvec rp = morph_parse(m, a, right);
 	/* _parse_as_variable_both */
-	tn_gset *rf = aalloc(a, (size_t)(rp.n ? rp.n : 1) * sizeof(tn_gset));
+	cmorphy3_gset *rf = aalloc(a, (size_t)(rp.n ? rp.n : 1) * sizeof(cmorphy3_gset));
 	for (int j = 0; j < rp.n; j++)
 		rf[j] = similarity_features(m, rp.v[j].tag);
 	for (int i = 0; i < lp.n; i++) {
 		if (tag_unknown(m, lp.v[i].tag))
 			continue;
-		tn_gset lf = similarity_features(m, lp.v[i].tag);
+		cmorphy3_gset lf = similarity_features(m, lp.v[i].tag);
 		for (int j = 0; j < rp.n; j++) {
 			if (!gs_eq(lf, rf[j]))
 				continue;
@@ -2012,7 +2012,7 @@ static void unit_hyphenated(const tn_morph *m, tn_arena *a, ustr wl, ipvec *res)
 }
 
 /* KnownPrefixAnalyzer.parse */
-static void unit_known_prefix(const tn_morph *m, tn_arena *a, ustr wl, ipvec *res, seenset *seen)
+static void unit_known_prefix(const cmorphy3 *m, cmorphy3_arena *a, ustr wl, ipvec *res, seenset *seen)
 {
 	int idx[MAX_KNOWN_PREFIXES], n = 0;
 	for (int i = 0; i < m->nknown; i++)
@@ -2049,7 +2049,7 @@ static void unit_known_prefix(const tn_morph *m, tn_arena *a, ustr wl, ipvec *re
 }
 
 /* UnknownPrefixAnalyzer.parse */
-static void unit_unknown_prefix(const tn_morph *m, tn_arena *a, ustr wl, ipvec *res, seenset *seen)
+static void unit_unknown_prefix(const cmorphy3 *m, cmorphy3_arena *a, ustr wl, ipvec *res, seenset *seen)
 {
 	int max_split = wl.n - 3 < 5 ? wl.n - 3 : 5;
 	for (int i = 1; i <= max_split; i++) {
@@ -2072,7 +2072,7 @@ static void unit_unknown_prefix(const tn_morph *m, tn_arena *a, ustr wl, ipvec *
 }
 
 /* KnownSuffixAnalyzer.parse */
-static void unit_known_suffix(const tn_morph *m, tn_arena *a, ustr word, ustr wl, ipvec *res,
+static void unit_known_suffix(const cmorphy3 *m, cmorphy3_arena *a, ustr word, ustr wl, ipvec *res,
                               seenset *seen)
 {
 	if (word.n < 4)
@@ -2143,7 +2143,7 @@ static void unit_known_suffix(const tn_morph *m, tn_arena *a, ustr word, ustr wl
 }
 
 /* MorphAnalyzer.parse */
-static ipvec morph_parse(const tn_morph *m, tn_arena *a, ustr word)
+static ipvec morph_parse(const cmorphy3 *m, cmorphy3_arena *a, ustr word)
 {
 	ipvec res = {0};
 	seenset seen = {0};
@@ -2202,20 +2202,20 @@ done:
 
 /* ------------------------------------------------------------- lexemes */
 
-static ipvec lexeme(const tn_morph *m, tn_arena *a, ip form);
+static ipvec lexeme(const cmorphy3 *m, cmorphy3_arena *a, ip form);
 
-static ip with_stack(ip f, const tn_stack *s)
+static ip with_stack(ip f, const cmorphy3_stack *s)
 {
 	f.stack = s;
 	return f;
 }
 
-static tn_gset replace_same(const tn_morph *m, tn_gset g)
+static cmorphy3_gset replace_same(const cmorphy3 *m, cmorphy3_gset g)
 {
 	int from[3] = {m->g_voy, m->g_gen1, m->g_loc1}, to[3] = {m->g_vey, m->g_gent, m->g_loct};
 	for (int i = 0; i < 3; i++) {
-		if (from[i] >= 0 && to[i] >= 0 && tn_gset_has(g, from[i])) {
-			tn_gset one = {0, 0};
+		if (from[i] >= 0 && to[i] >= 0 && cmorphy3_gset_has(g, from[i])) {
+			cmorphy3_gset one = {0, 0};
 			gset_add(&one, from[i]);
 			g = gs_andnot(g, one);
 			gset_add(&g, to[i]);
@@ -2224,10 +2224,10 @@ static tn_gset replace_same(const tn_morph *m, tn_gset g)
 	return g;
 }
 
-static ipvec lexeme(const tn_morph *m, tn_arena *a, ip form)
+static ipvec lexeme(const cmorphy3 *m, cmorphy3_arena *a, ip form)
 {
 	ipvec out = {0};
-	const tn_stack *s = form.stack;
+	const cmorphy3_stack *s = form.stack;
 	if (!s || s->n == 0)
 		return out;
 	const meth *last = s->m[s->n - 1];
@@ -2293,7 +2293,7 @@ static ipvec lexeme(const tn_morph *m, tn_arena *a, ip form)
 		return out;
 	}
 	case M_ABBR_FIRST: {
-		int base = tn_gset_has(m->tags[form.tag].g, m->g_masc) ? 0 : 6;
+		int base = cmorphy3_gset_has(m->tags[form.tag].g, m->g_masc) ? 0 : 6;
 		for (int i = 0; i < 6; i++) {
 			ip p = form;
 			p.tag = m->sp[SP_INIT_FIRST + base + i];
@@ -2344,7 +2344,7 @@ static ipvec lexeme(const tn_morph *m, tn_arena *a, ip form)
 			return out;
 		for (int j = 0; j < rl.n; j++) {
 			int best = -1, min = 1000000;
-			tn_gset gr = replace_same(m, m->tags[rl.v[j].tag].g);
+			cmorphy3_gset gr = replace_same(m, m->tags[rl.v[j].tag].g);
 			for (int i = 0; i < ll.n; i++) {
 				int d = gs_count(gs_xor(replace_same(m, m->tags[ll.v[i].tag].g), gr));
 				if (d < min) {
@@ -2370,23 +2370,23 @@ static ipvec lexeme(const tn_morph *m, tn_arena *a, ip form)
 }
 
 /* MorphAnalyzer._inflect */
-static int inflect(const tn_morph *m, tn_arena *a, ip form, tn_gset req, ip *out)
+static int inflect(const cmorphy3 *m, cmorphy3_arena *a, ip form, cmorphy3_gset req, ip *out)
 {
 	ipvec lx = lexeme(m, a, form);
 	int any = 0;
 	for (int i = 0; i < lx.n && !any; i++)
-		any = tn_gset_subset(req, m->tags[lx.v[i].tag].g);
+		any = cmorphy3_gset_subset(req, m->tags[lx.v[i].tag].g);
 	if (!any)
-		req = tn_morph_fix_rare_cases(m, req);
-	tn_gset g = gs_or(m->tags[form.tag].g, req);
+		req = cmorphy3_fix_rare_cases(m, req);
+	cmorphy3_gset g = gs_or(m->tags[form.tag].g, req);
 	for (int i = 0; i < m->ngram; i++)
-		if (tn_gset_has(req, i))
+		if (cmorphy3_gset_has(req, i))
 			g = gs_andnot(g, m->incompat[i]);
 	int best = -1;
 	double bs = 0;
 	for (int i = 0; i < lx.n; i++) {
-		tn_gset t = m->tags[lx.v[i].tag].g;
-		if (!tn_gset_subset(req, t))
+		cmorphy3_gset t = m->tags[lx.v[i].tag].g;
+		if (!cmorphy3_gset_subset(req, t))
 			continue;
 		double sim = (double)gs_count(gs_and(g, t)) - 0.1 * (double)gs_count(gs_xor(g, t));
 		if (best < 0 || sim > bs) {
@@ -2402,7 +2402,7 @@ static int inflect(const tn_morph *m, tn_arena *a, ip form, tn_gset req, ip *out
 
 /* ------------------------------------------------------------- API */
 
-static void to_public(tn_arena *a, const ip *p, tn_parse *o)
+static void to_public(cmorphy3_arena *a, const ip *p, cmorphy3_form *o)
 {
 	o->word = u_to_utf8(a, p->word);
 	o->normal_form = u_to_utf8(a, p->nf);
@@ -2411,7 +2411,7 @@ static void to_public(tn_arena *a, const ip *p, tn_parse *o)
 	o->stack = p->stack;
 }
 
-static int from_public(const tn_morph *m, tn_arena *a, const tn_parse *f, ip *p)
+static int from_public(const cmorphy3 *m, cmorphy3_arena *a, const cmorphy3_form *f, ip *p)
 {
 	if (!f || !f->word || !f->normal_form || f->tag >= m->ntags || !f->stack)
 		return 0;
@@ -2423,7 +2423,7 @@ static int from_public(const tn_morph *m, tn_arena *a, const tn_parse *f, ip *p)
 	return 1;
 }
 
-int tn_morph_parse(const tn_morph *m, tn_arena *a, const char *word, tn_parse **out)
+int cmorphy3_parse(const cmorphy3 *m, cmorphy3_arena *a, const char *word, cmorphy3_form **out)
 {
 	jmp_buf jb;
 	*out = NULL;
@@ -2436,7 +2436,7 @@ int tn_morph_parse(const tn_morph *m, tn_arena *a, const char *word, tn_parse **
 	a->oom = &jb;
 	ustr w = u_from_utf8(a, word, strlen(word));
 	ipvec r = morph_parse(m, a, w);
-	tn_parse *o = aalloc(a, (size_t)(r.n ? r.n : 1) * sizeof(tn_parse));
+	cmorphy3_form *o = aalloc(a, (size_t)(r.n ? r.n : 1) * sizeof(cmorphy3_form));
 	for (int i = 0; i < r.n; i++)
 		to_public(a, &r.v[i], &o[i]);
 	a->oom = NULL;
@@ -2444,7 +2444,7 @@ int tn_morph_parse(const tn_morph *m, tn_arena *a, const char *word, tn_parse **
 	return r.n;
 }
 
-int tn_morph_lexeme(const tn_morph *m, tn_arena *a, const tn_parse *form, tn_parse **out)
+int cmorphy3_lexeme(const cmorphy3 *m, cmorphy3_arena *a, const cmorphy3_form *form, cmorphy3_form **out)
 {
 	jmp_buf jb;
 	*out = NULL;
@@ -2459,7 +2459,7 @@ int tn_morph_lexeme(const tn_morph *m, tn_arena *a, const tn_parse *form, tn_par
 	int n = 0;
 	if (from_public(m, a, form, &f)) {
 		ipvec r = lexeme(m, a, f);
-		tn_parse *o = aalloc(a, (size_t)(r.n ? r.n : 1) * sizeof(tn_parse));
+		cmorphy3_form *o = aalloc(a, (size_t)(r.n ? r.n : 1) * sizeof(cmorphy3_form));
 		for (int i = 0; i < r.n; i++)
 			to_public(a, &r.v[i], &o[i]);
 		*out = o;
@@ -2469,11 +2469,11 @@ int tn_morph_lexeme(const tn_morph *m, tn_arena *a, const tn_parse *form, tn_par
 	return n;
 }
 
-int tn_morph_inflect(const tn_morph *m, tn_arena *a, const tn_parse *form, tn_gset required,
-                     tn_parse *out)
+int cmorphy3_inflect(const cmorphy3 *m, cmorphy3_arena *a, const cmorphy3_form *form, cmorphy3_gset required,
+                     cmorphy3_form *out)
 {
 	jmp_buf jb;
-	volatile tn_gset req = required;   /* survives the longjmp */
+	volatile cmorphy3_gset req = required;   /* survives the longjmp */
 	if (!m || !a || !out)
 		return -1;
 	if (setjmp(jb)) {
@@ -2483,7 +2483,7 @@ int tn_morph_inflect(const tn_morph *m, tn_arena *a, const tn_parse *form, tn_gs
 	a->oom = &jb;
 	ip f, r;
 	int ok = 0;
-	if (from_public(m, a, form, &f) && inflect(m, a, f, (tn_gset){req.lo, req.hi}, &r)) {
+	if (from_public(m, a, form, &f) && inflect(m, a, f, (cmorphy3_gset){req.lo, req.hi}, &r)) {
 		to_public(a, &r, out);
 		ok = 1;
 	}
@@ -2491,9 +2491,9 @@ int tn_morph_inflect(const tn_morph *m, tn_arena *a, const tn_parse *form, tn_gs
 	return ok;
 }
 
-int tn_morph_word_is_known(const tn_morph *m, const char *word)
+int cmorphy3_word_is_known(const cmorphy3 *m, const char *word)
 {
-	tn_arena *a = tn_arena_new();
+	cmorphy3_arena *a = cmorphy3_arena_new();
 	if (!a)
 		return 0;
 	jmp_buf jb;
@@ -2503,6 +2503,6 @@ int tn_morph_word_is_known(const tn_morph *m, const char *word)
 		ustr w = u_lower(a, u_from_utf8(a, word, strlen(word)));
 		r = similar_key_exists(&m->words, w, 0, ROOT);
 	}
-	tn_arena_free(a);
+	cmorphy3_arena_free(a);
 	return r;
 }
