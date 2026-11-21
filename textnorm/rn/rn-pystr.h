@@ -14,6 +14,9 @@ int rn_py_isupper(uint32_t c);   /* of one character, as "c".isupper() */
 int rn_py_islower(uint32_t c);
 int rn_py_isspace(uint32_t c);
 int rn_py_decimal(uint32_t c);   /* unicodedata.decimal(c), -1 if none */
+int rn_py_digit(uint32_t c);     /* unicodedata.digit(c), -1 if none */
+/* unicodedata.numeric(c) if it is an integer >= 0: 1 and *v, else 0 */
+int rn_py_intnumeric(uint32_t c, uint64_t *v);
 
 /* s.lower() / s.upper() / s.casefold(), appended to out */
 int rn_py_lower(const uint32_t *s, size_t n, rn_str *out);

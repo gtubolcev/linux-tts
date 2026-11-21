@@ -62,3 +62,19 @@ for name, fn in (("LOWERMAP", str.lower), ("UPPERMAP", str.upper), ("FOLDMAP", s
                 sys.exit("%s longer than 3 for U+%04X" % (name, cp))
             print("\t{0x%X, %s}," % (cp, ", ".join("0x%X" % ord(x) for x in m.ljust(3, "\0"))))
     print("};")
+# unicodedata.digit (non-ASCII) and single-character integer unicodedata.numeric >= 0
+# (numerals._helpers._normalize_unicode_integer_text)
+print("static const uint32_t RN_PY_DIGITMAP[][2] = {   /* cp, digit */")
+for cp in CPS:
+    d = unicodedata.digit(chr(cp), None)
+    if cp >= 0x80 and d is not None:
+        print("\t{0x%X, %d}," % (cp, d))
+print("};")
+print("static const struct { uint32_t cp; uint64_t v; } RN_PY_INTNUMERIC[] = {")
+for cp in CPS:
+    v = unicodedata.numeric(chr(cp), None)
+    if v is not None and float(v).is_integer() and v >= 0:
+        if not 0 <= int(v) < 2**64:
+            sys.exit("numeric out of range U+%04X" % cp)
+        print("\t{0x%X, %dULL}," % (cp, int(v)))
+print("};")

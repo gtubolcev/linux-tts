@@ -27,7 +27,11 @@ int main(void)
 		put(&u);
 		printf(" |");
 		put(&f);
-		printf("\n");
+		uint64_t v;
+		if (rn_py_intnumeric(c, &v))
+			printf(" | %d %llu\n", rn_py_digit(c), (unsigned long long)v);
+		else
+			printf(" | %d -1\n", rn_py_digit(c));
 		rn_str_free(&l);
 		rn_str_free(&u);
 		rn_str_free(&f);

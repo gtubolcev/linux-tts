@@ -153,6 +153,40 @@ int rn_py_decimal(uint32_t c)
 	return -1;
 }
 
+int rn_py_digit(uint32_t c)
+{
+	if (c < 0x80)
+		return c - '0' < 10 ? (int)(c - '0') : -1;
+	size_t lo = 0, hi = N(RN_PY_DIGITMAP);
+	while (lo < hi) {
+		size_t mid = (lo + hi) / 2;
+		if (c < RN_PY_DIGITMAP[mid][0])
+			hi = mid;
+		else if (c > RN_PY_DIGITMAP[mid][0])
+			lo = mid + 1;
+		else
+			return (int)RN_PY_DIGITMAP[mid][1];
+	}
+	return -1;
+}
+
+int rn_py_intnumeric(uint32_t c, uint64_t *v)
+{
+	size_t lo = 0, hi = N(RN_PY_INTNUMERIC);
+	while (lo < hi) {
+		size_t mid = (lo + hi) / 2;
+		if (c < RN_PY_INTNUMERIC[mid].cp)
+			hi = mid;
+		else if (c > RN_PY_INTNUMERIC[mid].cp)
+			lo = mid + 1;
+		else {
+			*v = RN_PY_INTNUMERIC[mid].v;
+			return 1;
+		}
+	}
+	return 0;
+}
+
 long rn_py_find(const uint32_t *s, size_t n, const uint32_t *old, size_t on, size_t pos)
 {
 	if (on > n)
