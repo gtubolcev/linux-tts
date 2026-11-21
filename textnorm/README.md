@@ -83,6 +83,12 @@ and listed in `QUIRKS.md` for review.
     `_run_caps_normalization`, remove_numeric_footnotes (rn-stage-test stage names; the
     last is checked on the gap `_run_caps_normalization>run_dates_time`). 2026-11-21: all
     three exact on core (14 154 pairs) and big (75 763), ASan/UBSan clean.
+  - `rn-mx.[ch]`: parse_word with a cache, grammeme indices, canonical cases (shared by the
+    case rules and roman numerals); `rn-ncase.[ch]`: get_numeral_case with the 33 rules of
+    numerals/_rules.py, simple_tokenize.
+  - `rn-roman.c`: normalize_roman (13 steps), stage `run_roman`. 2026-11-21: exact on core
+    (13 968 pairs) and big (75 757), ASan/UBSan clean. `RN_FIXES=0x1` in rn-stage-test turns
+    on the fixes (`rn_fixes`, QUIRKS.md R5).
   - `rn-units.[ch]`: UnitRegistry.resolve and resolve_unit_expression; `gen-units.py RN_SRC
     rn-units-data.h` (in claude-ru-normalizr) dumps rn's unit tables. Check: `units-check.py`
     vs `units-check.c` over 95 026 corpus tokens, identical (2026-11-21).

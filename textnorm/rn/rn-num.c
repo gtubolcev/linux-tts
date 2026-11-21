@@ -6,6 +6,7 @@
 #include "rn-pystr.h"
 
 unsigned rn_n2w_fixes;
+unsigned rn_fixes;
 
 int rn_int_str(const uint32_t *s, size_t n, char *buf, size_t cap)
 {
