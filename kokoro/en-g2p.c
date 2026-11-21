@@ -42,6 +42,7 @@ typedef struct
 struct _EnLexicon
 {
   gboolean british;
+  gboolean compat;      /* only what misaki does: no homograph rules */
   Dict gold, silver;
   EnTagger *tagger;     /* NULL: guess_tag */
 };
@@ -362,6 +363,12 @@ en_lexicon_open (const gchar *dir, gboolean british, GError **error)
       }
   }
   return lex;
+}
+
+void
+en_lexicon_set_compat (EnLexicon *lex, gboolean compat)
+{
+  lex->compat = compat;
 }
 
 void
@@ -884,9 +891,436 @@ get_word (EnLexicon *lex, const gchar *word0, const gchar *tag, double stress, c
   return ps;
 }
 
-/* Lexicon.__call__ without numbers and currencies */
+/* ------------------------------------------------------------ numbers */
+
+/* English number words, written here after the rules of num2words (which
+ * misaki uses) without its code: cardinals without "and", ordinals, years
+ * and decimals, one word per element as misaki gets them by splitting */
+
+static const char *const ONES[] = {
+  "zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten",
+  "eleven", "twelve", "thirteen", "fourteen", "fifteen", "sixteen", "seventeen",
+  "eighteen", "nineteen",
+};
+static const char *const TENS[] = {
+  "", "", "twenty", "thirty", "forty", "fifty", "sixty", "seventy", "eighty", "ninety",
+};
+static const char *const SCALES[] = {
+  "", "thousand", "million", "billion", "trillion", "quadrillion", "quintillion",
+};
+
+typedef struct
+{
+  const gchar *cur, *unit, *sub;
+} Currency;
+
+static const Currency CURRENCIES[] = {
+  { "$", "dollar", "cent" }, { "£", "pound", "pence" }, { "€", "euro", "cent" },
+};
+
+static const Currency *
+currency_of (const gchar *s)
+{
+  for (guint i = 0; i < G_N_ELEMENTS (CURRENCIES); i++)
+    if (s != NULL && strcmp (s, CURRENCIES[i].cur) == 0)
+      return &CURRENCIES[i];
+  return NULL;
+}
+
+static void
+words_add (GPtrArray *w, const gchar *s)
+{
+  g_ptr_array_add (w, g_strdup (s));
+}
+
+static void
+cardinal_small (GPtrArray *w, guint n)
+{
+  if (n >= 100)
+    {
+      words_add (w, ONES[n / 100]);
+      words_add (w, "hundred");
+      n %= 100;
+    }
+  if (n >= 20)
+    {
+      words_add (w, TENS[n / 10]);
+      n %= 10;
+      if (n > 0)
+        words_add (w, ONES[n]);
+    }
+  else if (n > 0)
+    words_add (w, ONES[n]);
+}
+
+static void
+cardinal (GPtrArray *w, guint64 n)
+{
+  guint g[G_N_ELEMENTS (SCALES)] = { 0 };
+  int top = 0;
+
+  if (n == 0)
+    {
+      words_add (w, ONES[0]);
+      return;
+    }
+  for (; n > 0; n /= 1000)
+    g[top++] = n % 1000;
+  while (top-- > 0)
+    if (g[top] > 0)
+      {
+        cardinal_small (w, g[top]);
+        if (top > 0)
+          words_add (w, SCALES[top]);
+      }
+}
+
+static void
+make_ordinal (GPtrArray *w)
+{
+  static const char *const ords[][2] = {
+    { "one", "first" }, { "two", "second" }, { "three", "third" }, { "five", "fifth" },
+    { "eight", "eighth" }, { "nine", "ninth" }, { "twelve", "twelfth" },
+  };
+  gchar *last = w->pdata[w->len - 1], *r = NULL;
+
+  for (guint i = 0; i < G_N_ELEMENTS (ords) && r == NULL; i++)
+    if (strcmp (last, ords[i][0]) == 0)
+      r = g_strdup (ords[i][1]);
+  if (r == NULL && g_str_has_suffix (last, "y"))
+    {
+      last[strlen (last) - 1] = '\0';
+      r = g_strconcat (last, "ieth", NULL);
+    }
+  if (r == NULL)
+    r = g_strconcat (last, "th", NULL);
+  g_free (last);
+  w->pdata[w->len - 1] = r;
+}
+
+static void
+year (GPtrArray *w, guint n)
+{
+  guint high = n / 100, low = n % 100;
+
+  if (high == 0 || (high % 10 == 0 && low < 10) || high >= 100)
+    {
+      cardinal (w, n);
+      return;
+    }
+  cardinal (w, high);
+  if (low == 0)
+    words_add (w, "hundred");
+  else if (low < 10)
+    {
+      words_add (w, "oh");
+      words_add (w, ONES[low]);
+    }
+  else
+    cardinal (w, low);
+}
+
+static gboolean
+all_ascii_digits (const gchar *s)
+{
+  if (*s == '\0')
+    return FALSE;
+  for (; *s != '\0'; s++)
+    if (!g_ascii_isdigit (*s))
+      return FALSE;
+  return TRUE;
+}
+
 static gchar *
-lexicon (EnLexicon *lex, const gchar *text, const gchar *tag, const Ctx *ctx)
+no_commas (const gchar *s, gssize len)
+{
+  GString *r = g_string_new (NULL);
+  for (const gchar *p = s; len < 0 ? *p != '\0' : p < s + len; p++)
+    if (*p != ',')
+      g_string_append_c (r, *p);
+  return g_string_free (r, FALSE);
+}
+
+static void
+digits (GPtrArray *w, const gchar *s)
+{
+  for (; *s != '\0'; s++)
+    if (g_ascii_isdigit (*s))
+      words_add (w, ONES[*s - '0']);
+}
+
+/* the cardinal of a digit string, digit by digit when it is too long */
+static gboolean
+cardinal_str (GPtrArray *w, const gchar *s)
+{
+  if (!all_ascii_digits (s))
+    return FALSE;
+  while (s[0] == '0' && s[1] != '\0')
+    s++;
+  if (strlen (s) > 19)
+    digits (w, s);
+  else
+    cardinal (w, g_ascii_strtoull (s, NULL, 10));
+  return TRUE;
+}
+
+/* num2words(float(s)): the integer, then "point" and the decimals one by
+ * one, nothing when they are all zero */
+static gboolean
+decimal_str (GPtrArray *w, const gchar *s)
+{
+  const gchar *dot = strchr (s, '.');
+  gchar *pre = g_strndup (s, dot - s), *post = g_strdup (dot + 1);
+  gsize n = strlen (post);
+  gboolean ok = TRUE;
+
+  while (n > 0 && post[n - 1] == '0')
+    post[--n] = '\0';
+  if (*pre == '\0')
+    words_add (w, ONES[0]);
+  else
+    ok = cardinal_str (w, pre);
+  if (ok && n > 0)
+    {
+      ok = all_ascii_digits (post);
+      words_add (w, "point");
+      digits (w, post);
+    }
+  g_free (pre);
+  g_free (post);
+  return ok;
+}
+
+static gboolean
+is_ordinal (const gchar *s)
+{
+  return s != NULL && (strcmp (s, "st") == 0 || strcmp (s, "nd") == 0
+                       || strcmp (s, "rd") == 0 || strcmp (s, "th") == 0);
+}
+
+/* Lexicon.is_number */
+static gboolean
+is_number (const gchar *word, gboolean head)
+{
+  static const char *const suffixes[] = { "ing", "'d", "ed", "'s", "st", "nd", "rd", "th", "s" };
+  gsize n = strlen (word);
+  gboolean digit = FALSE;
+
+  for (const gchar *p = word; *p != '\0'; p++)
+    digit |= g_ascii_isdigit (*p);
+  if (!digit)
+    return FALSE;
+  for (guint i = 0; i < G_N_ELEMENTS (suffixes); i++)
+    if (g_str_has_suffix (word, suffixes[i]))
+      {
+        n -= strlen (suffixes[i]);
+        break;
+      }
+  for (gsize i = 0; i < n; i++)
+    if (!(g_ascii_isdigit (word[i]) || word[i] == ',' || word[i] == '.'
+          || (head && i == 0 && word[i] == '-')))
+      return FALSE;
+  return TRUE;
+}
+
+/* Lexicon.is_currency */
+static gboolean
+is_currency (const gchar *word)
+{
+  const gchar *dot = strchr (word, '.');
+
+  if (dot == NULL)
+    return TRUE;
+  if (strchr (dot + 1, '.') != NULL)
+    return FALSE;
+  return strlen (dot + 1) < 3;
+}
+
+static gboolean
+add_ps (GPtrArray *ps, gchar *p)
+{
+  if (p == NULL)
+    return FALSE;
+  g_ptr_array_add (ps, p);
+  return TRUE;
+}
+
+/* the words looked up one by one; "point" and "O" without stress */
+static gboolean
+add_words (EnLexicon *lex, GPtrArray *ps, GPtrArray *w)
+{
+  gboolean ok = TRUE;
+
+  for (guint i = 0; i < w->len && ok; i++)
+    {
+      const gchar *s = w->pdata[i];
+      double stress = strcmp (s, "point") == 0 || strcmp (s, "O") == 0 ? -2 : NONE;
+      ok = add_ps (ps, lookup (lex, s, NULL, stress, NULL));
+    }
+  g_ptr_array_set_size (w, 0);
+  return ok;
+}
+
+static gchar *
+plural (EnLexicon *lex, const gchar *unit)
+{
+  gchar *s = g_strconcat (unit, "s", NULL);
+  gchar *r = stem_s (lex, s, NULL, NONE, NULL);
+  g_free (s);
+  return r;
+}
+
+/* Lexicon.get_number, num_flags left out (they come from markup) */
+static gchar *
+get_number (EnLexicon *lex, const gchar *word0, const Currency *cur, gboolean head)
+{
+  GPtrArray *ps = g_ptr_array_new_with_free_func (g_free);
+  GPtrArray *w = g_ptr_array_new_with_free_func (g_free);
+  gsize e = strlen (word0);
+  gchar *suffix, *word, *num = NULL, *r = NULL;
+  const gchar *p;
+  gboolean ok = TRUE;
+
+  while (e > 0 && (g_ascii_islower (word0[e - 1]) || word0[e - 1] == '\''))
+    e--;
+  suffix = word0[e] != '\0' ? g_strdup (word0 + e) : NULL;
+  word = g_strndup (word0, e);
+  p = word;
+  if (*p == '-')
+    {
+      ok = add_ps (ps, lookup (lex, "minus", NULL, NONE, NULL));
+      p++;
+    }
+  if (!ok)
+    ;
+  else if (all_ascii_digits (p) && is_ordinal (suffix))
+    {
+      ok = cardinal_str (w, p);
+      if (ok)
+        make_ordinal (w);
+    }
+  else if (ps->len == 0 && strlen (p) == 4 && cur == NULL && all_ascii_digits (p))
+    year (w, atoi (p));
+  else if (!head && strchr (p, '.') == NULL)
+    {
+      gsize n;
+      num = no_commas (p, -1);
+      n = strlen (num);
+      if (n == 0)
+        ok = FALSE;
+      else if (num[0] == '0' || n > 3)
+        digits (w, num);
+      else if (n == 3 && !g_str_has_suffix (num, "00"))
+        {
+          words_add (w, ONES[num[0] - '0']);
+          if (num[1] == '0')
+            {
+              words_add (w, "O");
+              words_add (w, ONES[num[2] - '0']);
+            }
+          else
+            ok = cardinal_str (w, num + 1);
+        }
+      else
+        ok = cardinal_str (w, num);
+    }
+  else if (!head || strchr (p, '.') != strrchr (p, '.'))
+    {
+      gchar **parts;
+      num = no_commas (p, -1);
+      parts = g_strsplit (num, ".", -1);
+      for (guint i = 0; parts[i] != NULL && ok; i++)
+        {
+          const gchar *s = parts[i];
+          gboolean nonzero = FALSE;
+          for (const gchar *q = s + (*s != '\0'); *q != '\0'; q++)
+            nonzero |= *q != '0';
+          if (*s == '\0')
+            continue;
+          if (s[0] == '0' || (strlen (s) != 2 && nonzero))
+            digits (w, s);
+          else
+            ok = cardinal_str (w, s);
+        }
+      g_strfreev (parts);
+    }
+  else if (cur != NULL && is_currency (p))
+    {
+      gchar **parts;
+      guint64 v[2] = { 0, 0 };
+      const gchar *unit[2] = { cur->unit, cur->sub };
+      int from = 0, to;
+
+      num = no_commas (p, -1);
+      parts = g_strsplit (num, ".", 2);
+      to = parts[0] != NULL && parts[1] != NULL ? 2 : 1;
+      for (int i = 0; i < to; i++)
+        {
+          if (parts[i][0] != '\0' && !all_ascii_digits (parts[i]))
+            ok = FALSE;
+          v[i] = g_ascii_strtoull (parts[i], NULL, 10);
+        }
+      g_strfreev (parts);
+      if (to == 2 && v[1] == 0)
+        to = 1;
+      else if (to == 2 && v[0] == 0)
+        from = 1;
+      for (int i = from; i < to && ok; i++)
+        {
+          gchar buf[24];
+          if (i > from)
+            ok = add_ps (ps, lookup (lex, "and", NULL, NONE, NULL));
+          g_snprintf (buf, sizeof buf, "%" G_GUINT64_FORMAT, v[i]);
+          ok = ok && cardinal_str (w, buf) && add_words (lex, ps, w);
+          if (ok)
+            ok = add_ps (ps, v[i] != 1 && strcmp (unit[i], "pence") != 0
+                                    ? plural (lex, unit[i])
+                                    : lookup (lex, unit[i], NULL, NONE, NULL));
+        }
+    }
+  else
+    {
+      num = no_commas (p, -1);
+      if (strchr (num, '.') == NULL)
+        {
+          ok = cardinal_str (w, num);
+          if (ok && strchr (p, ',') != NULL && is_ordinal (suffix))
+            make_ordinal (w);
+        }
+      else if (num[0] == '.')
+        {
+          ok = all_ascii_digits (num + 1);
+          words_add (w, "point");
+          digits (w, num + 1);
+        }
+      else
+        ok = decimal_str (w, num);
+    }
+  ok = ok && add_words (lex, ps, w);
+  if (ok && ps->len > 0)
+    {
+      g_ptr_array_add (ps, NULL);
+      r = g_strjoinv (" ", (gchar **) ps->pdata);
+      if (suffix != NULL && (strcmp (suffix, "s") == 0 || strcmp (suffix, "'s") == 0))
+        r = add_s (lex, r);
+      else if (suffix != NULL && (strcmp (suffix, "ed") == 0 || strcmp (suffix, "'d") == 0))
+        r = add_ed (lex, r);
+      else if (suffix != NULL && strcmp (suffix, "ing") == 0)
+        r = add_ing (lex, r);
+    }
+  g_ptr_array_free (ps, TRUE);
+  g_ptr_array_free (w, TRUE);
+  g_free (num);
+  g_free (word);
+  g_free (suffix);
+  return r;
+}
+
+/* Lexicon.__call__; @head: the first piece of a word, @cur: the currency
+ * sign before it */
+static gchar *
+lexicon (EnLexicon *lex, const gchar *text, const gchar *tag, const Ctx *ctx,
+         gboolean head, const Currency *cur)
 {
   gchar *t = replace (text, "‘", "'"), *t2 = replace (t, "’", "'");
   gchar *word = g_utf8_normalize (t2, -1, G_NORMALIZE_NFKC);
@@ -899,6 +1333,16 @@ lexicon (EnLexicon *lex, const gchar *text, const gchar *tag, const Ctx *ctx)
     return NULL;
   stress = is_lower (word) ? NONE : is_upper (word) ? 2 : 0.5;
   ps = get_word (lex, word, tag, stress, ctx);
+  if (ps != NULL && cur != NULL)
+    {
+      gchar *c = plural (lex, cur->unit);
+      gchar *r = g_strconcat (ps, " ", c, NULL);
+      g_free (c);
+      g_free (ps);
+      ps = r;
+    }
+  else if (ps == NULL && is_number (word, head))
+    ps = get_number (lex, word, cur, head);
   g_free (word);
   return ps;
 }
@@ -911,6 +1355,7 @@ typedef struct
   gchar *ps;
   gboolean prespace;
   gsize start, end;     /* bytes in the text, for the tags */
+  const gchar *alias;   /* read as this ("2" in B2B: "to") */
 } Sub;
 
 typedef struct
@@ -918,7 +1363,7 @@ typedef struct
   GPtrArray *subs;      /* Sub *; one for a plain word or a mark */
   gboolean space;       /* whitespace after */
   gboolean mark;        /* punctuation, ps set */
-  gboolean whole;       /* with digits: to the fallback as it is */
+  const Currency *cur;  /* a number after a currency sign */
   gboolean sentence_start;
 } Word;
 
@@ -1014,12 +1459,12 @@ guess_tag (GArray *words, guint i, gboolean mixed)
   Word *prev = i > 0 ? &g_array_index (words, Word, i - 1) : NULL;
   Word *next = i + 1 < words->len ? &g_array_index (words, Word, i + 1) : NULL;
   const gchar *text = ((Sub *) w->subs->pdata[0])->text;
-  const gchar *pt = prev != NULL && !prev->mark && !prev->whole && prev->subs->len == 1
+  const gchar *pt = prev != NULL && !prev->mark && prev->subs->len == 1
                     ? ((Sub *) prev->subs->pdata[0])->text : NULL;
   const gchar *nt = next != NULL ? ((Sub *) next->subs->pdata[0])->text : NULL;
 
   /* A in a heading or before a word */
-  if (strcmp (text, "A") == 0 && next != NULL && !next->mark && !next->whole
+  if (strcmp (text, "A") == 0 && next != NULL && !next->mark
       && g_ascii_strcasecmp (nt, "and") != 0 && g_ascii_strcasecmp (nt, "or") != 0)
     return "DT";
   /* the a) of a list */
@@ -1033,7 +1478,7 @@ guess_tag (GArray *words, guint i, gboolean mixed)
         return "DT";
       /* a determiner before a noun, but a relative pronoun before a verb
        * (that supports, that modified) */
-      if (!next->mark && !next->whole && next->subs->len == 1 && !in_list (nt, AFTER_THAT_CONJ)
+      if (!next->mark && next->subs->len == 1 && !in_list (nt, AFTER_THAT_CONJ)
           && !(g_str_has_suffix (nt, "s") && !g_str_has_suffix (nt, "ss") && !g_str_has_suffix (nt, "'s"))
           && !g_str_has_suffix (nt, "ed"))
         return "DT";
@@ -1154,9 +1599,38 @@ add_mark (GArray *words, gunichar c, gboolean leading)
   g_array_append_val (words, w);
 }
 
-/* misaki's subtokenize() for a word without digits: letters with inner
- * apostrophes (split where a lowercase letter meets a capital), runs of
- * - and _, any other character alone; @core is at byte @base of the text */
+/* the number part of misaki's SUBTOKEN_REGEX, (?:\d?[,.]?\d)+, at @p;
+ * the end or NULL */
+static const gchar *
+match_number (const gchar *p)
+{
+  const gchar *e = NULL;
+
+#define D(x) g_ascii_isdigit (*(x))
+#define S(x) (*(x) == ',' || *(x) == '.')
+  for (;;)
+    {
+      const gchar *u = NULL;
+      if (D (p) && S (p + 1) && D (p + 2))
+        u = p + 3;
+      else if (D (p) && D (p + 1))
+        u = p + 2;
+      else if (S (p) && D (p + 1))
+        u = p + 2;
+      else if (D (p))
+        u = p + 1;
+      if (u == NULL)
+        return e;
+      e = p = u;
+    }
+#undef D
+#undef S
+}
+
+/* misaki's subtokenize(): letters with inner apostrophes (split where a
+ * lowercase letter meets a capital), numbers (with a leading minus at the
+ * start), runs of - and _, any other character alone; @core is at byte
+ * @base of the text */
 static GPtrArray *
 subtokenize (const gchar *core, gsize base)
 {
@@ -1166,9 +1640,12 @@ subtokenize (const gchar *core, gsize base)
   while (*p != '\0')
     {
       gunichar c = g_utf8_get_char (p);
-      const gchar *q = g_utf8_next_char (p);
+      const gchar *q = g_utf8_next_char (p), *n;
 
-      if (g_unichar_isalpha (c))
+      if ((n = match_number (p)) != NULL
+          || (p == core && c == '-' && (n = match_number (p + 1)) != NULL))
+        q = n;
+      else if (g_unichar_isalpha (c))
         {
           const gchar *n1 = q, *n2 = *n1 ? g_utf8_next_char (n1) : n1;
           /* \p{Lu}(?=\p{Lu}\p{Ll}) */
@@ -1213,6 +1690,81 @@ subtokenize (const gchar *core, gsize base)
   return subs;
 }
 
+static gboolean
+alpha_at (const gchar *s, gboolean last)
+{
+  return *s != '\0' && g_unichar_isalpha (last ? last_char (s, 0) : g_utf8_get_char (s));
+}
+
+static void
+push_word (GArray *words, GPtrArray *subs, gboolean sentence_start, const Currency *cur)
+{
+  Word w = { 0 };
+
+  w.subs = subs;
+  w.sentence_start = sentence_start;
+  w.cur = cur;
+  g_array_append_val (words, w);
+}
+
+/* the word left after peeling: a currency sign split off as spaCy does
+ * (silent, the number after it gets the unit), and a "2" between letters
+ * on its own as "to", as misaki's retokenize() does */
+static void
+add_core (GArray *words, const gchar *core, gsize off, gboolean sentence_start)
+{
+  gchar sym[8];
+  const Currency *cur;
+  GPtrArray *subs, *part;
+
+  sym[g_unichar_to_utf8 (g_utf8_get_char (core), sym)] = '\0';
+  cur = currency_of (sym);
+  if (cur != NULL && core[strlen (sym)] != '\0')
+    {
+      Word m = { 0 };
+      m.subs = g_ptr_array_new_with_free_func (sub_free);
+      m.mark = TRUE;
+      g_ptr_array_add (m.subs, sub_new (sym, strlen (sym)));
+      ((Sub *) m.subs->pdata[0])->ps = g_strdup ("");
+      g_array_append_val (words, m);
+      core += strlen (sym);
+      off += strlen (sym);
+    }
+  else
+    cur = NULL;
+  subs = subtokenize (core, off);
+  if (cur != NULL && !(subs->len == 1 && is_number (((Sub *) subs->pdata[0])->text, TRUE)))
+    cur = NULL;
+  part = g_ptr_array_new_with_free_func (sub_free);
+  for (guint j = 0; j < subs->len; j++)
+    {
+      Sub *s = subs->pdata[j];
+      if (j > 0 && j + 1 < subs->len && strcmp (s->text, "2") == 0
+          && alpha_at (((Sub *) subs->pdata[j - 1])->text, TRUE)
+          && alpha_at (((Sub *) subs->pdata[j + 1])->text, FALSE))
+        {
+          GPtrArray *one = g_ptr_array_new_with_free_func (sub_free);
+          if (part->len > 0)
+            push_word (words, part, sentence_start, NULL);
+          else
+            g_ptr_array_free (part, TRUE);
+          s->alias = "to";
+          g_ptr_array_add (one, s);
+          push_word (words, one, FALSE, NULL);
+          part = g_ptr_array_new_with_free_func (sub_free);
+          sentence_start = FALSE;
+        }
+      else
+        g_ptr_array_add (part, s);
+    }
+  if (part->len > 0)
+    push_word (words, part, sentence_start, cur);
+  else
+    g_ptr_array_free (part, TRUE);
+  g_ptr_array_set_free_func (subs, NULL);
+  g_ptr_array_free (subs, TRUE);
+}
+
 /* one whitespace-separated chunk */
 static void
 add_chunk (EnLexicon *lex, GArray *words, const gchar *chunk, gsize base,
@@ -1222,7 +1774,6 @@ add_chunk (EnLexicon *lex, GArray *words, const gchar *chunk, gsize base,
   GArray *tail = g_array_new (FALSE, FALSE, sizeof (gunichar));
   gchar *core;
   gboolean changed = TRUE;
-  Word w = { 0 };
 
   /* a lone dash */
   if (*chunk != '\0' && strspn (chunk, "-") == strlen (chunk))
@@ -1240,7 +1791,8 @@ add_chunk (EnLexicon *lex, GArray *words, const gchar *chunk, gsize base,
   while (changed && a < b)
     {
       changed = FALSE;
-      while (a < b && is_peeled (g_utf8_get_char (a)))
+      /* .5 stays a number */
+      while (a < b && is_peeled (g_utf8_get_char (a)) && !(*a == '.' && g_ascii_isdigit (a[1])))
         {
           add_mark (words, g_utf8_get_char (a), TRUE);
           a = g_utf8_next_char (a);
@@ -1316,21 +1868,7 @@ add_chunk (EnLexicon *lex, GArray *words, const gchar *chunk, gsize base,
     }
   core = g_strndup (a, b - a);
   if (*core != '\0')
-    {
-      w.sentence_start = sentence_start;
-      if (has_digit (core))
-        {
-          Sub *x = sub_new (core, strlen (core));
-          x->start = base + (a - chunk);
-          x->end = base + (b - chunk);
-          w.whole = TRUE;
-          w.subs = g_ptr_array_new_with_free_func (sub_free);
-          g_ptr_array_add (w.subs, x);
-        }
-      else
-        w.subs = subtokenize (core, base + (a - chunk));
-      g_array_append_val (words, w);
-    }
+    add_core (words, core, base + (a - chunk), sentence_start);
   g_free (core);
   for (guint i = 0; i < tail->len; i++)
     add_mark (words, g_array_index (tail, gunichar, i), FALSE);
@@ -1486,7 +2024,7 @@ resolve_group (EnLexicon *lex, Word *w, Ctx *ctx, gboolean mixed, GArray *tags,
                          ? span_tag (tags, all, ((Sub *) subs->pdata[left])->start,
                                      ((Sub *) subs->pdata[right - 1])->end)
                          : tag_of (text, w->sentence_start && left == 0, mixed);
-      gchar *ps = lexicon (lex, text, tag, ctx);
+      gchar *ps = lexicon (lex, text, tag, ctx, left == 0, NULL);
 
       if (ps != NULL)
         {
@@ -1527,6 +2065,212 @@ resolve_group (EnLexicon *lex, Word *w, Ctx *ctx, gboolean mixed, GArray *tags,
   return TRUE;
 }
 
+/* retokenize(): no unit when the next token is a number too ("$5 million") */
+static const Currency *
+word_currency (GArray *words, guint i, GArray *tags, const gchar *text)
+{
+  static const char *const big[] = { "hundred", "thousand", "million", "billion", "trillion", NULL };
+  const Word *w = &g_array_index (words, Word, i), *n;
+  const Sub *a, *z;
+  gboolean cd;
+
+  if (w->cur == NULL || i + 1 >= words->len)
+    return w->cur;
+  n = &g_array_index (words, Word, i + 1);
+  if (n->mark)
+    return w->cur;
+  a = n->subs->pdata[0];
+  z = n->subs->pdata[n->subs->len - 1];
+  if (tags != NULL)
+    cd = tag_is (span_tag (tags, text, a->start, z->end), "CD");
+  else
+    {
+      gchar *t = joined (n->subs, 0, n->subs->len), *l = g_ascii_strdown (t, -1);
+      cd = has_digit (t) || in_list (l, big);
+      g_free (t);
+      g_free (l);
+    }
+  return cd ? NULL : w->cur;
+}
+
+/* ------------------------------------------------------- homographs */
+
+/* Homographs the part-of-speech tag cannot tell apart (both readings are
+ * nouns): a reading by cue words next to them, our own rules beyond
+ * misaki, off in compat mode.  Without a cue the dictionary reading stays. */
+
+typedef struct
+{
+  const gchar *word, *tag;      /* look this up instead */
+  const gchar *ps;              /* or take these phonemes */
+} Reading;
+
+static const char *const BASS_MUSIC[] = {
+  "guitar", "guitars", "guitarist", "guitarists", "player", "players", "line", "lines",
+  "drum", "drums", "clef", "note", "notes", "voice", "voices", "singer", "section",
+  "boost", "amp", "amplifier", "speaker", "speakers", "frequencies", "frequency",
+  "double", "electric", "slap", "upright", "plays", "played", "playing", "play",
+  "solo", "riff", "riffs", "treble", "baritone", "tenor", "cello", "drop", "heavy",
+  "subwoofer", "string", "strings", "tone", "part", "parts", "band", NULL,
+};
+static const char *const BASS_FISH[] = {
+  "sea", "striped", "largemouth", "smallmouth", "fishing", "fish", "caught", "catch",
+  "lake", "river", "pond", "fillet", "fillets", "grilled", "baked", NULL,
+};
+static const char *const LEAD_NEXT[] = {
+  "poisoning", "pipe", "pipes", "paint", "pencil", "pencils", "shot", "weight", "weights",
+  "acid", "sheet", "sheets", "crystal", "glass", "oxide", "ore", "mine", "mines",
+  "mining", "levels", "exposure", "contamination", "piping", "solder", "bullet",
+  "bullets", "balloon", "smelter", "smelting", "carbonate", "nitrate", "chloride",
+  "sulfide", "sulphide", "isotope", "isotopes", "alloy", "alloys", "dust", "fumes",
+  "toxicity", NULL,
+};
+static const char *const METALS[] = {
+  "tin", "zinc", "copper", "iron", "mercury", "arsenic", "cadmium", "nickel", "steel",
+  "antimony", "uranium", "bismuth", "silver", NULL,
+};
+static const char *const BOW_TAKE[] = {
+  "take", "takes", "took", "taken", "taking", "make", "makes", "made", "making",
+  "give", "gives", "gave", "giving", "with", NULL,
+};
+static const char *const BOW_HOW[] = {
+  "deep", "low", "slight", "polite", "courtly", "quick", "curt", "gracious", "stiff",
+  "formal", "little", "small", "theatrical", "final", "respectful", NULL,
+};
+static const char *const SHIPS[] = {
+  "ship", "boat", "vessel", "yacht", "canoe", "ferry", "liner", "submarine", "carrier",
+  "barge", "tanker", "destroyer", "frigate", NULL,
+};
+static const char *const ROW_HOW[] = {
+  "blazing", "furious", "almighty", "flaming", "bitter", "heated", "diplomatic",
+  "political", "public", "violent", "noisy", "family", "domestic", NULL,
+};
+
+static gboolean
+cue (const gchar *w, const char *const *list)
+{
+  return w != NULL && in_list (w, list);
+}
+
+static gboolean
+near (const gchar *const *ctx, guint n, const char *const *list)
+{
+  for (guint k = 0; k < n; k++)
+    if (cue (ctx[k], list))
+      return TRUE;
+  return FALSE;
+}
+
+static gboolean
+is_noun_like (const gchar *tag)
+{
+  return tag == NULL || g_str_has_prefix (tag, "NN") || g_str_has_prefix (tag, "JJ");
+}
+
+static gboolean
+eq (const gchar *a, const gchar *b)
+{
+  return a != NULL && strcmp (a, b) == 0;
+}
+
+/* @prev, @next: the nearest words before and after, lowercase, NULL past a
+ * punctuation mark */
+static Reading
+homograph (const gchar *word, const gchar *tag, const gchar *const prev[3],
+           const gchar *const next[3])
+{
+  Reading r = { NULL, NULL, NULL };
+  gchar *w = g_ascii_strdown (word, -1);
+  gboolean plural = g_str_has_suffix (w, "s") && strcmp (w, "bass") != 0;
+
+  if (strcmp (w, "bass") == 0 && is_noun_like (tag))
+    {
+      /* the fish in the dictionary, the music by its cues */
+      int d;
+      for (d = 1; d <= 2; d++)
+        if (near (prev, d, BASS_FISH) || near (next, d, BASS_FISH)
+            || near (prev, d, BASS_MUSIC) || near (next, d, BASS_MUSIC))
+          break;
+      if (d <= 2 && !near (prev, d, BASS_FISH) && !near (next, d, BASS_FISH))
+        r.word = "bass", r.tag = "ADJ";
+    }
+  else if (strcmp (w, "lead") == 0 && is_noun_like (tag))
+    {
+      /* the metal: lead pipes, red lead, made of lead, lead and zinc */
+      if (cue (next[0], LEAD_NEXT) || eq (prev[0], "red") || eq (prev[0], "white")
+          || eq (prev[0], "molten")
+          || ((eq (prev[0], "of") || eq (prev[0], "with")) && (next[0] == NULL || eq (next[0], "and")
+                                                               || eq (next[0], "or")))
+          || near (prev, 2, METALS) || near (next, 2, METALS))
+        r.word = "led";
+    }
+  else if ((strcmp (w, "tear") == 0 || strcmp (w, "tears") == 0)
+           && eq (prev[0], "and") && eq (prev[1], "wear"))
+    r.word = plural ? "tears" : "tear", r.tag = "VERB";
+  else if ((strcmp (w, "bow") == 0 || strcmp (w, "bows") == 0) && is_noun_like (tag))
+    {
+      /* bending: take a bow, a deep bow; the front: the bow of the ship */
+      if ((cue (prev[0], BOW_HOW) && (eq (prev[1], "a") || cue (prev[1], BOW_TAKE)))
+          || ((eq (prev[0], "a") || eq (prev[0], "his") || eq (prev[0], "her")
+               || eq (prev[0], "their") || eq (prev[0], "my"))
+              && cue (prev[1], BOW_TAKE))
+          || (plural && cue (prev[0], BOW_TAKE))
+          || (eq (next[0], "of") && (cue (next[1], SHIPS) || cue (next[2], SHIPS))))
+        r.word = plural ? "bows" : "bow", r.tag = "VERB";
+    }
+  else if ((strcmp (w, "row") == 0 || strcmp (w, "rows") == 0) && is_noun_like (tag))
+    {
+      /* a quarrel: a blazing row, had a row with her */
+      if (cue (prev[0], ROW_HOW)
+          || (eq (prev[0], "a") && (eq (prev[1], "had") || eq (prev[1], "have")
+                                    || eq (prev[1], "has") || eq (prev[1], "having"))
+              && (eq (next[0], "with") || eq (next[0], "about") || eq (next[0], "over"))))
+        r.ps = plural ? "ɹˈWz" : "ɹˈW";
+    }
+  else if (strcmp (w, "does") == 0
+           && ((eq (prev[0], "and") && (eq (prev[1], "bucks") || eq (prev[1], "stags")))
+               || (eq (next[0], "and") && (eq (next[1], "bucks") || eq (next[1], "fawns")
+                                          || eq (next[1], "stags")))))
+    r.word = "doze";
+  g_free (w);
+  return r;
+}
+
+/* the text of the nearest words around word @i, lowercase, up to a mark */
+static void
+neighbours (GArray *words, guint i, gchar *prev[3], gchar *next[3])
+{
+  for (int dir = -1; dir <= 1; dir += 2)
+    {
+      gchar **out = dir < 0 ? prev : next;
+      gint j = (gint) i;
+      for (int k = 0; k < 3; k++)
+        {
+          const Word *w;
+          out[k] = NULL;
+          j += dir;
+          if (j < 0 || (guint) j >= words->len)
+            continue;
+          w = &g_array_index (words, Word, j);
+          if (w->mark && *((Sub *) w->subs->pdata[0])->ps != '\0')
+            {
+              j = dir < 0 ? -1 : (gint) words->len;
+              continue;
+            }
+          if (w->mark)
+            {
+              k--;
+              continue;
+            }
+          {
+            gchar *t = joined (w->subs, 0, w->subs->len);
+            out[k] = g_ascii_strdown (t, -1);
+            g_free (t);
+          }
+        }
+    }
+}
+
 gchar *
 en_g2p (EnLexicon *lex, const gchar *text, EnFallback fallback, gpointer data)
 {
@@ -1555,13 +2299,37 @@ en_g2p (EnLexicon *lex, const gchar *text, EnFallback fallback, gpointer data)
 
       if (w->mark)
         ps = g_strdup (s0->ps);
-      else if (w->whole)
-        ps = fallback (s0->text, data);
       else if (w->subs->len == 1)
         {
           const gchar *tag = tags != NULL ? span_tag (tags, text, s0->start, s0->end)
                                           : guess_tag (words, i, mixed);
-          ps = lexicon (lex, s0->text, tag, &ctx);
+          Reading h = { NULL, NULL, NULL };
+          if (!lex->compat && s0->alias == NULL)
+            {
+              gchar *prev[3], *next[3];
+              neighbours (words, i, prev, next);
+              h = homograph (s0->text, tag, (const gchar *const *) prev,
+                             (const gchar *const *) next);
+              for (int k = 0; k < 3; k++)
+                {
+                  g_free (prev[k]);
+                  g_free (next[k]);
+                }
+            }
+          if (h.ps != NULL)
+            ps = g_strdup (h.ps);
+          else if (h.word != NULL)
+            {
+              /* keep the capitals of the text */
+              gchar *t = is_upper (s0->text) ? g_ascii_strup (h.word, -1)
+                         : g_unichar_isupper (g_utf8_get_char (s0->text)) ? capitalize (h.word)
+                         : g_strdup (h.word);
+              ps = lexicon (lex, t, h.tag != NULL ? h.tag : tag, &ctx, TRUE, NULL);
+              g_free (t);
+            }
+          else
+            ps = lexicon (lex, s0->alias != NULL ? s0->alias : s0->text, tag, &ctx, TRUE,
+                          word_currency (words, i, tags, text));
           if (ps == NULL)
             ps = fallback (s0->text, data);
           ctx = token_context (ctx, ps, s0->text, tag);
