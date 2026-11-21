@@ -184,7 +184,8 @@ static void int2word(buf *b, const char *d, size_t len, int cardinal, kw k)
 			continue;
 		int o = x % 10, t = x / 10 % 10, h = x / 100;
 		if (cardinal) {
-			chunk_cardinal(b, &first, h, t, o, i, k);
+			if (!(j == 0 && x == 1 && i > 0 && (k.fixes & N2W_FIX_LEADING_ONE)))
+				chunk_cardinal(b, &first, h, t, o, i, k);
 			if (i > 0)
 				word(b, &first, pluralize((unsigned)x, N2W_THOUSANDS[i][k.gcase]));
 		} else if (!(ord_join && rightest == i)) {
@@ -262,6 +263,9 @@ int n2w_ru_cardinal(const char *number, n2w_opts o, char *out, size_t cap)
 		if (neg && !(n == 1 && s[0] == '0')) {
 			put(&b, "минус ");
 		}
+		if ((o.fixes & N2W_FIX_COMPOUND_ACCS) && k.gcase == N2W_ACCS && n >= 2 &&
+		    s[n - 1] >= '2' && s[n - 1] <= '4' && s[n - 2] != '1')
+			k.animate = 0;
 		int2word(&b, s, n, 1, k);
 		return finish(&b);
 	}

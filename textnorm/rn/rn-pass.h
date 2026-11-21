@@ -21,5 +21,7 @@ int rn_run_protect(const rn_str *in, rn_str *out);   /* both, for tests */
 /* normalize_roman of roman_numerals.py (needs rn_morph and rn_mx_init) */
 int rn_run_roman(const rn_str *in, rn_str *out);
 int rn_run_dates_time(const rn_str *in, rn_str *out);
+/* R4 (RN_FIX_SO): "с" → "со" before "сто", "ста", "втор…"; not in the oracle */
+int rn_run_so(const rn_str *in, rn_str *out);
 
 #endif

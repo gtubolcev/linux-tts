@@ -26,6 +26,7 @@ static const struct {
 	{"remove_numeric_footnotes", rn_remove_numeric_footnotes},
 	{"run_roman", rn_run_roman},
 	{"run_dates_time", rn_run_dates_time},
+	{"run_so", rn_run_so},
 #define RN_PRE_ROW(name) {#name, rn_pre_##name},
 	RN_PRE_FUNCS(RN_PRE_ROW)
 };
@@ -90,6 +91,8 @@ int main(int argc, char **argv)
 	clock_gettime(CLOCK_MONOTONIC, &t0);
 	if (getenv("RN_FIXES"))   /* RN_FIX_* mask: the fixed mode instead of the oracle's */
 		rn_fixes = (unsigned)strtoul(getenv("RN_FIXES"), NULL, 0);
+	if (getenv("RN_N2W_FIXES"))   /* N2W_FIX_* mask for every num2words call */
+		rn_n2w_fixes = (unsigned)strtoul(getenv("RN_N2W_FIXES"), NULL, 0);
 	const char *dict = getenv("RN_MORPH_DICT");
 	if (dict) {
 		const char *merr = NULL;

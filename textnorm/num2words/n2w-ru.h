@@ -34,7 +34,12 @@ typedef struct {
 #define N2W_FIX_MAGNITUDE 1u
 /* N2: floats: keep the minus of "-0.5", and "минус одна целая" (not "целых") */
 #define N2W_FIX_FLOAT_SIGN 2u
-#define N2W_FIX_ALL (N2W_FIX_MAGNITUDE | N2W_FIX_FLOAT_SIGN)
+/* N3: compound cardinals ending in 2, 3, 4 keep the nominative form in the animate
+ * accusative ("вижу двадцать два студента", gramota.ru 310247); "двух" alone stays */
+#define N2W_FIX_COMPOUND_ACCS 4u
+/* N4: no "одна"/"один" before the leading тысяча/миллион…: "тысяча триста пять" */
+#define N2W_FIX_LEADING_ONE 8u
+#define N2W_FIX_ALL (N2W_FIX_MAGNITUDE | N2W_FIX_FLOAT_SIGN | N2W_FIX_COMPOUND_ACCS | N2W_FIX_LEADING_ONE)
 
 /* num2words' defaults: nominative, masculine, singular, animate; all fixes */
 #define N2W_DEFAULTS ((n2w_opts){N2W_NOMN, N2W_MASC, 0, 1, N2W_FIX_ALL})
