@@ -49,9 +49,9 @@ static const uint32_t *map_entry(const uint32_t (*t)[4], size_t n, uint32_t c)
 }
 
 static int put_map(const uint32_t (*t)[4], size_t nt, const uint32_t *s, size_t n, rn_str *out,
-                   int sigma)
+                   int sigma, size_t from)
 {
-	for (size_t i = 0; i < n; i++) {
+	for (size_t i = from; i < n; i++) {
 		uint32_t c = s[i];
 		if (sigma && c == 0x3A3) {   /* final sigma, as in str.lower() */
 			size_t j;
@@ -88,17 +88,17 @@ static int put_map(const uint32_t (*t)[4], size_t nt, const uint32_t *s, size_t 
 
 int rn_py_lower(const uint32_t *s, size_t n, rn_str *out)
 {
-	return put_map(RN_PY_LOWERMAP, N(RN_PY_LOWERMAP), s, n, out, 1);
+	return put_map(RN_PY_LOWERMAP, N(RN_PY_LOWERMAP), s, n, out, 1, 0);
 }
 
 int rn_py_upper(const uint32_t *s, size_t n, rn_str *out)
 {
-	return put_map(RN_PY_UPPERMAP, N(RN_PY_UPPERMAP), s, n, out, 0);
+	return put_map(RN_PY_UPPERMAP, N(RN_PY_UPPERMAP), s, n, out, 0, 0);
 }
 
 int rn_py_casefold(const uint32_t *s, size_t n, rn_str *out)
 {
-	return put_map(RN_PY_FOLDMAP, N(RN_PY_FOLDMAP), s, n, out, 0);
+	return put_map(RN_PY_FOLDMAP, N(RN_PY_FOLDMAP), s, n, out, 0, 0);
 }
 
 /* isupper(): at least one cased character and no lowercase or titlecase one */
@@ -210,4 +210,13 @@ void rn_py_strip(const uint32_t *s, size_t n, size_t *a, size_t *b)
 		k--;
 	*a = i;
 	*b = k;
+}
+
+int rn_py_capitalize(const uint32_t *s, size_t n, rn_str *out)
+{
+	if (!n)
+		return 0;
+	if (put_map(RN_PY_TITLEMAP, N(RN_PY_TITLEMAP), s, 1, out, 0, 0) < 0)
+		return -1;
+	return put_map(RN_PY_LOWERMAP, N(RN_PY_LOWERMAP), s, n, out, 1, 1);
 }

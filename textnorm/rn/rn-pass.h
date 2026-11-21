@@ -7,6 +7,11 @@
 
 int rn_run_urls(const rn_str *in, rn_str *out);
 int rn_run_math(const rn_str *in, rn_str *out);
+/* _run_preprocess_steps(apply_caps_normalization=False), _run_caps_normalization, and
+ * remove_numeric_footnotes with the default ignore interval */
+int rn_run_preprocess(const rn_str *in, rn_str *out);
+int rn_run_caps(const rn_str *in, rn_str *out);
+int rn_remove_numeric_footnotes(const rn_str *in, rn_str *out);
 
 /* text with the fragments hidden in out; ph is initialised here (rn_ph_free it, also on
  * error) and later restores them with rn_ph_restore */

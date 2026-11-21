@@ -51,7 +51,8 @@ for name, pred in PREDS:
     for i in range(0, len(rs), 4):
         print("\t" + " ".join("{0x%X, 0x%X}," % r for r in rs[i:i + 4]))
     print("};")
-for name, fn in (("LOWERMAP", str.lower), ("UPPERMAP", str.upper), ("FOLDMAP", str.casefold)):
+for name, fn in (("LOWERMAP", str.lower), ("UPPERMAP", str.upper), ("FOLDMAP", str.casefold),
+                 ("TITLEMAP", str.title)):
     print("static const uint32_t RN_PY_%s[][4] = {   /* cp, mapping (0-padded) */" % name)
     for cp in CPS:
         c = chr(cp)
