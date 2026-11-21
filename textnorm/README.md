@@ -1,7 +1,8 @@
 # textnorm — C port of ru_normalizr (in progress)
 
 Plan: RESEARCH-text-normalization.md §10. Python ru_normalizr is the oracle; the C port must
-match its output byte for byte, except for a reviewed list of deliberate fixes.
+match its output byte for byte in compat mode; bugs of the originals are fixed behind flags
+and listed in `QUIRKS.md` for review.
 
 ## Layout
 - `oracle/make-corpus.py` — builds the input corpus (`core.jsonl`: rn tests, normbench,
@@ -27,11 +28,12 @@ match its output byte for byte, except for a reviewed list of deliberate fixes.
 
 - `num2words/` — num2words 0.5.14 lang_RU in C (`n2w-ru.h`, `n2w-ru.c`; LGPL-2.1-or-later
   like num2words): cardinal and ordinal with case/gender/plural/animate and the float form
-  ("две целых пять десятых"), quirks kept (e.g. plural thousands "одни тысяча").
+  ("две целых пять десятых"). `fixes = 0` gives num2words exactly; bugs found are listed
+  in `QUIRKS.md` and fixed behind `N2W_FIX_*` flags.
   - `gen-tables.py > n2w-ru-tables.h`: num2words' word tables expanded to
     [num][case][gender|plural][animate] by its own case_classifier_element.
   - Check: `gen-numbers.py > numbers` (30 569 ints, negatives, floats), `pyn2w-dump.py` (in
-    claude-ru-normalizr) and `n2w-dump` over 144 option combos each, then `cmp`.
+    claude-ru-normalizr) and `n2w-dump` over 144 option combos each (`n2w-dump` without `--fixes`), then `cmp`.
     2026-11-21: 4 401 936 lines identical, ASan/UBSan clean; 6 s against 91 s in Python.
 
 ## Oracle environment (goldens of 2026-11-21)
