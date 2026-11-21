@@ -21,7 +21,9 @@
 	X(heading_numbers, heading_numbers)                            \
 	X(hyphenated_words, hyphenated_words)                          \
 	X(square_unit_attributes, square_unit_attributes)              \
-	X(versions, versions)
+	X(versions, versions)                                          \
+	X(decimals, decimals)                                          \
+	X(fractions, fractions)
 
 #define RN_NPASS_DECL(py, c) int rn_n_##c(rn_str *t);
 RN_NPASS_FUNCS(RN_NPASS_DECL)

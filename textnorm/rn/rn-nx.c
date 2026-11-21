@@ -6,6 +6,8 @@
 
 /* ---- numbers ---- */
 
+static void put_n2w(rn_str *out, int ordinal, const char *num, n2w_opts o, int *raised);
+
 int nx_pyint(const uint32_t *s, size_t n, char *buf, size_t cap)
 {
 	size_t a = 0, b = n, k = 0;
@@ -73,6 +75,13 @@ int nx_pyint_long(const uint32_t *s, size_t n, long *v)
 	}
 	*v = strtol(b, NULL, 10);
 	return 1;
+}
+
+int nx_n2w(rn_str *out, int ordinal, const char *num, n2w_opts o)
+{
+	int raised;
+	put_n2w(out, ordinal, num, o, &raised);
+	return raised ? -1 : 0;
 }
 
 static void put_n2w(rn_str *out, int ordinal, const char *num, n2w_opts o, int *raised)
@@ -561,4 +570,72 @@ void nx_left_word(const uint32_t *t, size_t st, size_t k, rn_str *out)
 		}
 	}
 	free(L);
+}
+
+unsigned nx_dmod(const char *d, unsigned m)
+{
+	unsigned long long r = 0;
+	for (; *d; d++)
+		if (*d >= '0' && *d <= '9')
+			r = (r * 10 + (unsigned)(*d - '0')) % m;
+	return (unsigned)r;
+}
+
+int nx_icase(const char *d, int gcase)
+{
+	if (gcase != rn_g.accs)
+		return gcase;
+	unsigned v100 = nx_dmod(d, 100);
+	size_t l = strlen(d);
+	unsigned th = 0;
+	for (size_t i = 0; i + 3 < l; i++)
+		if (d[i] >= '0' && d[i] <= '9')
+			th = (th * 10 + (unsigned)(d[i] - '0')) % 1000;
+	int fin = v100 % 10 == 1 && v100 != 11;
+	int ths = th % 10 == 1 && th % 100 != 11;
+	return fin || ths ? rn_g.accs : rn_g.nomn;
+}
+
+char nx_nform(const char *d)
+{
+	if (!strcmp(d, "0"))
+		return 'm';
+	unsigned v = nx_dmod(d, 100);
+	if (v >= 11 && v <= 14)
+		return 'm';
+	if (v % 10 == 1)
+		return 'o';
+	if (v % 10 >= 2 && v % 10 <= 4)
+		return 'f';
+	return 'm';
+}
+
+cmorphy3_gset nx_ttags(const char *d, int gcase)
+{
+	char f = nx_nform(d);
+	int sing = rn_g.sing, plur = rn_g.plur, gent = rn_g.gent;
+	if (gcase == rn_g.nomn || gcase == rn_g.accs)
+		return f == 'o'   ? rn_gset_or(rn_gset1(gcase), rn_gset1(sing))
+		       : f == 'f' ? rn_gset_or(rn_gset1(gent), rn_gset1(sing))
+		                  : rn_gset_or(rn_gset1(gent), rn_gset1(plur));
+	if (nx_dge1000(d) && nx_dmod(d, 1000) == 0)
+		return rn_gset_or(rn_gset1(gent), rn_gset1(plur));
+	return rn_gset_or(rn_gset1(gcase), rn_gset1(f == 'o' ? sing : plur));
+}
+
+int nx_keep_dot_at(const uint32_t *s, size_t n, size_t i)
+{
+	int nl = 0;
+	while (i < n && rn_py_isspace(s[i])) {
+		nl |= s[i] == '\n';
+		i++;
+	}
+	if (i >= n || nl)
+		return 1;
+	uint32_t c = s[i];
+	if (nx_inset(c, U".!?…"))
+		return 1;
+	if (c == ',')
+		return 0;
+	return !(rn_py_islower(c) || rn_py_isdigit(c));
 }

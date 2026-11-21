@@ -11,6 +11,7 @@
 #include <uchar.h>
 
 #include "rn-mx.h"
+#include "../num2words/n2w-ru.h"
 #include "rn-ncase.h"
 #include "rn-num.h"
 #include "rn-pystr.h"
@@ -170,6 +171,24 @@ void nx_numeral_a(rn_str *out, const char *num, int gcase, int gender, int anima
  * grammemes (gender -1 for None); number as an ASCII int string */
 void nx_ordinal(rn_str *out, const char *num, int gcase, int gender, int plural, int inanimate);
 void nx_ordinal_l(rn_str *out, long v, int gcase, int gender, int plural, int inanimate);
+
+/* num2words(num, ordinal or cardinal, opts) appended: 0, or -1 where it raises */
+int nx_n2w(rn_str *out, int ordinal, const char *num, n2w_opts o);
+
+/* on str(int) digit strings d (a '-' is ignored): int(d) % m */
+unsigned nx_dmod(const char *d, unsigned m);
+static inline int nx_dge1000(const char *d)
+{
+	return strlen(d) - (d[0] == '-') >= 4;
+}
+/* inanimate_cardinal_case(int(d), case) */
+int nx_icase(const char *d, int gcase);
+/* noun_number_form(int(d)): 'o'ne, 'f'ew, 'm'any */
+char nx_nform(const char *d);
+/* get_target_tags_for_number(int(d), case) */
+cmorphy3_gset nx_ttags(const char *d, int gcase);
+/* should_keep_decimal_unit_dot_at(s, i) */
+int nx_keep_dot_at(const uint32_t *s, size_t n, size_t i);
 
 /* ---- morphology ---- */
 

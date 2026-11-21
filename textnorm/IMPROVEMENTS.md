@@ -34,3 +34,6 @@ same number. All of them are on in the normal mode; flags 0 give the original ou
 
 ## Prepositions
 - R4: "с сто восьмой" → "со сто восьмой", "с второй" → "со второй".
+
+## Fractions
+- R20: "2 3/4 стакана, затем к 1/3 смеси" → "к одной третьей смеси" (was "к одну треть").
