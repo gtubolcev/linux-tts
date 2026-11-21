@@ -46,7 +46,7 @@ Description: Speech Dispatcher module for Kokoro voices
 Package: speech-dispatcher-kokoro-vulkan-rs
 Architecture: all
 Depends: speech-dispatcher-kokoro (>= ${source:Version}),
-         onnxruntime-ep-vulkan (>= 0.0.1~git8625ef9-2),
+         onnxruntime-ep-vulkan (>= 0.0.1~git8625ef9-2~),
          ${misc:Depends}
 Description: Speech Dispatcher module for Kokoro voices on the graphics card
  The synthesizer "kokoro-vulkan-rs": sd_kokoro with the Vulkan plugin of
