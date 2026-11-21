@@ -24,8 +24,12 @@ gboolean espeak_g2p_check_voice (const gchar *voice, GError **error);
 gchar *espeak_g2p_phonemize (const gchar *voice, const gchar *text);
 
 /* Kokoro v1.0 phonemes for @lang ("en-US", "en-GB", "es", "fr", "hi", "it",
- * "pt-BR") as misaki makes them with espeak-ng; "" for another language */
+ * "pt-BR") as misaki makes them: English with its dictionaries (en-g2p.c)
+ * and espeak-ng for the rest; "" for another language */
 gchar *kokoro_g2p (const gchar *lang, const gchar *text);
+/* where misaki's English dictionaries are (misaki-lexicon.py); without
+ * them English goes through espeak-ng alone */
+void kokoro_g2p_set_lexicon_dir (const gchar *dir);
 /* whether there is a front end for @lang and espeak-ng has its voice */
 gboolean kokoro_g2p_speaks (const gchar *lang);
 

@@ -329,6 +329,11 @@ kokoro_init (gchar **msg)
       g_error_free (error);
       return FALSE;
     }
+  {
+    gchar *dir = g_build_filename (cfg_espeak_data, "misaki", NULL);
+    kokoro_g2p_set_lexicon_dir (dir);
+    g_free (dir);
+  }
   user = g_build_filename (g_get_user_data_dir (), "kokoro-tts", NULL);
   models = g_ptr_array_new ();
   scan_models (user);

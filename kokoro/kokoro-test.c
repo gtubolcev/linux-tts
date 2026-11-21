@@ -8,8 +8,9 @@
  *       < lines: writes <out-prefix>NN.wav per line; with KOKORO_VULKAN_EP=<plugin.so>
  *       on the graphics card
  *   KOKORO_LANG=<lang> (en-US, en-GB, es, fr, hi, it, pt-BR): that language's
- *       espeak-ng front end instead of the Russian one (ipa and synth; give
- *       "-" as the dictionary)
+ *       front end instead of the Russian one (ipa and synth; give "-" as the
+ *       dictionary); English takes misaki's dictionaries from
+ *       KOKORO_LEXICON (default <espeak-path>/misaki, "-" for none)
  *
  * Copyright (C) 2026 Grigory Tuboltsev
  * SPDX-License-Identifier: GPL-3.0-or-later
@@ -69,6 +70,13 @@ main (int argc, char **argv)
   g = ru_g2p_new (argc > 3 && strcmp (argv[3], "-") != 0 ? argv[3] : NULL, argv[2], &error);
   if (g == NULL)
     goto err;
+  {
+    const gchar *lex = g_getenv ("KOKORO_LEXICON");
+    gchar *dir = lex != NULL ? g_strdup (lex) : g_build_filename (argv[2], "misaki", NULL);
+    if (strcmp (dir, "-") != 0)
+      kokoro_g2p_set_lexicon_dir (dir);
+    g_free (dir);
+  }
   if (synth)
     {
       if ((m = kokoro_model_new (argv[4], argv[5], 4, g_getenv ("KOKORO_VULKAN_EP"), &error)) == NULL
