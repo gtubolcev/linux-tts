@@ -27,6 +27,8 @@ const rn_unit *rn_unit_resolve_expr(const uint32_t *s, size_t n, char *kind);
 /* resolve_unit_form(token) (rn-unitform.c, needs the morphology): the descriptor or NULL;
  * sets rn_mx_failed when out of memory */
 const rn_unit *rn_unit_resolve_form(const uint32_t *s, size_t n);
+/* the first descriptor with this lemma (UTF-8); the multi-word lemmas are unique */
+const rn_unit *rn_unit_by_lemma(const char *lemma);
 /* UNIT_REGISTRY.is_exact_symbol(token) */
 int rn_unit_is_exact(const uint32_t *s, size_t n);
 

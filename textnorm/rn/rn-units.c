@@ -123,3 +123,11 @@ const rn_unit *rn_unit_resolve_expr(const uint32_t *s, size_t n, char *kind)
 	rn_str_free(&t);
 	return u;
 }
+
+const rn_unit *rn_unit_by_lemma(const char *lemma)
+{
+	for (size_t i = 0; i < sizeof RN_UNITS / sizeof *RN_UNITS; i++)
+		if (!strcmp(RN_UNITS[i].lemma, lemma))
+			return &RN_UNITS[i];
+	return NULL;
+}

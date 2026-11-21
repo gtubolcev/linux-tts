@@ -24,7 +24,10 @@
 	X(versions, versions)                                          \
 	X(decimals, decimals)                                          \
 	X(fractions, fractions)                                        \
-	X(numeric_suffixes, numeric_suffixes)
+	X(numeric_suffixes, numeric_suffixes)                          \
+	X(numeric_unit_ranges, numeric_unit_ranges)                    \
+	X(remaining_post_numeral_abbreviations, remaining_post_numeral_abbreviations) \
+	X(all_digits_everywhere, all_digits_everywhere)
 
 #define RN_NPASS_DECL(py, c) int rn_n_##c(rn_str *t);
 RN_NPASS_FUNCS(RN_NPASS_DECL)
