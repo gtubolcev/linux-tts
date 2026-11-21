@@ -31,6 +31,8 @@ Examples marked "core" are from the oracle output `tests/golden/core.jsonl.zst`.
 | R7 | Seconds are read masculine | "12:00:01" → "…один секунда", "двадцать два секунды" → "одна секунда", "двадцать две секунды" | fixed, `RN_FIX_SECONDS_FEMN` |
 | R8 | After с/от/до/после the minutes are genitive but masculine | "с 10:21" → "с десяти часов двадцати одного минуты" → "двадцати одной минуты" | fixed, `RN_FIX_TIME_GENT_FEMN` |
 | R9 | After с/от/до/после zero minutes are read out | "с 9:00 до 18:00" (core) → "с девяти часов ноля минут…" → "с девяти часов до восемнадцати часов" | fixed, `RN_FIX_TIME_GENT_ZERO` |
+| R10 | A date takes its case only from a preposition inside its own pattern (на/к/ко/перед); за, по and a preposition before a list or a numeric date are ignored → genitive | "за 31 декабря" → "за тридцать первого" → "за тридцать первое"; "по 1 марта" → "по первое"; "к 1 и 2 мая" → "к первому и второму"; "к 01.06.2026" → "к первому июня" (core 11, big 34 changes) | fixed, `RN_FIX_DATE_PREP_CASE` |
+| R11 | "Месяц + число" is read as a date before a counted noun when the number ends in 1 (the check gives up for 1, 21 …) | "до мая 21 солдат" → "до мая двадцать первого солдат" → kept "21 солдат" for the numerals stage. Only when a preposition governs the month: "ноября 1 генерал-прокурор предложил" (big) stays a date | fixed, `RN_FIX_COUNTED_ONE` |
 
 ## pymorphy3 (`cmorphy3/`)
 

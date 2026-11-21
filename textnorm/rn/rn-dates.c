@@ -278,6 +278,37 @@ static int r_range(const rn_match *m, rn_str *o, void *ctx)
 	return 0;
 }
 
+/* R10: the case a preposition just before start governs: за/по/на → accusative, к/ко →
+ * dative, перед → instrumental; -1 for none of them */
+static int left_prep_case(const uint32_t *s, size_t start)
+{
+	size_t b = start;
+	while (b && rn_py_isspace(s[b - 1]))
+		b--;
+	size_t a = b;
+	while (a && rn_py_isalpha(s[a - 1]))
+		a--;
+	if (a == b || b - a > 5 || (a && (rn_py_isalnum(s[a - 1]) || s[a - 1] == '_')))
+		return -1;
+	rn_str t = {0};
+	lower(s + a, b - a, &t);
+	int c = eq(t.s, t.n, U"за") || eq(t.s, t.n, U"по") || eq(t.s, t.n, U"на") ? N2W_ACCS
+	        : eq(t.s, t.n, U"к") || eq(t.s, t.n, U"ко")                      ? N2W_DATV
+	        : eq(t.s, t.n, U"перед")                                         ? N2W_ABLT
+	                                                                         : -1;
+	rn_str_free(&t);
+	return c;
+}
+
+/* R10: a date without its own preposition takes the case of the one before it */
+static enum n2w_case outer_case(const rn_match *m, enum n2w_case dflt)
+{
+	if (!(rn_fixes & RN_FIX_DATE_PREP_CASE))
+		return dflt;
+	int c = left_prep_case(m->s, m->start[0]);
+	return c < 0 ? dflt : (enum n2w_case)c;
+}
+
 static int r_list(const rn_match *m, rn_str *o, void *ctx)
 {
 	(void)ctx;
@@ -287,6 +318,7 @@ static int r_list(const rn_match *m, rn_str *o, void *ctx)
 	rn_str r = {0};
 	/* re.split(r"(\s*(?:,|и)\s*)", days, flags=re.IGNORECASE): numbers between the
 	 * separators; the separators stay as they are */
+	enum n2w_case c = outer_case(m, N2W_GENT);
 	rn_iter it = rn_iter_init(P(L334), days, dn, 0);
 	rn_match sm;
 	size_t pos = 0;
@@ -304,7 +336,7 @@ static int r_list(const rn_match *m, rn_str *o, void *ctx)
 		rn_py_strip(days + a, b - a, &sa, &sb);
 		if (sb > sa) {
 			if (!rn_py_str_isdigit(days + a + sa, sb - sa) ||
-			    day_ordinal(&r, ival(days + a + sa, sb - sa), N2W_GENT) < 0)
+			    day_ordinal(&r, ival(days + a + sa, sb - sa), c) < 0)
 				ok = 0;
 		}
 		if (more) {
@@ -331,7 +363,7 @@ static int r_text_date(const rn_match *m, rn_str *o, void *ctx)
 	size_t pn, dn, mn;
 	const uint32_t *pr = grp(m, p, "prep", &pn), *d = grp(m, p, "day", &dn);
 	const uint32_t *mo = grp(m, p, "month", &mn);
-	enum n2w_case c = N2W_GENT;
+	enum n2w_case c = outer_case(m, N2W_GENT);
 	if (pr) {
 		rn_str t = {0};
 		lower(pr, pn, &t);
@@ -358,16 +390,38 @@ static int r_text_date(const rn_match *m, rn_str *o, void *ctx)
 }
 
 /* _counted_noun_follows of years.py: "до мая 1500 солдат" */
-static int counted_noun_follows(const uint32_t *s, size_t n, size_t end, long number)
+/* the word before start (over spaces) has a preposition parse first: "до мая" */
+static int prep_before(const uint32_t *s, size_t start)
+{
+	size_t b = start;
+	while (b && rn_py_isspace(s[b - 1]))
+		b--;
+	size_t a = b;
+	while (a && rn_py_isalpha(s[a - 1]))
+		a--;
+	if (a == b)
+		return 0;
+	const cmorphy3_form *f = rn_mfirst(s + a, b - a);
+	return rn_pos(f->tag) == rn_g.PREP;
+}
+
+/* mstart: where the month starts (R11) */
+static int counted_noun_follows(const uint32_t *s, size_t n, size_t mstart, size_t end,
+                                long number)
 {
 	rn_match w;
 	size_t e = end + 24 < n ? end + 24 : n;
 	if (!slice_match(rn_pat(RN_YEARS_L244), s, end, e, &w))
 		return 0;
 	long tail = number % 100, last = number % 10;
-	if (last == 1 && tail != 11)
+	/* R11: after 1, 21 … the noun is nominative singular ("до мая 21 солдат"); the oracle
+	 * gives up. Only where a preposition governs the month: "ноября 1 генерал-прокурор
+	 * предложил" is a date. */
+	int one = last == 1 && tail != 11;
+	if (one && (!(rn_fixes & RN_FIX_COUNTED_ONE) || !prep_before(s, mstart)))
 		return 0;
-	int req = last >= 2 && last <= 4 && !(tail >= 12 && tail <= 14) ? rn_g.sing : rn_g.plur;
+	int req = one || (last >= 2 && last <= 4 && !(tail >= 12 && tail <= 14)) ? rn_g.sing : rn_g.plur;
+	int want_case = one ? rn_g.nomn : rn_g.gent;
 	size_t wn;
 	const uint32_t *ws = rn_group(&w, 1, &wn);
 	const cmorphy3_form *f;
@@ -375,7 +429,9 @@ static int counted_noun_follows(const uint32_t *s, size_t n, size_t end, long nu
 	/* select_parse(word, pos="NOUN", required_grammemes=(req,), case="gent") */
 	for (int i = 0; i < count; i++) {
 		if (rn_pos(f[i].tag) != rn_g.NOUN || !cmorphy3_gset_has(rn_canon(rn_gs(f[i].tag)), req) ||
-		    rn_canon_case(rn_case(f[i].tag)) != rn_g.gent)
+		    rn_canon_case(rn_case(f[i].tag)) != want_case ||
+		    (one && (rn_has(f[i].tag, rn_g.Name) || rn_has(f[i].tag, rn_g.Surn) ||
+		             rn_has(f[i].tag, rn_g.Patr) || rn_has(f[i].tag, rn_g.Geox))))
 			continue;
 		const char *nf = f[i].normal_form;
 		return strcmp(nf, "год") && strcmp(nf, "день") && strcmp(nf, "число");
@@ -390,7 +446,7 @@ static int r_month_first(const rn_match *m, rn_str *o, void *ctx)
 	size_t dn, mn;
 	const uint32_t *d = grp(m, p, "day", &dn), *mo = grp(m, p, "month", &mn);
 	long day = ival(d, dn);
-	if (counted_noun_follows(m->s, m->n, m->end[0], day))
+	if (counted_noun_follows(m->s, m->n, m->start[0], m->end[0], day))
 		return whole(m, o);
 	rn_str w = {0};
 	if (day_ordinal(&w, day, N2W_GENT) < 0) {
@@ -453,7 +509,8 @@ static int r_numeric(const rn_match *m, rn_str *o, void *ctx)
 		year = year >= 50 ? 1900 + year : 2000 + year;
 	size_t st = m->start[0];
 	/* date_case: "на|по" before → accusative, else genitive */
-	enum n2w_case c = slice_search(P(L411), m->s, left(st, 12), st) ? N2W_ACCS : N2W_GENT;
+	enum n2w_case c = outer_case(
+		m, slice_search(P(L411), m->s, left(st, 12), st) ? N2W_ACCS : N2W_GENT);
 	if (n2w(o, 1, day, c, N2W_NEUT) < 0 && n2w(o, 1, day, N2W_NOMN, N2W_MASC) < 0)
 		fail();
 	putlit(o, U" ");

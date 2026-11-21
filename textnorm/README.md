@@ -91,7 +91,7 @@ and listed in `QUIRKS.md` for review.
     on the fixes (`rn_fixes`, QUIRKS.md R5).
   - `rn-dates.c`: normalize_dates_and_time, stage `run_dates_time`. 2026-11-21: exact on core
     (13 814 pairs), big (75 743) and 34 probes of every branch; ASan/UBSan clean. Fixes
-    R6–R9 (time reading) are `RN_FIXES` 0x2–0x10.
+    R6–R11 (time reading, date case) are `RN_FIXES` 0x2–0x40.
   - `rn-unitform.c`: resolve_unit_form (a unit by an inflected name; needs the morphology).
   - `rn-units.[ch]`: UnitRegistry.resolve and resolve_unit_expression; `gen-units.py RN_SRC
     rn-units-data.h` (in claude-ru-normalizr) dumps rn's unit tables. Check: `units-check.py`

@@ -14,6 +14,8 @@ extern unsigned rn_fixes;
 #define RN_FIX_SECONDS_FEMN 0x4u       /* R7 */
 #define RN_FIX_TIME_GENT_FEMN 0x8u     /* R8 */
 #define RN_FIX_TIME_GENT_ZERO 0x10u    /* R9 */
+#define RN_FIX_DATE_PREP_CASE 0x20u    /* R10 */
+#define RN_FIX_COUNTED_ONE 0x40u       /* R11 */
 
 #define RN_NO_GENDER (-1)
 
