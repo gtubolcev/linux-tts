@@ -7,6 +7,7 @@
 #include <string.h>
 #include <time.h>
 
+#include "rn-lat.h"
 #include "rn-pass.h"
 #include "rn-pat.h"
 #include "rn-pre.h"
@@ -42,6 +43,7 @@ static const struct {
 	{"run_so", rn_run_so},
 	{"run_numerals", rn_run_numerals},
 	{"run_abbreviations", rn_run_abbreviations},
+	{"run_latinization", rn_run_latinization},
 #define RN_PRE_ROW(name) {#name, rn_pre_##name},
 	RN_PRE_FUNCS(RN_PRE_ROW)
 #define RN_NPASS_ROW(py, c) {"normalize_" #py, nw_##c},
@@ -119,6 +121,14 @@ int main(int argc, char **argv)
 		}
 		if (rn_mx_init() < 0) {
 			fprintf(stderr, "%s: grammemes missing\n", dict);
+			return 2;
+		}
+	}
+	const char *ipa = getenv("RN_IPA_DICT");
+	if (ipa) {
+		const char *lerr = "";
+		if (rn_lat_open(ipa, &lerr) < 0) {
+			fprintf(stderr, "%s: %s\n", ipa, lerr);
 			return 2;
 		}
 	}
