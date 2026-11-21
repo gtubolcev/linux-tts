@@ -11,6 +11,7 @@
  */
 
 #include "espeak-g2p.h"
+#include "en-g2p.h"
 
 #include <espeak-ng/speak_lib.h>
 #include <string.h>
@@ -417,8 +418,8 @@ syllabic (gchar *ps)
   return replace_all (r, "̩", "");
 }
 
-/* misaki EspeakFallback (British or not, version 1.0), on the whole text
- * instead of the words its dictionaries lack */
+/* misaki EspeakFallback (British or not, version 1.0): for the words the
+ * dictionaries lack, or for the whole text without them */
 static gchar *
 english (const gchar *voice, gboolean british, const gchar *text)
 {
@@ -482,6 +483,63 @@ other (const gchar *voice, const gchar *text)
   return replace_all (ps, "»", ")");
 }
 
+/* misaki's English dictionaries, opened when first needed */
+static gchar *lexicon_dir;
+static EnLexicon *lexicons[2];
+static gboolean lexicon_tried[2];
+G_LOCK_DEFINE_STATIC (lexicon);
+
+void
+kokoro_g2p_set_lexicon_dir (const gchar *dir)
+{
+  G_LOCK (lexicon);
+  g_free (lexicon_dir);
+  lexicon_dir = g_strdup (dir);
+  for (int i = 0; i < 2; i++)
+    {
+      en_lexicon_free (lexicons[i]);
+      lexicons[i] = NULL;
+      lexicon_tried[i] = FALSE;
+    }
+  G_UNLOCK (lexicon);
+}
+
+static EnLexicon *
+lexicon (gboolean british)
+{
+  EnLexicon *lex;
+
+  G_LOCK (lexicon);
+  if (!lexicon_tried[british] && lexicon_dir != NULL)
+    {
+      GError *error = NULL;
+      lexicon_tried[british] = TRUE;
+      lexicons[british] = en_lexicon_open (lexicon_dir, british, &error);
+      if (lexicons[british] == NULL)
+        {
+          g_warning ("%s; English goes through espeak-ng alone", error->message);
+          g_error_free (error);
+        }
+    }
+  lex = lexicons[british];
+  G_UNLOCK (lexicon);
+  return lex;
+}
+
+typedef struct
+{
+  const gchar *voice;
+  gboolean british;
+} Fallback;
+
+/* EspeakFallback for one word */
+static gchar *
+english_word (const gchar *word, gpointer data)
+{
+  Fallback *fb = data;
+  return english (fb->voice, fb->british, word);
+}
+
 gchar *
 kokoro_g2p (const gchar *lang, const gchar *text)
 {
@@ -490,6 +548,14 @@ kokoro_g2p (const gchar *lang, const gchar *text)
   if (voice == NULL)
     return g_strdup ("");
   if (g_ascii_strncasecmp (lang, "en-", 3) == 0)
-    return english (voice, g_ascii_strcasecmp (lang, "en-GB") == 0, text);
+    {
+      gboolean british = g_ascii_strcasecmp (lang, "en-GB") == 0;
+      EnLexicon *lex = lexicon (british);
+      Fallback fb = { voice, british };
+
+      if (lex == NULL)
+        return english (voice, british, text);
+      return en_g2p (lex, text, english_word, &fb);
+    }
   return other (voice, text);
 }
