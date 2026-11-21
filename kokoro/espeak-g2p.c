@@ -46,7 +46,20 @@ espeak_g2p_init (const gchar *path, GError **error)
   G_LOCK (espeak);
   if (!espeak_ready)
     {
-      if (espeak_Initialize (AUDIO_OUTPUT_SYNCHRONOUS, 0, path,
+      /* espeak_Initialize() only prints a missing phontab and goes on with
+         sample rate garbage, so later calls divide by zero: check first */
+      gchar *phontab = path ? g_build_filename (path, "espeak-ng-data", "phontab", NULL)
+                            : NULL;
+      gboolean have = !path || g_file_test (phontab, G_FILE_TEST_IS_REGULAR);
+
+      g_free (phontab);
+      if (!have)
+        {
+          g_set_error (error, G_FILE_ERROR, G_FILE_ERROR_NOENT,
+                       "espeak-ng: no espeak-ng-data/phontab in %s", path);
+          ok = FALSE;
+        }
+      else if (espeak_Initialize (AUDIO_OUTPUT_SYNCHRONOUS, 0, path,
                              espeakINITIALIZE_DONT_EXIT) < 0)
         {
           g_set_error (error, G_FILE_ERROR, G_FILE_ERROR_FAILED,
