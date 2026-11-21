@@ -12,3 +12,22 @@ misaki's null).  `en-g2p.c` reads them.
 
 misaki does not say where the pronunciations come from (its issues 107 and 113
 ask); the files carry no other terms than the repository's licence.
+
+## The part-of-speech tagger
+
+`en-tagger.*` are the data of `../en-tagger.c`, which tags as spaCy 3.8 with
+en_core_web_sm 3.8.0 does (misaki takes its tags from there), written by
+`../en-tagger-export.py`:
+
+    python3 -I en-tagger-export.py misaki/ spacy_lookups_data-1.0.5-py2.py3-none-any.whl
+
+- `en-tagger.bin`: the tok2vec and tagger weights (float32, 6.3 MB);
+- `en-tagger-norm.tsv`: spaCy's norms (BASE_NORMS over spacy-lookups-data's
+  lexeme_norm);
+- `en-tagger-rules.tsv`: the tokenizer's special cases, `text<TAB>orth\x1fnorm…`;
+- `en-tagger-tokenizer.txt`: its prefix, suffix, infix and URL regexes;
+- `en-tagger-symbols.tsv`: spaCy's symbol ids, which replace the hash of
+  these strings.
+
+MIT, by Explosion (see debian/copyright).  On 1754 lines of English prose the
+C tokens and tags equal spaCy's exactly.
