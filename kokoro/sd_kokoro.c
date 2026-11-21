@@ -13,6 +13,11 @@
  * One model is kept at a time.  The protocol, the threads, the text and the
  * audio are tts-module's.
  *
+ * KokoroProvider "vulkan" (the link sd_kokoro-vulkan-rs and its
+ * kokoro-vulkan-rs.conf) runs the model on the graphics card through the
+ * onnx-vulkan-rs plugin of onnxruntime; without the plugin that synthesizer
+ * does not start.
+ *
  * Copyright (C) 2026 Grigory Tuboltsev
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
@@ -21,6 +26,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
 #include <unistd.h>
 
 #include "tts-module.h"
@@ -44,6 +50,23 @@ static gchar *cfg_models_dir = NULL;
 static gchar *cfg_dictionary = NULL;
 static gchar *cfg_espeak_data = NULL;
 static int cfg_threads = 0;
+static gboolean cfg_vulkan = FALSE;       /* Provider "vulkan" */
+
+/* VULKAN_EP_LIBRARY: the plugin next to the private libonnxruntime; meson
+ * passes <libdir>/linux-tts/...  KOKORO_VULKAN_EP overrides it for tests. */
+#ifndef VULKAN_EP_LIBRARY
+#error "VULKAN_EP_LIBRARY comes from meson"
+#endif
+
+static const gchar *
+vulkan_ep (void)
+{
+  const gchar *env = g_getenv ("KOKORO_VULKAN_EP");
+
+  if (!cfg_vulkan)
+    return NULL;
+  return env != NULL && *env != '\0' ? env : VULKAN_EP_LIBRARY;
+}
 
 static GPtrArray *models = NULL;           /* Model */
 static RuG2p *g2p = NULL;
@@ -71,6 +94,8 @@ kokoro_config (const gchar *key, const gchar *value)
     g_free (cfg_espeak_data), cfg_espeak_data = g_strdup (value);
   else if (g_ascii_strcasecmp (key, "KokoroThreads") == 0)
     cfg_threads = atoi (value);
+  else if (g_ascii_strcasecmp (key, "KokoroProvider") == 0)
+    cfg_vulkan = g_ascii_strcasecmp (value, "vulkan") == 0;
   else
     return FALSE;
   return TRUE;
@@ -240,8 +265,16 @@ static gboolean
 kokoro_init (gchar **msg)
 {
   GError *error = NULL;
-  gchar *user = g_build_filename (g_get_user_data_dir (), "kokoro-tts", NULL);
+  gchar *user;
 
+  /* without the plugin the model would run on the CPU; this synthesizer
+   * exists for the graphics card, so it stays out of the list */
+  if (cfg_vulkan && !g_file_test (vulkan_ep (), G_FILE_TEST_EXISTS))
+    {
+      *msg = g_strdup_printf ("the Vulkan plugin %s is not installed", vulkan_ep ());
+      return FALSE;
+    }
+  user = g_build_filename (g_get_user_data_dir (), "kokoro-tts", NULL);
   models = g_ptr_array_new ();
   scan_models (user);
   scan_models (cfg_models_dir);
@@ -258,7 +291,8 @@ kokoro_init (gchar **msg)
       g_error_free (error);
       return FALSE;
     }
-  *msg = g_strdup_printf ("Kokoro ready, %u voices", tts_voices ()->len);
+  *msg = g_strdup_printf ("Kokoro ready, %u voices%s", tts_voices ()->len,
+                          cfg_vulkan ? ", on Vulkan" : "");
   return TRUE;
 }
 
@@ -301,14 +335,24 @@ kokoro_load (gpointer model, GError **error)
   int saved = tts_stderr_off ();
   gsize n;
 
-  m->km = kokoro_model_new (m->onnx, m->config, wanted_threads (), error);
+  float *wav;
+
+  m->km = kokoro_model_new (m->onnx, m->config, wanted_threads (), vulkan_ep (), error);
   tts_stderr_restore (saved);
   if (m->km == NULL)
     return FALSE;
-  /* the first run allocates the buffers; pay it here, not on the first
-   * message ("привет, как дела?") */
-  g_free (kokoro_synth (m->km, first_style_of (m), "prʲivʲˈet, kˈɑk dʲɪlˈɑ?", 1.0f, &n, NULL));
-  DBG ("loaded %s (%d threads)", m->onnx, wanted_threads ());
+  /* the first run allocates the buffers (on Vulkan it also builds the
+   * pipelines, ~1.7 s); pay it here, not on the first message ("привет, как
+   * дела?").  A model the plugin accepts but cannot run fails here. */
+  wav = kokoro_synth (m->km, first_style_of (m), "prʲivʲˈet, kˈɑk dʲɪlˈɑ?", 1.0f, &n, error);
+  if (wav == NULL)
+    {
+      kokoro_model_free (m->km);
+      m->km = NULL;
+      return FALSE;
+    }
+  g_free (wav);
+  DBG ("loaded %s (%s, %d threads)", m->onnx, cfg_vulkan ? "vulkan" : "cpu", wanted_threads ());
   return TRUE;
 }
 
@@ -398,6 +442,20 @@ kokoro_close (void)
 
 
 
+/* the provider and the Vulkan plugin, for the verdict of the test load */
+static gchar *
+kokoro_probe_salt (void)
+{
+  struct stat st;
+
+  if (!cfg_vulkan)
+    return g_strdup ("cpu");
+  if (stat (vulkan_ep (), &st) != 0)
+    return g_strdup ("vulkan none");
+  return g_strdup_printf ("vulkan %lld %lld.%09ld", (long long) st.st_size,
+                          (long long) st.st_mtim.tv_sec, st.st_mtim.tv_nsec);
+}
+
 /* the model's files, for the test load in a child process */
 static const gchar *
 kokoro_model_path (gpointer model)
@@ -419,6 +477,7 @@ const TtsEngine tts_engine = {
   .load = kokoro_load,
   .unload = kokoro_unload,
   .model_path = kokoro_model_path,
+  .probe_salt = kokoro_probe_salt,
   .speak = kokoro_speak,
   .close = kokoro_close,
 };

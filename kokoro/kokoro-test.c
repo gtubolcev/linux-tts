@@ -5,7 +5,8 @@
  *   kokoro-test mark  <espeak-path> <dict>   < lines
  *   kokoro-test raw   <espeak-path>          < acute-marked lines (IPA, no dictionary)
  *   kokoro-test synth <espeak-path> <dict> <onnx> <config> <voice.bin> <out-prefix> [speed]
- *       < lines: writes <out-prefix>NN.wav per line
+ *       < lines: writes <out-prefix>NN.wav per line; with KOKORO_VULKAN_EP=<plugin.so>
+ *       on the graphics card
  *
  * Copyright (C) 2026 Grigory Tuboltsev
  * SPDX-License-Identifier: GPL-3.0-or-later
@@ -65,7 +66,7 @@ main (int argc, char **argv)
     goto err;
   if (synth)
     {
-      if ((m = kokoro_model_new (argv[4], argv[5], 4, &error)) == NULL
+      if ((m = kokoro_model_new (argv[4], argv[5], 4, g_getenv ("KOKORO_VULKAN_EP"), &error)) == NULL
           || (voice = kokoro_voice_load (argv[6], &error)) == NULL)
         goto err;
     }

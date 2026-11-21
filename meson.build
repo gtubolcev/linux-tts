@@ -92,11 +92,26 @@ espeak = dependency('espeak-ng', required: false)
 espeak_prog = find_program('espeak-ng', required: false)
 if get_option('kokoro').require(onnx_ok and espeak.found() and espeak_prog.found(),
     error_message: 'sd_kokoro needs json-glib, onnxruntime and espeak-ng').allowed()
+  vulkan_ep_args = ['-DVULKAN_EP_LIBRARY="@0@"'.format(get_option('prefix') / get_option('libdir')
+                    / 'linux-tts' / 'libonnxruntime_ep_vulkan.so')]
   executable('sd_kokoro', 'kokoro/ru-g2p.c', 'common/ru-stress.c', 'kokoro/kokoro.c', 'kokoro/sd_kokoro.c', module_src,
+    c_args: vulkan_ep_args,
     include_directories: [speechd_inc, shim_inc, common_inc],
     dependencies: module_deps + [json_glib, onnxruntime, espeak],
     install: true, install_dir: module_dir)
   install_data('kokoro/kokoro.conf', install_dir: conf_dir)
+  # try the front end and the model by hand (see kokoro-test.c)
+  executable('kokoro-test', 'kokoro/ru-g2p.c', 'common/ru-stress.c', 'kokoro/kokoro.c', 'kokoro/kokoro-test.c',
+    include_directories: [common_inc],
+    dependencies: [glib, json_glib, onnxruntime, espeak, math])
+  # the same module on the graphics card: a link and its own settings
+  if get_option('kokoro_vulkan').allowed()
+    install_symlink('sd_kokoro-vulkan-rs', pointing_to: 'sd_kokoro', install_dir: module_dir)
+    custom_target('kokoro-vulkan-rs.conf',
+      input: 'kokoro/kokoro.conf', output: 'kokoro-vulkan-rs.conf',
+      command: [find_program('sh'), files('kokoro/vulkan-conf.sh'), '@INPUT@', '@OUTPUT@'],
+      install: true, install_dir: conf_dir)
+  endif
   # ru_dict from the espeak-ng master rules, which honour the stress mark
   # U+0301; the rest of espeak-ng-data is linked to the system's at install
   espeak_data = espeak.get_variable(pkgconfig: 'libdir', default_value: get_option('prefix') / get_option('libdir')) / 'espeak-ng-data'
