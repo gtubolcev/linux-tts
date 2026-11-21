@@ -1,5 +1,6 @@
 #!/usr/bin/python3 -I
-"""py-re-parity.py PATTERNS.jsonl TEXTS.bin [PATTERN_NO]: Python's side of re-parity.c."""
+"""py-re-parity.py PATTERNS.jsonl TEXTS.bin [PATTERN_NO | FIRST-]: Python's side of re-parity.c
+(PATTERN_NO dumps the spans of one pattern; FIRST- resumes the digests from FIRST)."""
 import json
 import re
 import sys
@@ -12,9 +13,11 @@ while i < len(data):
     n = int(data[i:j])
     texts.append(data[j + 1:j + 1 + n].decode("utf-8"))
     i = j + 1 + n
-only = int(sys.argv[3]) if len(sys.argv) > 3 else -1
+arg = sys.argv[3] if len(sys.argv) > 3 else ""
+first = int(arg[:-1]) if arg.endswith("-") else 0
+only = int(arg) if arg and not arg.endswith("-") else -1
 for pno, rec in enumerate(recs):
-    if only >= 0 and pno != only:
+    if (only >= 0 and pno != only) or pno < first:
         continue
     rx = re.compile(rec["py"], rec["flags"])
     h = 0xcbf29ce484222325

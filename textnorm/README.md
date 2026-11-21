@@ -59,6 +59,14 @@ and listed in `QUIRKS.md` for review.
     `rn-stage-test STAGE pairs.bin`. Sub-steps inside a stage: `oracle/trace-sub.py` records
     (in, out) of single rn functions. 2026-11-21: run_urls, protect, run_math exact on core
     (14 157 pairs) and big (75 771).
+  - Python str semantics: `gen-pyuni.py` (run in the oracle's Python) writes `rn-pyuni.h`;
+    `rn-pystr.[ch]` isalpha/isdecimal/…/lower/upper/casefold, str.replace/strip/find;
+    `pystr-check.c` vs `pystr-check.py` agree on all 1 112 070 code points.
+  - `rn-morph.[ch]`: one cmorphy3 handle for the passes (word_is_known); rn-stage-test
+    opens it from `$RN_MORPH_DICT`.
+  - `rn-pre.[ch]`: the preprocess helpers, one `rn_pre_<name>` per Python function, also
+    stages of rn-stage-test under the Python name (checked on trace-sub pairs). 2026-11-21:
+    the 25 functions in `RN_PRE_FUNCS` exact on core.
 
 ## Oracle environment (goldens of 2026-11-21)
 - ru_normalizr: our fork, `_tmp/ru-normalizr` HEAD cb5f247 (1.3.0 + agreement fixes).
