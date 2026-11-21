@@ -9,6 +9,8 @@
 
 #include "rn-pass.h"
 #include "rn-pat.h"
+#include "rn-pre.h"
+#include "rn-morph.h"
 
 static const struct {
 	const char *name;
@@ -17,6 +19,8 @@ static const struct {
 	{"run_urls", rn_run_urls},
 	{"run_math", rn_run_math},
 	{"protect", rn_run_protect},
+#define RN_PRE_ROW(name) {#name, rn_pre_##name},
+	RN_PRE_FUNCS(RN_PRE_ROW)
 };
 
 static void put_utf8(FILE *f, const uint32_t *s, size_t n)
@@ -77,6 +81,14 @@ int main(int argc, char **argv)
 	char err[300];
 	struct timespec t0, t1;
 	clock_gettime(CLOCK_MONOTONIC, &t0);
+	const char *dict = getenv("RN_MORPH_DICT");
+	if (dict) {
+		const char *merr = NULL;
+		if (rn_morph_open(dict, &merr) < 0) {
+			fprintf(stderr, "%s: %s\n", dict, merr ? merr : "cannot open");
+			return 2;
+		}
+	}
 	if (rn_pat_init(err, sizeof err) < 0) {
 		fprintf(stderr, "%s\n", err);
 		return 2;
