@@ -31,10 +31,17 @@
 	X(normalize_ascii_quote_pairs)                                                          \
 	X(normalize_punctuation_spacing)                                                       \
 	X(protect_unit_slashes)                                                                 \
-	X(clean_numbers)
+	X(clean_numbers)                                                                        \
+	X(convert_line_numbering)                                                               \
+	X(convert_inline_list_markers)                                                          \
+	X(convert_bracketed_numbers)                                                            \
+	X(restore_non_normative_day_suffix)
 
 #define RN_PRE_DECL(name) int rn_pre_##name(const rn_str *in, rn_str *out);
 RN_PRE_FUNCS(RN_PRE_DECL)
 #undef RN_PRE_DECL
+
+/* classify_bracketed_numeric_content: 'n'umeric, 'r'eference or 'o'ther */
+char rn_classify_bracketed(const uint32_t *s, size_t n);
 
 #endif
