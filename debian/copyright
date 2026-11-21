@@ -19,7 +19,8 @@ License: GPL-3+
 Comment: ru-g2p.c is a port of ru_g2p.py of zaakirio/kokoro-ru (Apache-2.0),
  of misaki's espeak front end (Apache-2.0) and of the punctuation handling of
  phonemizer (GPL-3+); en-g2p.c is a port of misaki's English G2P (en.py,
- Apache-2.0).
+ Apache-2.0); en-tagger.c reimplements the inference of spaCy's tok2vec and
+ tagger (MIT) and of its tokenizer.
 
 Files: kokoro/misaki/*
 Copyright: hexgrad and the misaki contributors
@@ -28,6 +29,17 @@ Comment: us_gold, us_silver, gb_gold and gb_silver .json of hexgrad/misaki
  fba1236, converted by kokoro/misaki-lexicon.py.  misaki does not say where
  the pronunciations come from (its issues 107 and 113 ask); the files carry
  no other terms than the repository's Apache-2.0.
+
+Files: kokoro/misaki/en-tagger*
+Copyright: 2021 ExplosionAI GmbH
+           2016-2024 ExplosionAI GmbH, 2016 spaCy GmbH, 2015 Matthew Honnibal
+License: Expat
+Comment: The tok2vec and tagger weights of spaCy's en_core_web_sm 3.8.0, its
+ tokenizer rules and regexes and spaCy's symbol ids (spaCy 3.8, MIT), and the
+ lexeme_norm table of spacy-lookups-data 1.0.5 (MIT), exported by
+ kokoro/en-tagger-export.py.  Explosion trained the model on OntoNotes 5
+ (licensed by Explosion from the LDC) and publishes the weights under MIT;
+ no training data is included.
 
 Files: kokoro/espeak-ru/*
 Copyright: espeak-ng contributors
@@ -85,3 +97,22 @@ License: BSD-2-Clause
 License: Apache-2.0
  On Debian systems, the full text of the Apache License, Version 2.0 can be
  found in the file /usr/share/common-licenses/Apache-2.0.
+
+License: Expat
+ Permission is hereby granted, free of charge, to any person obtaining a copy of
+ this software and associated documentation files (the "Software"), to deal in
+ the Software without restriction, including without limitation the rights to
+ use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies
+ of the Software, and to permit persons to whom the Software is furnished to do
+ so, subject to the following conditions:
+ .
+ The above copyright notice and this permission notice shall be included in all
+ copies or substantial portions of the Software.
+ .
+ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ SOFTWARE.

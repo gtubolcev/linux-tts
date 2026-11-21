@@ -4,16 +4,17 @@
  *
  * Reference: misaki/en.py of hexgrad/misaki fba1236 (Apache-2.0).  The
  * functions keep the names and the order of its checks; Python's None
- * stress is NAN here, None phonemes NULL.  spaCy's tokenizer and tagger are
- * replaced by splitting at whitespace and peeling punctuation off the ends,
- * and by tagging only the special words (a, I, to, in, the, vs, used) and
- * capitals.
+ * stress is NAN here, None phonemes NULL.  spaCy's tokenizer is replaced by
+ * splitting at whitespace and peeling punctuation off the ends; the tags come
+ * from en-tagger (en_core_web_sm in C), and without its files from guessing
+ * by the neighbours.
  *
  * Copyright (C) 2026 Grigory Tuboltsev
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 
 #include "en-g2p.h"
+#include "en-tagger.h"
 
 #include <math.h>
 #include <string.h>
@@ -42,6 +43,7 @@ struct _EnLexicon
 {
   gboolean british;
   Dict gold, silver;
+  EnTagger *tagger;     /* NULL: guess_tag */
 };
 
 typedef struct
@@ -350,6 +352,15 @@ en_lexicon_open (const gchar *dir, gboolean british, GError **error)
       en_lexicon_free (lex);
       return NULL;
     }
+  {
+    GError *e = NULL;
+    lex->tagger = en_tagger_open (dir, &e);
+    if (lex->tagger == NULL)
+      {
+        g_debug ("en-g2p: no tagger, guessing the tags: %s", e->message);
+        g_error_free (e);
+      }
+  }
   return lex;
 }
 
@@ -360,6 +371,8 @@ en_lexicon_free (EnLexicon *lex)
     return;
   dict_close (&lex->gold);
   dict_close (&lex->silver);
+  if (lex->tagger != NULL)
+    en_tagger_free (lex->tagger);
   g_free (lex);
 }
 
@@ -897,6 +910,7 @@ typedef struct
   gchar *text;
   gchar *ps;
   gboolean prespace;
+  gsize start, end;     /* bytes in the text, for the tags */
 } Sub;
 
 typedef struct
@@ -1043,6 +1057,37 @@ guess_tag (GArray *words, guint i, gboolean mixed)
   return NULL;
 }
 
+/* merge_tokens: the tag of the heaviest spaCy token (a capital weighs 2, any
+ * other character 1; the first of equals) among those in bytes
+ * [@start, @end) */
+static const gchar *
+span_tag (GArray *tags, const gchar *text, gsize start, gsize end)
+{
+  const gchar *best = NULL;
+  int bw = -1;
+
+  for (guint i = 0; i < tags->len; i++)
+    {
+      const EnTag *t = &g_array_index (tags, EnTag, i);
+      int w = 0;
+      if (t->end <= start)
+        continue;
+      if (t->start >= end)
+        break;
+      for (const gchar *p = text + t->start; p < text + t->end; p = g_utf8_next_char (p))
+        {
+          gunichar c = g_utf8_get_char (p);
+          w += g_unichar_tolower (c) == c ? 1 : 2;
+        }
+      if (w > bw)
+        {
+          bw = w;
+          best = t->tag;
+        }
+    }
+  return best;
+}
+
 static Ctx
 token_context (Ctx ctx, const gchar *ps, const gchar *text, const gchar *tag)
 {
@@ -1111,9 +1156,9 @@ add_mark (GArray *words, gunichar c, gboolean leading)
 
 /* misaki's subtokenize() for a word without digits: letters with inner
  * apostrophes (split where a lowercase letter meets a capital), runs of
- * - and _, any other character alone */
+ * - and _, any other character alone; @core is at byte @base of the text */
 static GPtrArray *
-subtokenize (const gchar *core)
+subtokenize (const gchar *core, gsize base)
 {
   GPtrArray *subs = g_ptr_array_new_with_free_func (sub_free);
   const gchar *p = core;
@@ -1157,7 +1202,12 @@ subtokenize (const gchar *core)
       else if (c == '\'')
         while (*q == '\'')
           q++;
-      g_ptr_array_add (subs, sub_new (p, q - p));
+      {
+        Sub *x = sub_new (p, q - p);
+        x->start = base + (p - core);
+        x->end = base + (q - core);
+        g_ptr_array_add (subs, x);
+      }
       p = q;
     }
   return subs;
@@ -1165,8 +1215,8 @@ subtokenize (const gchar *core)
 
 /* one whitespace-separated chunk */
 static void
-add_chunk (EnLexicon *lex, GArray *words, const gchar *chunk, gboolean sentence_start,
-           gboolean *squote)
+add_chunk (EnLexicon *lex, GArray *words, const gchar *chunk, gsize base,
+           gboolean sentence_start, gboolean *squote)
 {
   const gchar *a = chunk, *b = chunk + strlen (chunk);
   GArray *tail = g_array_new (FALSE, FALSE, sizeof (gunichar));
@@ -1270,12 +1320,15 @@ add_chunk (EnLexicon *lex, GArray *words, const gchar *chunk, gboolean sentence_
       w.sentence_start = sentence_start;
       if (has_digit (core))
         {
+          Sub *x = sub_new (core, strlen (core));
+          x->start = base + (a - chunk);
+          x->end = base + (b - chunk);
           w.whole = TRUE;
           w.subs = g_ptr_array_new_with_free_func (sub_free);
-          g_ptr_array_add (w.subs, sub_new (core, strlen (core)));
+          g_ptr_array_add (w.subs, x);
         }
       else
-        w.subs = subtokenize (core);
+        w.subs = subtokenize (core, base + (a - chunk));
       g_array_append_val (words, w);
     }
   g_free (core);
@@ -1304,7 +1357,7 @@ tokenize (EnLexicon *lex, const gchar *text)
       for (e = p; *e != '\0' && !g_unichar_isspace (g_utf8_get_char (e)); e = g_utf8_next_char (e))
         ;
       chunk = g_strndup (p, e - p);
-      add_chunk (lex, words, chunk, start, &squote);
+      add_chunk (lex, words, chunk, p - text, start, &squote);
       g_free (chunk);
       if (words->len > before)
         {
@@ -1420,7 +1473,8 @@ resolve_tokens (GPtrArray *subs)
 /* the glued pieces of a word, right to left, as G2P.__call__ does for a
  * list of tokens; TRUE when they all resolved */
 static gboolean
-resolve_group (EnLexicon *lex, Word *w, Ctx *ctx, gboolean mixed)
+resolve_group (EnLexicon *lex, Word *w, Ctx *ctx, gboolean mixed, GArray *tags,
+               const gchar *all)
 {
   GPtrArray *subs = w->subs;
   guint left = 0, right = subs->len;
@@ -1428,7 +1482,10 @@ resolve_group (EnLexicon *lex, Word *w, Ctx *ctx, gboolean mixed)
   while (left < right)
     {
       gchar *text = joined (subs, left, right);
-      const gchar *tag = tag_of (text, w->sentence_start && left == 0, mixed);
+      const gchar *tag = tags != NULL
+                         ? span_tag (tags, all, ((Sub *) subs->pdata[left])->start,
+                                     ((Sub *) subs->pdata[right - 1])->end)
+                         : tag_of (text, w->sentence_start && left == 0, mixed);
       gchar *ps = lexicon (lex, text, tag, ctx);
 
       if (ps != NULL)
@@ -1478,6 +1535,7 @@ en_g2p (EnLexicon *lex, const gchar *text, EnFallback fallback, gpointer data)
   GString *res;
   Ctx ctx = { -1, FALSE };
   gboolean mixed = FALSE;
+  GArray *tags;
   gchar *r, *t;
 
   if (!g_utf8_validate (text, -1, NULL))
@@ -1486,6 +1544,7 @@ en_g2p (EnLexicon *lex, const gchar *text, EnFallback fallback, gpointer data)
   for (const gchar *p = text; *p != '\0' && !mixed; p = g_utf8_next_char (p))
     mixed = g_unichar_islower (g_utf8_get_char (p));
   words = tokenize (lex, text);
+  tags = lex->tagger != NULL ? en_tagger_tag (lex->tagger, text) : NULL;
   out = g_ptr_array_new_full (words->len, g_free);
   g_ptr_array_set_size (out, words->len);
   for (guint i = words->len; i-- > 0;)
@@ -1500,7 +1559,8 @@ en_g2p (EnLexicon *lex, const gchar *text, EnFallback fallback, gpointer data)
         ps = fallback (s0->text, data);
       else if (w->subs->len == 1)
         {
-          const gchar *tag = guess_tag (words, i, mixed);
+          const gchar *tag = tags != NULL ? span_tag (tags, text, s0->start, s0->end)
+                                          : guess_tag (words, i, mixed);
           ps = lexicon (lex, s0->text, tag, &ctx);
           if (ps == NULL)
             ps = fallback (s0->text, data);
@@ -1508,7 +1568,7 @@ en_g2p (EnLexicon *lex, const gchar *text, EnFallback fallback, gpointer data)
           out->pdata[i] = ps;
           continue;
         }
-      else if (!resolve_group (lex, w, &ctx, mixed))
+      else if (!resolve_group (lex, w, &ctx, mixed, tags, text))
         {
           /* misaki keeps the context here as it was */
           gchar *all = joined (w->subs, 0, w->subs->len);
@@ -1546,6 +1606,8 @@ en_g2p (EnLexicon *lex, const gchar *text, EnFallback fallback, gpointer data)
       g_ptr_array_free (w->subs, TRUE);
     }
   g_array_free (words, TRUE);
+  if (tags != NULL)
+    g_array_free (tags, TRUE);
   g_ptr_array_free (out, TRUE);
   /* version 1.0 */
   t = replace (res->str, "ɾ", "T");

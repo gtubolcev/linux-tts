@@ -94,17 +94,20 @@ if get_option('kokoro').require(onnx_ok and espeak.found() and espeak_prog.found
     error_message: 'sd_kokoro needs json-glib, onnxruntime and espeak-ng').allowed()
   vulkan_ep_args = ['-DVULKAN_EP_LIBRARY="@0@"'.format(get_option('prefix') / get_option('libdir')
                     / 'linux-tts' / 'libonnxruntime_ep_vulkan.so')]
-  executable('sd_kokoro', 'kokoro/espeak-g2p.c', 'kokoro/en-g2p.c', 'kokoro/ru-g2p.c', 'common/ru-stress.c', 'kokoro/kokoro.c', 'kokoro/sd_kokoro.c', module_src,
+  executable('sd_kokoro', 'kokoro/espeak-g2p.c', 'kokoro/en-g2p.c', 'kokoro/en-tagger.c', 'kokoro/ru-g2p.c', 'common/ru-stress.c', 'kokoro/kokoro.c', 'kokoro/sd_kokoro.c', module_src,
     c_args: vulkan_ep_args,
     include_directories: [speechd_inc, shim_inc, common_inc],
     dependencies: module_deps + [json_glib, onnxruntime, espeak],
     install: true, install_dir: module_dir)
   install_data('kokoro/kokoro.conf', install_dir: conf_dir)
   # try the front end and the model by hand (see kokoro-test.c)
-  executable('kokoro-test', 'kokoro/espeak-g2p.c', 'kokoro/en-g2p.c', 'kokoro/ru-g2p.c', 'common/ru-stress.c', 'kokoro/kokoro.c', 'kokoro/kokoro-test.c',
+  executable('kokoro-test', 'kokoro/espeak-g2p.c', 'kokoro/en-g2p.c', 'kokoro/en-tagger.c', 'kokoro/ru-g2p.c', 'common/ru-stress.c', 'kokoro/kokoro.c', 'kokoro/kokoro-test.c',
     include_directories: [common_inc],
     dependencies: [glib, json_glib, onnxruntime, espeak, math])
-  test('en-g2p', executable('en-g2p-test', 'kokoro/en-g2p.c', 'kokoro/en-g2p-test.c',
+  test('en-g2p', executable('en-g2p-test', 'kokoro/en-g2p.c', 'kokoro/en-tagger.c', 'kokoro/en-g2p-test.c',
+    dependencies: [glib, math]),
+    args: [meson.current_source_dir() / 'kokoro' / 'misaki'])
+  test('en-tagger', executable('en-tagger-test', 'kokoro/en-tagger.c', 'kokoro/en-tagger-test.c',
     dependencies: [glib, math]),
     args: [meson.current_source_dir() / 'kokoro' / 'misaki'])
   # the same module on the graphics card: a link and its own settings
@@ -127,9 +130,13 @@ if get_option('kokoro').require(onnx_ok and espeak.found() and espeak_prog.found
               meson.current_source_dir() / 'kokoro' / 'espeak-ru', '@OUTPUT@'],
     install: true, install_dir: kokoro_data)
   meson.add_install_script('kokoro/link-espeak-data.sh', espeak_data, kokoro_data)
-  # misaki's English dictionaries (kokoro/misaki-lexicon.py)
+  # misaki's English dictionaries (kokoro/misaki-lexicon.py) and the tagger's
+  # data (kokoro/en-tagger-export.py)
   install_data('kokoro/misaki/us-gold.tsv', 'kokoro/misaki/us-silver.tsv',
     'kokoro/misaki/gb-gold.tsv', 'kokoro/misaki/gb-silver.tsv',
+    'kokoro/misaki/en-tagger.bin', 'kokoro/misaki/en-tagger-norm.tsv',
+    'kokoro/misaki/en-tagger-rules.tsv', 'kokoro/misaki/en-tagger-symbols.tsv',
+    'kokoro/misaki/en-tagger-tokenizer.txt',
     install_dir: get_option('datadir') / 'speech-dispatcher-kokoro' / 'misaki')
 endif
 

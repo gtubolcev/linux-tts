@@ -47,6 +47,19 @@ static const struct
     "ˈiːmˌAl mˌiː at ˌAtˈiː and tˈiː əbˈWt ðə kˈamᵊlkˌAs ˌIfˈQnɹɪlˈAtɪd stˈAtɒvðiˈɑːt stˈʌf." },
   { TRUE, "Don't you think it's \"wonderful\"? (Yes.) He said: ‘quite’.",
     "dˈQnt juː θˈɪŋk ɪts “wˈʌndəfʊl”? (jˈɛs.) hˌiː sˈɛd: “kwˈIt”." },
+  /* homographs, by the tagger */
+  { FALSE, "She read the book yesterday; today she will read another one.",
+    "ʃˌi ɹˈɛd ðə bˈʊk jˈɛstəɹdˌA; tədˈA ʃi wɪl ɹˈid ənˈʌðəɹ wˈʌn." },
+  { FALSE, "He wound the bandage around the wound, then went home.",
+    "hˌi wˈWnd ðə bˈændɪʤ əɹˈWnd ðə wˈund, ðˈɛn wˈɛnt hˈOm." },
+  { FALSE, "Don't you dare close the door; we're close to finishing.",
+    "dˈOnt ju dˈɛɹ klˈOz ðə dˈɔɹ; wɪɹ klˈOs tə fˈɪnɪʃɪŋ." },
+  { FALSE, "The dove dove into the bushes, and the bass player caught a bass.",
+    "ðə dˈʌv dˈOv ˈɪntu ðə bˈʊʃᵻz, ænd ðə bˈæs plˈAəɹ kˈɔt ɐ bˈæs." },
+  { FALSE, "The farm was used to produce produce.",
+    "ðə fˈɑɹm wʌz jˈuzd tə pɹədˈus pɹˈOdˌus." },
+  { FALSE, "He tears up when he sees the tears in her dress.",
+    "hˌi tˈɛɹz ˌʌp wˌɛn hi sˈiz ðə tˈɪɹz ɪn hɜɹ dɹˈɛs." },
 };
 
 static gchar *
