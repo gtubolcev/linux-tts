@@ -20,6 +20,7 @@ match its output byte for byte, except for a reviewed list of deliberate fixes.
   - Check: `morph-dump ru-morph.bin < words` and `morph-dump.py < words` (pymorphy3, run in
     claude-ru-normalizr), then `compare-dump.py ref.jsonl c.jsonl`: parses, lexemes of the first
     3 parses and 27 inflections each. 2026-11-21: 63 373 words (core corpus tokens + edge cases)
+    and 238 631 more from big.jsonl
     identical; ASan/UBSan clean; 63k words with all lexemes/inflections in 8.5 s.
   - Known oracle nondeterminism: `tag.animacy` of the 4 Inmx tags carrying both anim and inan
     depends on PYTHONHASHSEED in Python; the C code takes the first in the tag string.
