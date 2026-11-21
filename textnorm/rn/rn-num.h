@@ -14,6 +14,8 @@ extern unsigned rn_n2w_fixes;
 int rn_int_str(const uint32_t *s, size_t n, char *buf, size_t cap);
 /* num_to_word(int(s)) of numbering.py: num2words cardinal, str(value) where it raises */
 int rn_put_cardinal(rn_str *out, const uint32_t *s, size_t n);
+/* num2words(int) of an ASCII int string; 1 if num2words raises (nothing appended) */
+int rn_put_cardinal_a(rn_str *out, const char *number);
 /* render_ordinal(number, case, gender, plural, inanimate) of ordinal_utils.py; number as
  * str(int); gender an n2w_gender or RN_NO_GENDER */
 int rn_put_ordinal(rn_str *out, const char *number, enum n2w_case c, int gender, int plural,

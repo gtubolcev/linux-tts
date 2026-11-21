@@ -35,7 +35,15 @@
 	X(convert_line_numbering)                                                               \
 	X(convert_inline_list_markers)                                                          \
 	X(convert_bracketed_numbers)                                                            \
-	X(restore_non_normative_day_suffix)
+	X(restore_non_normative_day_suffix)                                                     \
+	X(normalize_page_references)                                                            \
+	X(normalize_section_references)                                                         \
+	X(normalize_administrative_law_references)                                              \
+	X(normalize_complex_legal_references)                                                   \
+	X(normalize_clause_references)                                                          \
+	X(normalize_numbered_references)                                                        \
+	X(normalize_isbn_identifiers)                                                           \
+	X(normalize_number_signs)
 
 #define RN_PRE_DECL(name) int rn_pre_##name(const rn_str *in, rn_str *out);
 RN_PRE_FUNCS(RN_PRE_DECL)

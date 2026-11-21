@@ -33,6 +33,13 @@ static int put_n2w(rn_str *out, int ordinal, const char *number, n2w_opts o)
 	return rn_str_utf8(out, buf) < 0 ? -1 : 0;
 }
 
+int rn_put_cardinal_a(rn_str *out, const char *number)
+{
+	n2w_opts o = N2W_DEFAULTS;
+	o.fixes = rn_n2w_fixes;
+	return put_n2w(out, 0, number, o);
+}
+
 int rn_put_cardinal(rn_str *out, const uint32_t *s, size_t n)
 {
 	char num[256];

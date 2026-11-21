@@ -12,5 +12,8 @@ void rn_morph_close(void);
 int rn_word_is_known(const uint32_t *s, size_t n);
 /* UTF-8 copy of s[0..n), NUL-terminated, appended to buf (grown with realloc) */
 char *rn_to_utf8(const uint32_t *s, size_t n, char *buf, size_t *cap);
+/* _reference_noun_form(lemma, case) of references.py, appended to out; lemma and gcase
+ * are static strings (the cache keys on the lemma pointer) */
+int rn_noun_form(rn_str *out, const char *lemma, const char *gcase);
 
 #endif

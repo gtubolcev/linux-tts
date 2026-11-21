@@ -25,6 +25,7 @@ Examples marked "core" are from the oracle output `tests/golden/core.jsonl.zst`.
 | R1 | Years after a comma read as accusative cardinals | "Гретри, 1742, 1813" → "одну тысячу семьсот сорок двух, одну тысячу восемьсот тринадцать" | later |
 | R2 | Number after "равно" stays nominative | "равно 1024" → "равно одна тысяча двадцать четыре" (should be dative "тысяче двадцати четырём") | later |
 | R3 | Date case after "сейчас" depends on обособление (memory: open case from the user) | "Сейчас 01.06.2026г." → "первого июня" | later, design first |
+| R4 | Page ranges: the preposition "с" stays "с" before an ordinal that starts with с/вт + consonant (norm: "со") | "на с. 108–113" → "на страницах с сто восьмой по сто тринадцатую" (should be "со сто восьмой"; also "со второй") | ask |
 
 ## pymorphy3 (`cmorphy3/`)
 
