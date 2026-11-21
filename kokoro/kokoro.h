@@ -16,9 +16,12 @@
 
 typedef struct KokoroModel KokoroModel;
 
-/* onnx: the model file; config: config.json with "vocab" */
+/* onnx: the model file; config: config.json with "vocab"; vulkan_ep: the
+ * onnx-vulkan-rs plugin of onnxruntime to run the model on the graphics
+ * card, NULL for the CPU.  A model that cannot get the card fails, it does
+ * not fall back to the CPU. */
 KokoroModel *kokoro_model_new (const gchar *onnx, const gchar *config,
-                               int threads, GError **error);
+                               int threads, const gchar *vulkan_ep, GError **error);
 void kokoro_model_free (KokoroModel *m);
 
 /* voice: raw float32 [510][256] (voices/<name>.bin); returned as floats,

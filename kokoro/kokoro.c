@@ -9,6 +9,7 @@
 
 #include <json-glib/json-glib.h>
 #include <onnxruntime_c_api.h>
+#include <stdlib.h>
 #include <string.h>
 
 #define STYLE_DIM 256
@@ -51,6 +52,52 @@ ort_init (GError **error)
   return ort_ok (ort->CreateCpuMemoryInfo (OrtArenaAllocator, OrtMemTypeDefault, &ort_memory), error);
 }
 
+/* Registers the Vulkan plugin @lib with the environment once per process
+ * (onnxruntime keeps it loaded) and appends its first device to @so. */
+static gboolean
+append_vulkan (OrtSessionOptions *so, const gchar *lib, GError **error)
+{
+  static gchar *registered = NULL;
+  const OrtEpDevice *const *devices = NULL;
+  const OrtEpDevice *chosen = NULL;
+  size_t n = 0;
+
+  if (registered != NULL && strcmp (registered, lib) != 0)
+    {
+      g_set_error (error, KOKORO_ERROR, 1, "the Vulkan plugin %s is loaded already", registered);
+      return FALSE;
+    }
+  if (registered == NULL)
+    {
+      if (!g_file_test (lib, G_FILE_TEST_EXISTS))
+        {
+          g_set_error (error, KOKORO_ERROR, 1, "the Vulkan plugin %s is not installed", lib);
+          return FALSE;
+        }
+      /* without compiling the graph for the device the plugin is slower
+       * than the CPU (Kokoro: RTF 0.35 against 0.30); the environment wins */
+      g_setenv ("VULKAN_EP_COMPILE", "1", FALSE);
+      if (!ort_ok (ort->RegisterExecutionProviderLibrary (ort_env, "vulkan", lib), error))
+        return FALSE;
+      registered = g_strdup (lib);
+    }
+  if (!ort_ok (ort->GetEpDevices (ort_env, &devices, &n), error))
+    return FALSE;
+  for (size_t i = 0; i < n && chosen == NULL; i++)
+    {
+      const char *name = ort->EpDevice_EpName (devices[i]);
+      if (name != NULL && strcmp (name, "CPUExecutionProvider") != 0)
+        chosen = devices[i];
+    }
+  if (chosen == NULL)
+    {
+      g_set_error (error, KOKORO_ERROR, 1, "no Vulkan device");
+      return FALSE;
+    }
+  return ort_ok (ort->SessionOptionsAppendExecutionProvider_V2 (so, ort_env, &chosen, 1,
+                                                                NULL, NULL, 0), error);
+}
+
 static gboolean
 vocab_load (KokoroModel *m, const gchar *path, GError **error)
 {
@@ -89,7 +136,8 @@ vocab_load (KokoroModel *m, const gchar *path, GError **error)
 }
 
 KokoroModel *
-kokoro_model_new (const gchar *onnx, const gchar *config, int threads, GError **error)
+kokoro_model_new (const gchar *onnx, const gchar *config, int threads,
+                  const gchar *vulkan_ep, GError **error)
 {
   KokoroModel *m;
   OrtSessionOptions *so = NULL;
@@ -107,6 +155,7 @@ kokoro_model_new (const gchar *onnx, const gchar *config, int threads, GError **
   ok = ort_ok (ort->SetIntraOpNumThreads (so, threads), error)
        && ort_ok (ort->SetInterOpNumThreads (so, 1), error)
        && ort_ok (ort->SetSessionGraphOptimizationLevel (so, ORT_ENABLE_ALL), error)
+       && (vulkan_ep == NULL || append_vulkan (so, vulkan_ep, error))
        && ort_ok (ort->CreateSession (ort_env, onnx, so, &m->session), error);
   ort->ReleaseSessionOptions (so);
   if (!ok)

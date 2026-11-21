@@ -43,6 +43,21 @@ Description: Speech Dispatcher module for Kokoro voices
  The model is loaded into the module once and stays loaded.
  Settings in /etc/speech-dispatcher/modules/kokoro.conf.
 
+Package: speech-dispatcher-kokoro-vulkan-rs
+Architecture: all
+Depends: speech-dispatcher-kokoro (>= ${source:Version}),
+         onnxruntime-ep-vulkan (>= 0.0.1~git8625ef9-2),
+         ${misc:Depends}
+Description: Speech Dispatcher module for Kokoro voices on the graphics card
+ The synthesizer "kokoro-vulkan-rs": sd_kokoro with the Vulkan plugin of
+ onnxruntime (onnx-vulkan-rs), on any graphics card with a Vulkan driver.
+ On a GTX 1060 a phrase takes a tenth of its duration and little CPU time
+ (on four CPU threads about a third). Settings in
+ /etc/speech-dispatcher/modules/kokoro-vulkan-rs.conf.
+ .
+ Experimental: the plugin is young and has one author; no other package
+ recommends this one.
+
 Package: speech-dispatcher-teratts
 Architecture: any
 Depends: speech-dispatcher (>= 0.12~), ${misc:Depends}, ${shlibs:Depends}
