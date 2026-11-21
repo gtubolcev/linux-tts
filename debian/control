@@ -35,11 +35,15 @@ Description: Speech Dispatcher module for Vosk TTS voices
 Package: speech-dispatcher-kokoro
 Architecture: any
 Depends: espeak-ng-data, speech-dispatcher (>= 0.12~), ${misc:Depends}, ${shlibs:Depends}
-Recommends: speech-dispatcher-text-normalizer, kokoro-tts-model-ru, vosk-tts-model-ru-0.9-multi
+Recommends: speech-dispatcher-text-normalizer, kokoro-tts-model-ru, kokoro-tts-model-mul,
+ vosk-tts-model-ru-0.9-multi
 Description: Speech Dispatcher module for Kokoro voices
  Speaks with Kokoro neural voices through ONNX Runtime, without Python.
- So far Russian (the kokoro-ru model): stress marks from the dictionary of
- Vosk TTS, phonemes from espeak-ng with a dictionary that honours them.
+ Russian (the kokoro-ru model): stress marks from the dictionary of Vosk
+ TTS, phonemes from espeak-ng with a dictionary that honours them.
+ English, Spanish, French, Hindi, Italian and Brazilian Portuguese (the
+ Kokoro-82M v1.0 model): English with the dictionaries of misaki, the
+ rest through espeak-ng.
  The model is loaded into the module once and stays loaded.
  Settings in /etc/speech-dispatcher/modules/kokoro.conf.
 
