@@ -1075,6 +1075,51 @@ static int r_dual(const rn_match *m, rn_str *o, void *ctx)
 	return 0;
 }
 
+/* R16: a word like "этот", "тот", "следующий", "прошлый" right before the brackets ("в этом",
+ * "следующем", "в том же", "в те") in a form that can agree with "год"/"годы": 1, its case
+ * and number. Other adjectives ("императора немецкого (1300)") do not count. */
+static int paren_agree(const uint32_t *s, size_t start, int *c, int *plural)
+{
+	size_t a, b;
+	if (!word_before(s, start, 40, &a, &b))
+		return 0;
+	if (eq(s + a, b - a, U"же") || eq(s + a, b - a, U"ж"))
+		if (!word_before(s, a, 40, &a, &b))
+			return 0;
+	const cmorphy3_form *f;
+	int count = rn_mparse(s + a, b - a, &f);
+	for (int i = 0; i < count; i++) {
+		int ps = rn_pos(f[i].tag);
+		static const char *const lemmas[] = {
+			"этот", "тот", "сей", "оный", "следующий", "прошлый", "позапрошлый", "будущий",
+			"нынешний", "текущий", "предыдущий", "последующий", "последний", "самый",
+			"данный", "указанный", "тогдашний", "означенный", NULL};
+		if ((ps != rn_g.ADJF && ps != rn_g.PRTF) || !nf_is(&f[i], lemmas))
+			continue;
+		int pl = rn_number(f[i].tag) == rn_g.plur;
+		if (!pl && !rn_has(f[i].tag, rn_g.masc) && !rn_has(f[i].tag, rn_g.neut))
+			continue;
+		/* "после этого (1201)", "за тем (1086)": the pronoun stands alone; only в/на/к
+		 * before этот/тот/сей/оный keep it attributive */
+		static const char *const pron[] = {"этот", "тот", "сей", "оный", NULL};
+		size_t pa, pb;
+		if (nf_is(&f[i], pron) && word_before(s, a, 40, &pa, &pb)) {
+			static const char32_t *const ok[] = {U"в", U"во", U"на", U"к", U"ко", NULL};
+			rn_str t = {0};
+			lower(s + pa, pb - pa, &t);
+			const cmorphy3_form *pf = sel(t.s, t.n, rn_g.PREP, -1, -1, -1, -1);
+			int bad = pf && !oneof(t.s, t.n, ok);
+			rn_str_free(&t);
+			if (bad)
+				return 0;
+		}
+		*c = rn_n2w_case(rn_case(f[i].tag));
+		*plural = pl;
+		return 1;
+	}
+	return 0;
+}
+
 static int r_paren(const rn_match *m, rn_str *o, void *ctx)
 {
 	(void)ctx;
@@ -1096,6 +1141,44 @@ static int r_paren(const rn_match *m, rn_str *o, void *ctx)
 		free(tt);
 	long k = left_tokens(m->s, a, m->start[0], &t);
 	int ordinal = k >= 2 && (eq(t[k - 2].s, t[k - 2].n, U"под") || eq(t[k - 2].s, t[k - 2].n, U"при"));
+	/* R16: "в следующем (1207) году" → "в следующем тысяча двести седьмом году": a year
+	 * word right after the brackets gives the case, and the brackets go */
+	const uint32_t *w;
+	size_t wn;
+	int ac, apl;
+	if (rn_fixes & RN_FIX_YEAR_PAREN && paren_agree(m->s, m->start[0], &ac, &apl)) {
+		yow(o, y.d, ac, apl);   /* "в этом (1207)" → "в этом тысяча двести седьмом" */
+		free_tokens(t, all > 0 ? all : 0);
+		ynum_free(&y);
+		return 0;
+	}
+	if (rn_fixes & RN_FIX_YEAR_PAREN && next_word(m->s, m->n, m->end[0], 12, &w, &wn)) {
+		static const char32_t *const forms[] = {U"год",   U"года",  U"году",   U"годом",
+		                                        U"годе",  U"годы",  U"годов",  U"годам",
+		                                        U"годами", U"годах", NULL};
+		yword yw = {0};
+		yword_set(&yw, w, wn);
+		if (oneof(yw.wl.s, yw.wl.n, forms)) {
+			/* к/ко/по among the last three words: "к следующему (1207) году" */
+			const uint32_t *prep = NULL;
+			size_t pn = 0;
+			for (long i = k - 1; i >= 0 && i >= k - 3; i--)
+				if (eq(t[i].s, t[i].n, U"к") || eq(t[i].s, t[i].n, U"ко") ||
+				    eq(t[i].s, t[i].n, U"по")) {
+					prep = t[i].s;
+					pn = t[i].n;
+					break;
+				}
+			static const char32_t *const pls[] = {U"годы", U"годов", U"годам", U"годами",
+			                                      U"годах", NULL};
+			yow(o, y.d, explicit_case(prep, pn, &yw), oneof(yw.wl.s, yw.wl.n, pls));
+			yword_free(&yw);
+			free_tokens(t, all > 0 ? all : 0);
+			ynum_free(&y);
+			return 0;
+		}
+		yword_free(&yw);
+	}
 	free_tokens(t, all > 0 ? all : 0);
 	put(o, op, on);
 	if (ordinal || rn_fixes & RN_FIX_YEAR_PAREN)   /* R16: "(1305)" is a year */
