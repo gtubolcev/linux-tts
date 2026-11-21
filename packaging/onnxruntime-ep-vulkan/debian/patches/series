@@ -1,1 +1,3 @@
 pad-modes.patch
+fuse-implicit-inputs.patch
+resize-rank3.patch
