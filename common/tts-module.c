@@ -1500,6 +1500,10 @@ louder (gint16 x, double gain)
   return (gint16) CLAMP ((v < 0 ? -a : a) * 32767.0, -32768.0, 32767.0);
 }
 
+/* the speed the model synthesized the current piece at, if not
+ * tts_model_speed (): tts_audio_float_at (); 0 when unset */
+static double piece_model_speed = 0;
+
 gboolean
 tts_audio_s16 (const gint16 *samples, gsize n, int sample_rate)
 {
@@ -1511,7 +1515,8 @@ tts_audio_s16 (const gint16 *samples, gsize n, int sample_rate)
 #ifdef HAVE_SONIC
   if (current != NULL && n > 0)
     {
-      double factor = total_speed (current->s.rate) / tts_model_speed (&current->s);
+      double done = piece_model_speed > 0 ? piece_model_speed : tts_model_speed (&current->s);
+      double factor = total_speed (current->s.rate) / done;
       gsize m;
       if (factor > 1.01 && (scaled = speed_up (samples, n, sample_rate, factor, &m)) != NULL)
         samples = scaled, n = m;
@@ -1553,6 +1558,17 @@ tts_audio_float (const float *f, gsize n, int sample_rate)
     s[i] = (gint16) (CLAMP (f[i], -1.0f, 1.0f) * 32767.0f);
   ok = tts_audio_s16 (s, n, sample_rate);
   g_free (s);
+  return ok;
+}
+
+gboolean
+tts_audio_float_at (const float *f, gsize n, int sample_rate, double model_speed)
+{
+  gboolean ok;
+
+  piece_model_speed = model_speed;
+  ok = tts_audio_float (f, n, sample_rate);
+  piece_model_speed = 0;
   return ok;
 }
 

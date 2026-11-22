@@ -8,3 +8,6 @@ option('espeak_data', type: 'string', value: '', description: 'the system espeak
 option('sonic', type: 'feature', value: 'auto', description: 'speed the audio up with libsonic above <Prefix>ModelMaxSpeed')
 option('kokoro_vulkan', type: 'feature', value: 'disabled', description: 'the synthesizer kokoro-vulkan-rs (needs onnxruntime-ep-vulkan at run time)')
 option('textnorm', type: 'feature', value: 'auto', description: 'rn, the C text normalizer (needs libpcre2-dev); without it the modules use the Python ru-normalizr helper')
+option('audiocpp', type: 'feature', value: 'auto', description: 'sd_audiocpp, the TTS models of audio.cpp (ggml)')
+option('audiocpp_dir', type: 'string', value: '', description: 'where libaudiocpp is: <dir>/include/audiocpp.h, <dir>/lib or <dir>/bin/libaudiocpp.so')
+option('audiocpp_rpath', type: 'string', value: '', description: 'RUNPATH of sd_audiocpp, for a private libaudiocpp')

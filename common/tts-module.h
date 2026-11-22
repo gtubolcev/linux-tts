@@ -150,6 +150,11 @@ gboolean tts_audio_float (const float *samples, gsize n, int sample_rate);
  * the rest at the same pitch (sonic). */
 double tts_model_speed (const TtsSettings *settings);
 gboolean tts_audio_s16 (const gint16 *samples, gsize n, int sample_rate);
+/* tts_audio_float for a model that synthesized at model_speed instead of
+ * tts_model_speed () (1.0 for a model without a speed parameter): the audio
+ * is sped up by the whole rest */
+gboolean tts_audio_float_at (const float *samples, gsize n, int sample_rate,
+                             double model_speed);
 
 /* helpers for the configuration keys */
 gchar *tts_unquote (gchar *s);

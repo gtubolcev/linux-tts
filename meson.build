@@ -235,3 +235,37 @@ if get_option('silero').allowed()
   install_data('silero/silero_onnx.sha256',
                install_dir: get_option('datadir') / 'speech-dispatcher-silero')
 endif
+
+# ------------------------------------------------------------ audiocpp
+# libaudiocpp (audio.cpp, Apache-2.0) has no pkg-config file: audiocpp_dir
+# is its prefix (include/audiocpp.h, lib/libaudiocpp.so) or its source and
+# build tree; the library is found at run time through the RUNPATH
+# audiocpp_rpath (a private copy, see packaging/)
+audiocpp_ok = false
+if not get_option('audiocpp').disabled()
+  acpp_root = get_option('audiocpp_dir')
+  acpp_inc_dirs = acpp_root != '' ? [acpp_root / 'include'] : []
+  acpp_lib_dirs = acpp_root != '' ? [acpp_root / 'lib', acpp_root / 'bin'] : []
+  acpp_lib = cc.find_library('audiocpp', dirs: acpp_lib_dirs, required: false)
+  acpp_args = []
+  foreach d : acpp_inc_dirs
+    acpp_args += '-I' + d
+  endforeach
+  audiocpp_ok = acpp_lib.found() and cc.has_header('audiocpp.h', args: acpp_args)
+endif
+if get_option('audiocpp').require(audiocpp_ok,
+    error_message: 'sd_audiocpp needs libaudiocpp (set -Daudiocpp_dir)').allowed()
+  acpp_dep = declare_dependency(dependencies: acpp_lib, compile_args: acpp_args)
+  executable('sd_audiocpp', 'audiocpp/sd_audiocpp.c', module_src,
+    include_directories: [speechd_inc, shim_inc, common_inc],
+    dependencies: module_deps + [acpp_dep],
+    install_rpath: get_option('audiocpp_rpath'),
+    install: true, install_dir: module_dir)
+  install_data('audiocpp/audiocpp.conf', install_dir: conf_dir)
+  # the same module on the graphics card: a link and its own settings
+  install_symlink('sd_audiocpp-vulkan-rs', pointing_to: 'sd_audiocpp', install_dir: module_dir)
+  custom_target('audiocpp-vulkan-rs.conf',
+    input: 'audiocpp/audiocpp.conf', output: 'audiocpp-vulkan-rs.conf',
+    command: [find_program('sh'), files('audiocpp/vulkan-conf.sh'), '@INPUT@', '@OUTPUT@'],
+    install: true, install_dir: conf_dir)
+endif
