@@ -83,13 +83,15 @@ if pcre2.found()
     include_directories: include_directories('textnorm/rn'), dependencies: [pcre2, threads])
 endif
 module_deps += rn_dep
-norm_src = files('common/tts-norm.c', 'common/tts-copy.c', 'common/tts-config.c')
+norm_src = files('common/tts-norm.c', 'common/user-stress.c', 'common/tts-copy.c', 'common/tts-config.c')
 # the stress stage after it (Vosk dictionary; homographs later)
 stress_src = files('common/tts-stress.c', 'common/ru-stress.c')
 install_data('common/tts-normalize.py', rename: 'tts-normalize',
   install_dir: module_dir, install_mode: 'rwxr-xr-x')
 test('tts-config', executable('tts-config-test', 'common/tts-config-test.c', 'common/tts-config.c',
   include_directories: common_inc, dependencies: glib))
+test('user-stress', executable('user-stress-test', 'common/user-stress-test.c',
+  'common/user-stress.c', include_directories: common_inc, dependencies: glib))
 tts_norm_test = executable('tts-norm-test', 'common/tts-norm-test.c', norm_src, stress_src,
   include_directories: common_inc, dependencies: [glib, rn_dep])
 test('norm-helper', find_program('tests/norm-helper.py'),

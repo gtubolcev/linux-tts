@@ -22,6 +22,7 @@
  */
 
 #include "tts-norm.h"
+#include "user-stress.h"
 
 #include <errno.h>
 #include <poll.h>
@@ -560,8 +561,8 @@ ask (TtsNorm *n, const gchar *text, const gchar *lang, gboolean *gone_out)
   return result;
 }
 
-gchar *
-tts_norm_text (TtsNorm *n, const gchar *text, const gchar *lang)
+static gchar *
+norm_plain (TtsNorm *n, const gchar *text, const gchar *lang)
 {
   gchar *out = NULL;
 
@@ -631,6 +632,26 @@ tts_norm_text (TtsNorm *n, const gchar *text, const gchar *lang)
         fail_once (n, "the normalizer helper exited");
     }
   return out != NULL ? out : g_strdup (text);
+}
+
+gchar *
+tts_norm_text (TtsNorm *n, const gchar *text, const gchar *lang)
+{
+  gchar *plain, *norm, *out;
+  UserStress *u;
+
+  if (n == NULL || text == NULL || !is_russian (lang) || strlen (text) > MAX_TEXT)
+    return g_strdup (text);
+  /* the user's stress marks break the normalizer's words: out and back */
+  u = user_stress_take (text, &plain);
+  if (u == NULL)
+    return norm_plain (n, text, lang);
+  norm = norm_plain (n, plain, lang);
+  out = user_stress_put (u, norm);
+  g_free (norm);
+  g_free (plain);
+  user_stress_free (u);
+  return out;
 }
 
 gboolean

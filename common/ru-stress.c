@@ -458,6 +458,42 @@ ru_stress_apply (RuStress *s, const gchar *text, RuStressMark mark)
           g_free (word);
         }
       sentence_start = FALSE;
+      if (marked)
+        {
+          /* the user's marks in the form the voice reads */
+          gboolean st = FALSE;
+
+          for (; i < j; i++)
+            {
+              gunichar c = t[i];
+
+              if (c == '+')
+                st = TRUE;
+              else if (c == ACUTE)
+                {
+                  if (out->len > 0 && mark == RU_STRESS_PLUS)
+                    {
+                      /* move it before the vowel just written */
+                      const gchar *prev = g_utf8_find_prev_char (out->str, out->str + out->len);
+
+                      if (prev != NULL && is_ru_vowel (g_utf8_get_char (prev)))
+                        g_string_insert_c (out, prev - out->str, '+');
+                    }
+                  else if (mark == RU_STRESS_ACUTE)
+                    g_string_append_unichar (out, ACUTE);
+                }
+              else
+                {
+                  if (st && is_ru_vowel (c) && mark == RU_STRESS_PLUS)
+                    g_string_append_c (out, '+');
+                  g_string_append_unichar (out, c);
+                  if (st && is_ru_vowel (c) && mark == RU_STRESS_ACUTE
+                      && c != YO && c != YO_UPPER)
+                    g_string_append_unichar (out, ACUTE);
+                  st = st && !is_ru_vowel (c);
+                }
+            }
+        }
       for (; i < j; i++)
         g_string_append_unichar (out, t[i]);
     }
