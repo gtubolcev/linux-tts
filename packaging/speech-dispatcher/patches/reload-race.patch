@@ -1,180 +1,189 @@
-Description: Fix crashes of the speak thread on configuration reload
- - speechd: hold element_free_mutex while the output modules are reloaded.
-   The speak thread looks modules up in output_modules under that mutex,
-   while SIGHUP freed the list without a lock: SIGSEGV in strcmp from
-   get_output_module_by_name right after a reload.
- - output: a module unloaded while it was speaking is destroyed only after
-   the speak thread has moved to another module; it still polled its pipe
-   and read speaking_module (heap-use-after-free in output_is_speaking and
-   output_set_speaking_monitor under ASan with a SIGHUP stress test).
+Description: Reload the modules between two messages
+ SIGHUP (configuration reload) and SIGUSR1 (dead modules) freed and rebuilt
+ the output modules while the speak thread looked them up or a module was
+ speaking: SIGSEGV in strcmp from get_output_module_by_name, and
+ heap-use-after-free in output_is_speaking under ASan with a SIGHUP stress
+ test. The signal callbacks now only record the request; the speak thread
+ waits until the module has sent all events of the message, then lets the
+ main loop run the reload and waits for it.
 Author: Grigory Tuboltsev
-Forwarded: https://github.com/brailcom/speechd/pull/1151 https://github.com/brailcom/speechd/pull/1152
-Last-Update: 2026-11-20
+Forwarded: https://github.com/brailcom/speechd/pull/1151
+Last-Update: 2026-11-23
 ---
-diff --git a/src/server/module.c b/src/server/module.c
-index 255b1c4..ab948fb 100644
---- a/src/server/module.c
-+++ b/src/server/module.c
-@@ -654,6 +654,8 @@ int unload_output_module(OutputModule * module)
- 	output_close(module);
+diff --git a/src/server/speaking.c b/src/server/speaking.c
+index 4c98f7f1..64d03493 100644
+--- a/src/server/speaking.c
++++ b/src/server/speaking.c
+@@ -57,6 +57,15 @@ int pause_requested_fd;
+ int pause_requested_uid;
+ int resume_requested;
  
- 	close(module->pipe_in[1]);
-+	if (output_orphan_module(module))
-+		return 0;
- 	close(module->pipe_out[0]);
- 
- 	destroy_module(module);
-diff --git a/src/server/output.c b/src/server/output.c
-index 554a89d..e709c91 100644
---- a/src/server/output.c
-+++ b/src/server/output.c
-@@ -62,6 +62,13 @@ static int output_stop_requested;
- static int output_pause_requested;
- static int output_pause_queued;
- 
-+/* A module unloaded while it was speaking: the speak thread still polls its
-+ * pipe_speak and the module's event thread still reads its pipe_out, so it is
-+ * destroyed only once the speak thread speaks through another module.
-+ * Protected by the output layer mutex. */
-+static OutputModule *orphan_module;
-+static void output_flush_events(void);
++/* Reload requests (SPEAKING_RELOAD_*), and whether the main loop is running
++ * one */
++static pthread_mutex_t reload_mutex = PTHREAD_MUTEX_INITIALIZER;
++static pthread_cond_t reload_cond = PTHREAD_COND_INITIALIZER;
++static int reload_requested;
++static int reload_running;
 +
- static void output_open_audio(OutputModule *output)
- {
- 	void *pars[9] = { NULL };
-@@ -111,6 +118,14 @@ static void output_open_audio(OutputModule *output)
- void output_set_speaking_monitor(TSpeechDMessage * msg, OutputModule * output)
- {
- 	/* Set the speaking-monitor so that we know who is speaking */
-+	if (orphan_module && orphan_module != output) {
-+		/* events the dead module left behind: their wake-up bytes went
-+		 * to its own pipe */
-+		output_flush_events();
-+		close(orphan_module->pipe_out[0]);
-+		destroy_module(orphan_module);
-+		orphan_module = NULL;
-+	}
- 	speaking_module = output;
- 	if (output->audio) {
- 		if (output->audio == AUDIOID_TOOPEN)
-@@ -989,6 +1004,56 @@ size_t output_pause()
- static GSList *playback_events = NULL;
- static pthread_mutex_t playback_events_mutex = PTHREAD_MUTEX_INITIALIZER;
++static void speaking_reload(void);
++
+ /*
+   Speak() is responsible for getting right text from right
+   queue in right time and saying it loud through the corresponding
+@@ -141,6 +150,22 @@ void *speak(void *data)
+ 			continue;
+ 		}
  
-+static void output_free_event(speak_queue_entry *entry)
++		/* Reload between two messages, once the module has sent all
++		 * its events (is_sb_speaking() then clears speaking_module) */
++		if (speaking_module == NULL) {
++			int requested;
++
++			pthread_mutex_lock(&reload_mutex);
++			requested = reload_requested;
++			pthread_mutex_unlock(&reload_mutex);
++			if (requested) {
++				/* the module whose pipe we poll may go away */
++				poll_count = 1;
++				speaking_reload();
++				continue;
++			}
++		}
++
+ 		/* Handle resume requests */
+ 		if (resume_requested) {
+ 			GList *gl;
+@@ -351,6 +376,53 @@ void *speak(void *data)
+ 	}
+ }
+ 
++void speaking_request_reload(int what)
 +{
-+	switch (entry->type) {
-+	case SPEAK_QUEUE_QET_AUDIO:
-+		g_free(entry->data.audio.track.samples);
-+		break;
-+	case SPEAK_QUEUE_QET_INDEX_MARK:
-+		g_free(entry->data.markId);
-+		break;
-+	case SPEAK_QUEUE_QET_SOUND_ICON:
-+		g_free(entry->data.sound_icon_filename);
-+		break;
-+	default:
-+		break;
-+	}
-+	g_free(entry);
++	pthread_mutex_lock(&reload_mutex);
++	reload_requested |= what;
++	pthread_mutex_unlock(&reload_mutex);
++	speaking_semaphore_post();
 +}
 +
-+static void output_flush_events(void)
++/* Run by the main loop */
++static gboolean speaking_run_reload(gpointer data)
 +{
-+	GSList *events;
++	speechd_reload(GPOINTER_TO_INT(data));
 +
-+	pthread_mutex_lock(&playback_events_mutex);
-+	events = playback_events;
-+	playback_events = NULL;
-+	pthread_mutex_unlock(&playback_events_mutex);
-+	g_slist_free_full(events, (GDestroyNotify) output_free_event);
++	pthread_mutex_lock(&reload_mutex);
++	reload_running = 0;
++	pthread_cond_signal(&reload_cond);
++	pthread_mutex_unlock(&reload_mutex);
++	return G_SOURCE_REMOVE;
 +}
 +
-+/* Called before destroying a module that is being unloaded: returns 1 if
-+ * the speak thread still uses it.  The module is then kept until the speak
-+ * thread speaks through another one. */
-+int output_orphan_module(OutputModule *module)
++static void speaking_reload_unlock(void *data)
 +{
-+	output_lock();
-+	if (module != speaking_module) {
-+		output_unlock();
-+		return 0;
-+	}
-+	if (orphan_module && orphan_module != module) {
-+		close(orphan_module->pipe_out[0]);
-+		destroy_module(orphan_module);
-+	}
-+	orphan_module = module;
-+	MSG(3, "Module \"%s\" is still speaking, destroying it later",
-+	    module->name);
-+	output_unlock();
-+	return 1;
++	pthread_mutex_unlock(&reload_mutex);
 +}
 +
- static speak_queue_entry *output_new_event(speak_queue_entry_type type)
++/* The speak thread hands the reload to the main loop, which serves the
++ * clients and reads the module list for them, and waits until it is done */
++static void speaking_reload(void)
++{
++	int what;
++
++	pthread_mutex_lock(&reload_mutex);
++	what = reload_requested;
++	reload_requested = 0;
++	reload_running = 1;
++	pthread_mutex_unlock(&reload_mutex);
++
++	MSG(4, "Reloading (%d) between two messages", what);
++	g_idle_add(speaking_run_reload, GINT_TO_POINTER(what));
++
++	pthread_mutex_lock(&reload_mutex);
++	pthread_cleanup_push(speaking_reload_unlock, NULL);
++	while (reload_running)
++		pthread_cond_wait(&reload_cond, &reload_mutex);
++	pthread_cleanup_pop(1);
++}
++
+ int reload_message(TSpeechDMessage * msg)
  {
- 	speak_queue_entry *entry = g_new(speak_queue_entry, 1);
-@@ -1385,10 +1450,20 @@ int output_is_speaking(char **index_mark)
- 		MSG(1, "Warning: couldn't read from pipe_speak: %d returned, (errno = %d, %s)\n", ret, errno, strerror(errno));
+ 	TFDSetElement *client_settings;
+diff --git a/src/server/speaking.h b/src/server/speaking.h
+index d0143eec..05114d5c 100644
+--- a/src/server/speaking.h
++++ b/src/server/speaking.h
+@@ -58,6 +58,14 @@ int speaking_pause_all(int fd);
+ int speaking_resume(int uid);
+ int speaking_resume_all(void);
  
- 	pthread_mutex_lock(&playback_events_mutex);
--	entry = playback_events->data;
-+	entry = playback_events ? playback_events->data : NULL;
- 	playback_events = g_slist_remove(playback_events, entry);
- 	pthread_mutex_unlock(&playback_events_mutex);
- 
-+	if (entry == NULL) {
-+		/* the module went away and its pipe hit end of file: nothing
-+		 * more will come from it */
-+		MSG(2, "No event from the output module, taking it as broken");
-+		*index_mark = NULL;
-+		pthread_join(output_thread, NULL);
-+		output_stop_reading_events(output);
-+		return 0;
-+	}
++/* Reloads asked for by signals.  The speak thread runs them between two
++ * messages: it calls speechd_reload() through the main loop and waits until
++ * it has returned, so no module is speaking or being looked up while the
++ * modules are unloaded and loaded again. */
++#define SPEAKING_RELOAD_CONFIGURATION	1
++#define SPEAKING_RELOAD_DEAD_MODULES	2
++void speaking_request_reload(int what);
 +
- 	/* Process next event */
- 	switch (entry->type) {
- 		case SPEAK_QUEUE_QET_AUDIO:
-diff --git a/src/server/output.h b/src/server/output.h
-index 4770048..f589596 100644
---- a/src/server/output.h
-+++ b/src/server/output.h
-@@ -44,4 +44,5 @@ SPDVoice **output_get_voices(OutputModule * output, const char *language, const
- int waitpid_with_timeout(pid_t pid, int *status_ptr, int options,
- 			 size_t timeout);
- int output_close(OutputModule * module);
-+int output_orphan_module(OutputModule * module);
- SPDVoice **output_list_voices(const char *module_name, const char *language, const char *variant);
+ /* Internal speech flow control functions */
+ 
+ /* If there is someone speaking on some output
 diff --git a/src/server/speechd.c b/src/server/speechd.c
-index c379471..f263c9f 100644
+index c1e86d8a..b41c75bb 100644
 --- a/src/server/speechd.c
 +++ b/src/server/speechd.c
-@@ -559,8 +559,11 @@ void speechd_module_nodebug(gpointer data, gpointer user_data)
+@@ -559,11 +559,8 @@ void speechd_module_nodebug(gpointer data, gpointer user_data)
  
  static gboolean speechd_reload_dead_modules(gpointer user_data)
  {
 -	/* Reload dead modules */
-+	/* Reload dead modules.  The speak thread looks modules up in the
-+	 * list while it holds element_free_mutex. */
-+	pthread_mutex_lock(&element_free_mutex);
- 	g_list_foreach(output_modules, speechd_modules_reload, NULL);
-+	pthread_mutex_unlock(&element_free_mutex);
- 
- 	/* Make sure there aren't any more child processes left */
- 	while (waitpid(-1, NULL, WNOHANG) > 0) ;
-@@ -845,8 +848,14 @@ static void speechd_load_configuration(void)
- 
- static gboolean speechd_reload_configuration(gpointer user_data)
- {
-+	/* The speak thread looks the output module of a message up in
-+	 * output_modules while it holds element_free_mutex.  Hold it while the
-+	 * modules are freed and loaded again, so that it neither walks a list
-+	 * being freed nor finds it empty and drops the message. */
-+	pthread_mutex_lock(&element_free_mutex);
- 	speechd_load_configuration();
- 	module_load_requested_modules();
-+	pthread_mutex_unlock(&element_free_mutex);
+-	g_list_foreach(output_modules, speechd_modules_reload, NULL);
+-
+-	/* Make sure there aren't any more child processes left */
+-	while (waitpid(-1, NULL, WNOHANG) > 0) ;
++	/* done by speechd_reload() between two messages */
++	speaking_request_reload(SPEAKING_RELOAD_DEAD_MODULES);
  	return TRUE;
  }
  
+@@ -858,11 +855,27 @@ static void speechd_load_configuration(void)
+ 
+ static gboolean speechd_reload_configuration(gpointer user_data)
+ {
+-	speechd_load_configuration();
+-	module_load_requested_modules();
++	/* done by speechd_reload() between two messages */
++	speaking_request_reload(SPEAKING_RELOAD_CONFIGURATION);
+ 	return TRUE;
+ }
+ 
++/* Called in the main loop while the speak thread waits between two messages
++ * (speaking_request_reload()) */
++void speechd_reload(int what)
++{
++	if (what & SPEAKING_RELOAD_CONFIGURATION) {
++		speechd_load_configuration();
++		module_load_requested_modules();
++	}
++	if (what & SPEAKING_RELOAD_DEAD_MODULES) {
++		g_list_foreach(output_modules, speechd_modules_reload, NULL);
++
++		/* Make sure there aren't any more child processes left */
++		while (waitpid(-1, NULL, WNOHANG) > 0) ;
++	}
++}
++
+ static void speechd_check_modules(void)
+ {
+ 	/* Check for output modules */
+diff --git a/src/server/speechd.h b/src/server/speechd.h
+index 89a32c94..8dfb8462 100644
+--- a/src/server/speechd.h
++++ b/src/server/speechd.h
+@@ -237,6 +237,8 @@ int speechd_connection_destroy(int fd);
+ void speechd_modules_terminate(gpointer data, gpointer user_data);
+ void speechd_modules_reload(gpointer data, gpointer user_data);
+ void speechd_modules_debug(void);
++/* Run the reloads asked for (SPEAKING_RELOAD_*); main loop only */
++void speechd_reload(int what);
+ void speechd_modules_nodebug(void);
+ 
+ void speechd_options_init(void);
