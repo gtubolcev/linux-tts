@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # Builds the speech-dispatcher-ru-normalizr source package for the PPA:
 # ru-normalizr (upstream commit COMMIT, our fixes in debian/patches) and the
-# pure-Python libraries Ubuntu lacks, in a private directory for tts-normalize.
+# pure-Python libraries Ubuntu lacks, in a private directory for tts-normalize;
+# and speech-dispatcher-ru-normalizr-data, the data of the C normalizer made from
+# them at build time by textnorm/cmorphy3/mkdict.py and textnorm/rn/gen-ipa.py.
 #   packaging/ru-normalizr/make-source.sh [codename]
 # The orig tarball is the upstream commit (git archive) with deps/: the wheels
 # and the one sdist named in deps.sha256, fetched with pip download and checked
@@ -48,6 +50,9 @@ T=$(git -C "$G" log -1 --format=%ct "$COMMIT")
 find "$S" -exec touch -h -d "@$T" {} +
 tar --sort=name --owner=0 --group=0 --numeric-owner -cJf "$ORIG" "$S"
 cp -r "$HERE/debian" "$S/"
+mkdir -p "$S/debian/textnorm"
+cp "$HERE/../../textnorm/cmorphy3/mkdict.py" "$HERE/../../textnorm/rn/gen-ipa.py" \
+  "$S/debian/textnorm/"
 cd "$S"
 N=1
 sed -i "1s/(\([^)]*\)) [a-z]*;/(\1~ppa$N~$DIST) $DIST;/" debian/changelog

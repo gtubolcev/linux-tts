@@ -23,7 +23,7 @@ for i in range(0, len(words), 800):
     for w, variants in zip(chunk, ipa.ipa_list(chunk, keep_punct=True), strict=True):
         top = variants[-1] if variants else ""
         assert "*" not in top and "\t" not in top and "\n" not in top, (w, top)
-        assert top == ipa.convert(w) or i % 8000, (w, top)   # spot check: same as convert()
+        assert i % 8000 or top == ipa.convert(w), (w, top)   # spot check: same as convert()
         out.append((w.encode(), top))
 out.sort()
 with open(sys.argv[1], "w", encoding="utf-8", newline="\n") as f:

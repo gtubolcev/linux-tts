@@ -17,4 +17,17 @@ Description: Russian text normalizer for the speech-dispatcher modules
  into words before a voice reads it. This package keeps it and the libraries
  Ubuntu lacks (pymorphy3 with its Russian dictionary, eng_to_ipa,
  phonenumbers) in a private directory for tts-normalize, outside the system
- Python.
+ Python. The modules use it only when speech-dispatcher-ru-normalizr-data is
+ missing or with "TextNormalizationEngine python".
+
+Package: speech-dispatcher-ru-normalizr-data
+Section: text
+Architecture: all
+Depends: ${misc:Depends}
+Description: data of the C Russian text normalizer for the speech-dispatcher modules
+ The speech-dispatcher-modules voices normalize Russian text ("5 кг" ->
+ "пять килограммов") with rn, a C port of ru-normalizr built into them. It
+ needs the pymorphy3 Russian dictionary as one memory-mapped file
+ (cmorphy3-ru.bin) and the CMU pronunciations of English words as eng_to_ipa
+ gives them (en-ipa.tsv); both are made at build time from the libraries
+ packaged in speech-dispatcher-ru-normalizr. No Python is needed at run time.

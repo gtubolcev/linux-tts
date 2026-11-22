@@ -1,3 +1,13 @@
+speech-dispatcher-ru-normalizr (1.3.0+git20261012.5f3a016+deps-2) resolute; urgency=medium
+
+  * New package speech-dispatcher-ru-normalizr-data: the data of rn, the C
+    port of ru-normalizr in the speech-dispatcher-modules voices
+    (cmorphy3-ru.bin from pymorphy3-dicts-ru, en-ipa.tsv from eng_to_ipa),
+    made at build time with textnorm/cmorphy3/mkdict.py and
+    textnorm/rn/gen-ipa.py of linux-tts. No Python at run time.
+
+ -- Grigory Tuboltsev <gtubolcev@gmail.com>  Sun, 22 Nov 2026 13:00:00 +0100
+
 speech-dispatcher-ru-normalizr (1.3.0+git20261012.5f3a016+deps-1) resolute; urgency=medium
 
   * First source package (was built locally with pip): ru-normalizr at

@@ -166,13 +166,16 @@ Description: Speech Dispatcher module for Silero TTS (Russian)
 Package: speech-dispatcher-text-normalizer
 Architecture: all
 Depends: python3, ${misc:Depends}
-Recommends: speech-dispatcher-ru-normalizr
+Recommends: speech-dispatcher-ru-normalizr-data
+Suggests: speech-dispatcher-ru-normalizr
 Description: text normalization for the speech-dispatcher-modules voices
- A helper the Vosk, Kokoro, TeraTTS, sherpa-onnx and Silero modules run to
- read numbers, dates, units and abbreviations in Russian text as words
- ("5 кг" -> "пять килограммов") before the voice speaks it. It uses the
- ru_normalizr Python package; without that package, or with
- "TextNormalization no" in a module's .conf, the text is spoken as it is.
+ The Vosk, Kokoro, TeraTTS, sherpa-onnx and Silero modules read numbers,
+ dates, units and abbreviations in Russian text as words ("5 кг" -> "пять
+ килограммов") before the voice speaks it, with rn, a C normalizer built into
+ them, and its data from speech-dispatcher-ru-normalizr-data. This package
+ holds the older Python helper they use when that data is missing or with
+ "TextNormalizationEngine python" (it needs speech-dispatcher-ru-normalizr);
+ with "TextNormalization no" in a module's .conf the text is spoken as it is.
 
 Package: linux-tts-ru
 Architecture: all
@@ -181,7 +184,7 @@ Depends: speech-dispatcher-sherpa-onnx (>= ${source:Version}),
          piper-voice-ru-ru-dmitri-medium,
          piper-voice-ru-ru-denis-medium,
          speech-dispatcher-text-normalizer (>= ${source:Version}),
-         speech-dispatcher-ru-normalizr,
+         speech-dispatcher-ru-normalizr-data,
          ${misc:Depends}
 Recommends: xfce4-speech-settings | speech-settings-standalone
 Description: local Russian speech synthesis for the desktop (metapackage)
