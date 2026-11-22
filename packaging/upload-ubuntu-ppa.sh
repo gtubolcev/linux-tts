@@ -84,6 +84,7 @@ if [ -n "${NO_UPLOAD:-}" ]; then
   dpkg-buildpackage -S -d -nc -us -uc -sd
   exit 0
 fi
-dpkg-buildpackage -S -d -nc -sd ${SIGN_KEY:+--sign-key="$SIGN_KEY"}
+SIGN_KEY=${SIGN_KEY:-5B0CDBA2B566CDE5}  # the PPA (CI) key; without it dpkg picks the maintainer key
+dpkg-buildpackage -S -d -nc -sd --sign-key="$SIGN_KEY"
 cd ..
 dput "$PPA" ./*_source.changes
