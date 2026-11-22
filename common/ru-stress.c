@@ -343,6 +343,9 @@ lookup_stress (RuStress *s, const gchar *lower, int n_vowels, Want want,
       const Dict *d = &s->dict[i];
       gchar *val;
 
+      if (d->phonemes && n_vowels == 1)
+        continue;       /* Vosk says "всё" for все too: ё of one vowel
+                           only from the stress dictionary */
       if (d->phonemes)
         {
           /* "ё" is often written "е"; Vosk may know only one spelling */
@@ -419,7 +422,8 @@ ru_stress_apply (RuStress *s, const gchar *text, RuStressMark mark)
           nv += is_ru_vowel (t[j]);
           j++;
         }
-      if (!marked && nv >= 2)
+      /* a word of one vowel gets no mark, only its ё (шел -> шёл) */
+      if (!marked && nv >= 1)
         {
           gchar *word = g_ucs4_to_utf8 (t + i, j - i, NULL, NULL, NULL);
           gchar *lower = g_utf8_strdown (word, -1);
@@ -429,6 +433,9 @@ ru_stress_apply (RuStress *s, const gchar *text, RuStressMark mark)
                              stressed, yo))
             {
               int v = 0;
+
+              if (nv == 1)
+                stressed[0] = FALSE;
               for (glong k = i; k < j; k++)
                 {
                   gunichar c = t[k];

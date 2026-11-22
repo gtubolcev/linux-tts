@@ -22,7 +22,9 @@
  *
  * Words that already carry a mark (U+0301 after or "+" before a vowel)
  * are left as they are, so a user can correct a word by hand.  Words of
- * one vowel get no mark.  "е" becomes "ё" where the dictionary says so.
+ * one vowel get no mark.  "е" becomes "ё" where the dictionary says so;
+ * for words of one vowel only the stress dictionary decides (шел -> шёл,
+ * нем -> нём by default), as Vosk writes ё in "все" too.
  *
  * Copyright (C) 2026 Grigory Tuboltsev
  * SPDX-License-Identifier: GPL-3.0-or-later
