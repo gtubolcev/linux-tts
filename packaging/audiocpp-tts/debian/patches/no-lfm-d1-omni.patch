@@ -1,0 +1,28 @@
+Description: drop the model family lfm_d1_omni
+ Its sources carry LiquidAI's calibration data under the LFM Open License
+ 1.0 (not free: commercial use is restricted), so the orig tarball leaves
+ out src/models/lfm_d1_omni and include/engine/models/lfm_d1_omni.
+Author: Grigory Tuboltsev <gtubolcev@gmail.com>
+Forwarded: not-needed
+---
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -899,18 +899,6 @@
+         engine::models::ced::make_ced_loader
+ )
+ 
+-audiocpp_add_model(lfm_d1_omni
+-    SOURCES
+-        src/models/lfm_d1_omni/assets.cpp
+-        src/models/lfm_d1_omni/audio.cpp
+-        src/models/lfm_d1_omni/questions.cpp
+-        src/models/lfm_d1_omni/session.cpp
+-    INCLUDES
+-        engine/models/lfm_d1_omni/session.h
+-    LOADERS
+-        engine::models::lfm_d1_omni::make_lfm_d1_omni_loader
+-)
+-
+ audiocpp_add_model(ast_audioset
+     SOURCES
+         src/models/ast_audioset/assets.cpp

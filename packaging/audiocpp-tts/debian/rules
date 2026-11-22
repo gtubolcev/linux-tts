@@ -1,0 +1,51 @@
+#!/usr/bin/make -f
+# Only the C library is built (the target audiocpp), with the speech
+# synthesis families sd_audiocpp has manifests for (MODELS; the others of
+# the release are ASR, music, separation, large voice-cloning models); upstream has no install rules for it, so
+# override_dh_auto_install places the files.
+# ENGINE_ENABLE_CPU_ALL_VARIANTS: ggml and its backends as shared libraries,
+# one CPU backend per x86-64 level, chosen when loading; libaudiocpp loads
+# them from its own directory (RUNPATH $ORIGIN).
+# -j3 runs out of 6 GB on the Vulkan shader sources (cc1plus killed): at most 2 jobs
+# LTO over ggml and the models: much longer, more memory
+export DEB_BUILD_MAINT_OPTIONS = hardening=+all optimize=-lto
+include /usr/share/dpkg/pkg-info.mk
+PRIV = usr/lib/$(DEB_HOST_MULTIARCH)/linux-tts
+LIBDIR = $(PRIV)/audiocpp
+B = obj-$(DEB_HOST_GNU_TYPE)
+MODELS = piper_tts;kokoro_tts;supertonic;pocket_tts;pocket_tts_small;kitten_tts;kitten_tts2
+UPVER = $(firstword $(subst +, ,$(DEB_VERSION_UPSTREAM)))
+
+%:
+	dh $@ --buildsystem=cmake --max-parallel=2
+
+override_dh_auto_configure:
+	dh_auto_configure -- -DCMAKE_BUILD_TYPE=Release \
+	  -DAUDIOCPP_VERSION=$(UPVER) \
+	  -DAUDIOCPP_BUILD_C_API=ON \
+	  -DAUDIOCPP_MODEL_SET=custom -DAUDIOCPP_MODELS='$(MODELS)' \
+	  -DENGINE_ENABLE_VULKAN=ON \
+	  -DENGINE_ENABLE_CPU_ALL_VARIANTS=ON \
+	  -DAUDIOCPP_BUILD_NATIVE_MODEL_MANAGER=OFF \
+	  -DAUDIOCPP_BUILD_SERVER_FRONTENDS=OFF
+
+override_dh_auto_build:
+	dh_auto_build -- audiocpp
+
+# the model tests need downloaded models
+override_dh_auto_test:
+
+override_dh_auto_install:
+	install -d debian/tmp/$(LIBDIR) debian/tmp/usr/include/linux-tts \
+	  debian/tmp/$(PRIV)/pkgconfig
+	cp -P $(B)/bin/libaudiocpp.so* $(B)/bin/libggml*.so* debian/tmp/$(LIBDIR)/
+	install -m 644 include/audiocpp.h debian/tmp/usr/include/linux-tts/
+	sed -e 's,@LIBDIR@,/$(LIBDIR),' -e 's,@VERSION@,$(UPVER),' \
+	  debian/audiocpp.pc.in > debian/tmp/$(PRIV)/pkgconfig/audiocpp.pc
+
+# the ggml backends are loaded with dlopen: they and libggml* are private
+override_dh_makeshlibs:
+	dh_makeshlibs --no-scripts -X$(LIBDIR)/libggml
+
+override_dh_shlibdeps:
+	dh_shlibdeps -l$(CURDIR)/debian/libaudiocpp-tts/$(LIBDIR)

@@ -1,0 +1,8 @@
+libdir=@LIBDIR@
+includedir=/usr/include/linux-tts
+
+Name: audiocpp
+Description: audio.cpp C API (private copy of linux-tts)
+Version: @VERSION@
+Libs: -L${libdir} -laudiocpp
+Cflags: -I${includedir}

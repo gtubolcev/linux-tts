@@ -1,0 +1,196 @@
+Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
+Upstream-Name: audio.cpp
+Upstream-Contact: https://github.com/0xShug0/audio.cpp/issues
+Source: https://github.com/0xShug0/audio.cpp
+Comment: The orig tarball is git archive of v0.9.6 (04a37f2e) without the
+ files below. The model weights and audio in assets/, tests/ and webui/
+ have licences of their own or none stated; the web UI, notebooks and
+ documentation are not used by the library; cpp-httplib (with BoringSSL)
+ is only for the model manager, which is not built; lfm_d1_omni carries
+ calibration data under the LFM Open License 1.0, which restricts
+ commercial use. Of tests/ only perf/ and soulx_flashhead/ stay (code),
+ as CMake defines test programs from them even when they are not built.
+Files-Excluded: assets webui Notebooks docs flake.nix flake.lock
+ Makefile.windows external/cpp-httplib
+ external/audio.cpp-server-frontends src/models/lfm_d1_omni
+ include/engine/models/lfm_d1_omni tests/ace_step tests/apollo
+ tests/ast_audioset tests/audio tests/audio8_asr tests/audio_utilities
+ tests/auk tests/bs_roformer tests/canary_asr tests/capi
+ tests/chatterbox tests/citrinet_asr tests/codecs tests/cohere_asr
+ tests/community_models tests/confucius4_r2t2 tests/confucius4_tts
+ tests/controlfoley tests/core tests/demucs tests/dots_tts
+ tests/dramabox tests/earshot_vad tests/ecapa_tdnn_spk tests/echo_tts
+ tests/f5_tts tests/firered_vad tests/fixtures tests/fun_asr_nano
+ tests/gigaam_asr tests/glm_tts tests/granite5asr tests/granite_speech5
+ tests/heartmula tests/higgs_audio_stt tests/higgs_audio_tts
+ tests/hviske_asr tests/index_echo tests/index_tts2 tests/irodori_tts
+ tests/kitten_tts tests/kitten_tts2 tests/kokoro_tts tests/kroko_asr
+ tests/kugelaudio tests/latentsync tests/lfm2_audio tests/lfm3_audio
+ tests/liveavatar tests/lora tests/m5_tts tests/magenta_realtime_2
+ tests/magpie_tts tests/marblenet_vad tests/maya1 tests/meanvc2
+ tests/midashenglm_gen tests/ming3_audio tests/ming3_tts
+ tests/minimax_music3 tests/miocodec tests/mira_tts
+ tests/mms_forced_aligner tests/moonshine_asr tests/moss_soundeffect
+ tests/moss_transcribe_diarize tests/moss_tts_delay tests/moss_tts_local
+ tests/moss_tts_nano tests/moss_tts_v15 tests/moss_ttsd
+ tests/moss_voicegen tests/mossformer2 tests/mulacover tests/muscriptor
+ tests/nemo_mel_migration tests/nemotron_3_diar tests/nemotron_asr
+ tests/neutts tests/niagara_asr tests/omnivoice tests/open_wake_word
+ tests/outetts tests/owsm tests/owsm_ctc tests/parakeet_tdt
+ tests/personaplex tests/piper_tts tests/plapre tests/pocket_tts
+ tests/pocket_tts_small tests/pulsevad tests/qwen3_asr
+ tests/qwen3_forced_aligner tests/qwen3_tts tests/realtime_reuse
+ tests/reuse tests/roformer tests/rosvot tests/rvc tests/sam_audio
+ tests/samsone tests/seed_vc tests/sense_asr tests/server
+ tests/shared_mel_migration tests/sidon tests/silero_vad
+ tests/smart_turn tests/soprano_tts tests/sopro_tts
+ tests/sortformer_diar tests/soulx_singer tests/stable_audio
+ tests/supertonic tests/test-omtd.cpp tests/tf_gridnet tests/titanet_spk
+ tests/tone_color_vc tests/unittests tests/universr tests/vevo2
+ tests/vibeasr tests/vibevoice tests/vibevoice_asr tests/voice_isolator
+ tests/voxcpm2 tests/voxmel_tts tests/voxtral_realtime tests/voxtral_tts
+ tests/warmbench.py tests/whisper tests/whistle_asr tests/xtts_v2
+ tests/yue2 tests/zipvoice
+
+Files: *
+Copyright: 2026 ShugoAI LLC and the audio.cpp contributors
+License: Apache-2.0
+
+Files: external/ggml/*
+Copyright: 2023-2026 The ggml authors
+License: MIT
+
+Files: external/ggml/src/ggml-sycl/* external/ggml/src/ggml-openvino/*
+Copyright: Intel Corporation, the ggml authors
+License: Apache-2.0
+
+Files: external/ggml/src/ggml-cpu/llamafile/*
+Copyright: 2024 Mozilla Foundation
+License: MIT
+
+Files: external/sentencepiece/*
+Copyright: 2016 Google Inc.
+License: Apache-2.0
+
+Files: external/sentencepiece/third_party/absl/*
+Copyright: The Abseil Authors
+License: Apache-2.0
+
+Files: external/sentencepiece/third_party/protobuf-lite/*
+Copyright: 2008 Google Inc.
+License: BSD-3-Clause
+
+Files: external/sentencepiece/third_party/darts_clone/*
+Copyright: 2008-2011 Susumu Yata
+License: BSD-3-Clause
+
+Files: external/sentencepiece/third_party/esaxx/*
+Copyright: 2010 Daisuke Okanohara
+License: MIT
+
+Files: external/llama_tokenizer/*
+Copyright: 2023-2026 The ggml authors
+License: MIT
+Comment: the BPE tokenizer of llama.cpp
+
+Files: external/cJSON/*
+Copyright: 2009-2017 Dave Gamble and cJSON contributors
+License: MIT
+
+Files: external/libyaml/*
+Copyright: 2006-2016 Kirill Simonov
+           2017-2020 Ingy döt Net
+License: MIT
+
+Files: external/utf8proc/*
+Copyright: 2014-2021 Steven G. Johnson, Jiahao Chen, Tony Kelman, Jonas Fonseca
+           and other contributors
+           2009, 2013 Public Software Group e. V., Berlin, Germany
+License: MIT
+
+Files: external/lz4/*
+Copyright: 2011-2020 Yann Collet
+License: BSD-2-Clause
+
+Files: src/community_models/nemotron_transcribe/*
+Copyright: NVIDIA Corporation, the audio.cpp contributors
+License: Apache-2.0
+Comment: parts follow SciPy, NumPy (BSD-3-Clause) and PyTorch numerics,
+ see THIRD_PARTY_NOTICES.md there.
+
+Files: debian/*
+Copyright: 2026 Grigory Tuboltsev
+License: Apache-2.0
+
+License: Apache-2.0
+ On Debian systems the full text of the Apache License 2.0 is in
+ /usr/share/common-licenses/Apache-2.0.
+
+License: MIT
+ Permission is hereby granted, free of charge, to any person obtaining a
+ copy of this software and associated documentation files (the
+ "Software"), to deal in the Software without restriction, including
+ without limitation the rights to use, copy, modify, merge, publish,
+ distribute, sublicense, and/or sell copies of the Software, and to permit
+ persons to whom the Software is furnished to do so, subject to the
+ following conditions:
+ .
+ The above copyright notice and this permission notice shall be included
+ in all copies or substantial portions of the Software.
+ .
+ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
+ OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+ MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN
+ NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM,
+ DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR
+ OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE
+ USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+License: BSD-2-Clause
+ Redistribution and use in source and binary forms, with or without
+ modification, are permitted provided that the following conditions are
+ met:
+ .
+ * Redistributions of source code must retain the above copyright notice,
+   this list of conditions and the following disclaimer.
+ * Redistributions in binary form must reproduce the above copyright
+   notice, this list of conditions and the following disclaimer in the
+   documentation and/or other materials provided with the distribution.
+ .
+ THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS
+ IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO,
+ THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
+ PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR
+ CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
+ EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
+ PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR
+ PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF
+ LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
+ NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+License: BSD-3-Clause
+ Redistribution and use in source and binary forms, with or without
+ modification, are permitted provided that the following conditions are
+ met:
+ .
+ * Redistributions of source code must retain the above copyright notice,
+   this list of conditions and the following disclaimer.
+ * Redistributions in binary form must reproduce the above copyright
+   notice, this list of conditions and the following disclaimer in the
+   documentation and/or other materials provided with the distribution.
+ * Neither the name of the copyright holder nor the names of its
+   contributors may be used to endorse or promote products derived from
+   this software without specific prior written permission.
+ .
+ THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS
+ IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO,
+ THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
+ PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR
+ CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
+ EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
+ PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR
+ PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF
+ LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
+ NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.

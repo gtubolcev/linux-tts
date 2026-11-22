@@ -1,0 +1,34 @@
+Source: audiocpp-tts
+Section: sound
+Priority: optional
+Maintainer: Grigory Tuboltsev <gtubolcev@gmail.com>
+Build-Depends: debhelper-compat (= 13), cmake (>= 3.20), pkgconf,
+ libvulkan-dev, glslc, spirv-headers
+Standards-Version: 4.7.2
+Homepage: https://github.com/0xShug0/audio.cpp
+Rules-Requires-Root: no
+
+Package: libaudiocpp-tts
+Architecture: amd64
+Section: libs
+Depends: ${shlibs:Depends}, ${misc:Depends}
+Recommends: libespeak-ng1, espeak-ng-data, mesa-vulkan-drivers
+Description: audio.cpp speech models on ggml - private copy for linux-tts
+ audio.cpp runs speech, music and audio models (Piper, Kokoro, Supertonic,
+ Pocket TTS and many more) on ggml, on the processor or through Vulkan on
+ the graphics card. This is its C library with ggml and the backends: one
+ CPU backend per instruction set level, picked at run time, and Vulkan.
+ .
+ It is installed in /usr/lib/<triplet>/linux-tts/audiocpp for the speech
+ module sd_audiocpp of the linux-tts PPA. Piper voices need espeak-ng.
+
+Package: libaudiocpp-tts-dev
+Architecture: amd64
+Section: libdevel
+Depends: libaudiocpp-tts (= ${binary:Version}), ${misc:Depends}
+Description: audio.cpp speech models on ggml - private copy (headers)
+ audio.cpp runs speech, music and audio models on ggml.
+ .
+ This package has the C API header in /usr/include/linux-tts and
+ audiocpp.pc in /usr/lib/<triplet>/linux-tts/pkgconfig; set
+ PKG_CONFIG_PATH to use it, and a RUNPATH to run.

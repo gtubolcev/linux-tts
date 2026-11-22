@@ -1,0 +1,3 @@
+usr/include/linux-tts/audiocpp.h
+usr/lib/*/linux-tts/audiocpp/libaudiocpp.so
+usr/lib/*/linux-tts/pkgconfig/audiocpp.pc

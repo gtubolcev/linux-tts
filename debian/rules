@@ -12,13 +12,15 @@ export DEB_LDFLAGS_MAINT_APPEND = -Wl,-rpath,$(ORTDIR)
 
 override_dh_auto_configure:
 	dh_auto_configure -- -Dvosk=enabled -Dkokoro=enabled -Dteratts=enabled \
-	  -Dsilero=enabled -Dsherpa=enabled -Dsherpa_vulkan=enabled -Dkokoro_vulkan=enabled
+	  -Dsilero=enabled -Dsherpa=enabled -Dsherpa_vulkan=enabled -Dkokoro_vulkan=enabled \
+	  -Daudiocpp=enabled
 
 override_dh_shlibdeps:
-	dh_shlibdeps -l$(ORTDIR)
+	dh_shlibdeps -l$(ORTDIR) -l$(ORTDIR)/audiocpp
 
-# the exact version of the private sherpa-onnx (no stable ABI), for
-# Depends: libsherpa-onnx-tts (= ${sherpa:Version})
+# the exact versions of the private sherpa-onnx and audio.cpp (no stable
+# ABI), for Depends: libsherpa-onnx-tts (= ${sherpa:Version}) etc.
 SHERPA_VERSION := $(shell dpkg-query -W -f='$${Version}' libsherpa-onnx-tts-dev)
+AUDIOCPP_VERSION := $(shell dpkg-query -W -f='$${Version}' libaudiocpp-tts-dev)
 override_dh_gencontrol:
-	dh_gencontrol -- -Vsherpa:Version=$(SHERPA_VERSION)
+	dh_gencontrol -- -Vsherpa:Version=$(SHERPA_VERSION) -Vaudiocpp:Version=$(AUDIOCPP_VERSION)

@@ -1,0 +1,7 @@
+audiocpp-tts (0.9.6+ds-1) noble; urgency=medium
+
+  * Initial release: libaudiocpp of audio.cpp v0.9.6 (04a37f2e) with ggml,
+    the CPU backends of every x86-64 level and Vulkan, in a private
+    directory for sd_audiocpp.
+
+ -- Grigory Tuboltsev <gtubolcev@gmail.com>  Sun, 22 Nov 2026 21:00:00 +0100

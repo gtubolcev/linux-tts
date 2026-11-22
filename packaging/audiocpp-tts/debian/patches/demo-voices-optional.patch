@@ -1,0 +1,28 @@
+Description: configure without the demo voices of the web UI
+ The orig tarball leaves out webui/ (demo voices of unknown licence);
+ CMake embeds them for audiocpp_server, which is not built here. Read them
+ only when they are there.
+Author: Grigory Tuboltsev <gtubolcev@gmail.com>
+Forwarded: not-needed
+---
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -3704,10 +3704,14 @@
+ 
+ set(AUDIOCPP_DEMO_VOICE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/webui/native/demo_voices")
+ macro(audiocpp_embed_demo_voice_file INPUT_FILE OUTPUT_VARIABLE)
+-    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${INPUT_FILE}")
+-    file(READ "${INPUT_FILE}" _audiocpp_demo_voice_hex HEX)
+-    string(REGEX REPLACE "([0-9a-f][0-9a-f])" "0x\\1," ${OUTPUT_VARIABLE} "${_audiocpp_demo_voice_hex}")
+-    string(REPLACE "," ",\n" ${OUTPUT_VARIABLE} "${${OUTPUT_VARIABLE}}")
++    if (EXISTS "${INPUT_FILE}")
++        set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${INPUT_FILE}")
++        file(READ "${INPUT_FILE}" _audiocpp_demo_voice_hex HEX)
++        string(REGEX REPLACE "([0-9a-f][0-9a-f])" "0x\\1," ${OUTPUT_VARIABLE} "${_audiocpp_demo_voice_hex}")
++        string(REPLACE "," ",\n" ${OUTPUT_VARIABLE} "${${OUTPUT_VARIABLE}}")
++    else()
++        set(${OUTPUT_VARIABLE} "0x00,")
++    endif()
+ endmacro()
+ audiocpp_embed_demo_voice_file(
+     "${AUDIOCPP_DEMO_VOICE_DIR}/demo_1_man.wav"

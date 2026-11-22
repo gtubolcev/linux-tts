@@ -10,6 +10,7 @@ Build-Depends: debhelper-compat (= 13),
                libpcre2-dev,
                libsonic-dev,
                libsherpa-onnx-tts-dev,
+               libaudiocpp-tts-dev,
                libonnxruntime-tts-dev,
                libspeechd-dev (>= 0.12~),
                meson,
@@ -107,6 +108,25 @@ Description: Speech Dispatcher module for sherpa-onnx voices on the graphics car
  .
  Experimental: the plugin is young and has one author; no other package
  recommends this one.
+
+Package: speech-dispatcher-audiocpp
+Architecture: any
+# the C API of audio.cpp is young (0.x): exactly the version built against
+Depends: libaudiocpp-tts (= ${audiocpp:Version}), speech-dispatcher (>= 0.12~), ${misc:Depends}, ${shlibs:Depends}
+Recommends: speech-dispatcher-text-normalizer
+Description: Speech Dispatcher module for audio.cpp voices (ggml)
+ Speaks with the speech models of audio.cpp on ggml: Piper, Kokoro,
+ Supertonic, Pocket TTS and Kitten TTS voices in GGUF form. A model is a
+ directory with an audiocpp.ini in /usr/share/audiocpp-tts or
+ ~/.local/share/audiocpp-tts; it is loaded with the first message and freed
+ after some minutes without speech. Settings in
+ /etc/speech-dispatcher/modules/audiocpp.conf.
+ .
+ The synthesizer "audiocpp-vulkan-rs" (same program, own settings) runs the
+ models on the graphics card through Vulkan, much faster than the processor
+ for most models.
+ .
+ Experimental: the models come as GGUF files that are not packaged yet.
 
 Package: speech-dispatcher-piper-sherpa-onnx
 Architecture: all
