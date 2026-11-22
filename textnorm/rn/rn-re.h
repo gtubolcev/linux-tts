@@ -35,6 +35,8 @@ extern int rn_re_errcode;   /* PCRE2 error code after a match returned -1 */
 /* 0, or -1 with a message in err */
 int rn_re_compile(rn_re *re, const char *pcre, char *err, size_t errlen);
 void rn_re_free(rn_re *re);
+/* the compiled and JIT code of all patterns so far, in bytes */
+extern size_t rn_re_code_bytes, rn_re_jit_bytes;
 int rn_re_group(const rn_re *re, const char *name);   /* number of a named group, -1 */
 
 /* pattern.search(s, pos) / match / fullmatch: 1 match, 0 none, -1 error */

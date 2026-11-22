@@ -6,8 +6,12 @@
 #include <stdlib.h>
 #include <string.h>
 
-/* Python's \w and \d (Unicode of the oracle's Python, not PCRE2's) in place of the
- * symbolic \p{L}\p{N}_ and \p{Nd} that gen-patterns.py emits, always inside a class */
+/* gen-patterns.py emits Python's \w and \d as the symbolic \p{L}\p{N}_ and \p{Nd},
+ * always inside a class.  PCRE2 reads them with its own Unicode tables, which differ
+ * from the oracle's Python (Unicode 15.0) only in characters assigned in other Unicode
+ * versions.  RN_EXACT_UNICODE=1 puts Python's ranges in their place instead: exact, but
+ * the classes of ~700 ranges make the compiled patterns 3x bigger (25 MB with the JIT
+ * per process instead of ~8). */
 static const struct {
 	const char *sym, *ranges;
 } UNI[] = {
@@ -20,7 +24,10 @@ int rn_re_compile(rn_re *re, const char *pcre, char *err, size_t errlen)
 	int ec;
 	PCRE2_SIZE eo;
 	size_t len = 0, max = strlen(pcre) + 1;
-	for (const char *q = pcre; *q; q++)
+	static int exact = -1;
+	if (exact < 0)
+		exact = getenv("RN_EXACT_UNICODE") && *getenv("RN_EXACT_UNICODE") == '1';
+	for (const char *q = pcre; *q && exact; q++)
 		for (size_t u = 0; u < sizeof UNI / sizeof *UNI; u++)
 			if (!strncmp(q, UNI[u].sym, strlen(UNI[u].sym)))
 				max += strlen(UNI[u].ranges);
@@ -31,7 +38,7 @@ int rn_re_compile(rn_re *re, const char *pcre, char *err, size_t errlen)
 		return -1;
 	}
 	for (const char *q = pcre; *q;) {
-		size_t u = 0;
+		size_t u = exact ? 0 : sizeof UNI / sizeof *UNI;
 		for (; u < sizeof UNI / sizeof *UNI; u++)
 			if (!strncmp(q, UNI[u].sym, strlen(UNI[u].sym)))
 				break;
@@ -63,8 +70,16 @@ int rn_re_compile(rn_re *re, const char *pcre, char *err, size_t errlen)
 		return -1;
 	}
 	pcre2_jit_compile(re->code, PCRE2_JIT_COMPLETE);   /* falls back to the interpreter */
+	size_t sz = 0;
+	pcre2_pattern_info(re->code, PCRE2_INFO_SIZE, &sz);
+	rn_re_code_bytes += sz;
+	sz = 0;
+	pcre2_pattern_info(re->code, PCRE2_INFO_JITSIZE, &sz);
+	rn_re_jit_bytes += sz;
 	return 0;
 }
+
+size_t rn_re_code_bytes, rn_re_jit_bytes;
 
 void rn_re_free(rn_re *re)
 {
