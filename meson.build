@@ -19,6 +19,9 @@ conf_dir = get_option('sysconfdir') / 'speech-dispatcher' / 'modules'
 # the first target (the speechd_module fallback)
 norm_helper = module_dir / 'tts-normalize'
 add_project_arguments('-DTTS_NORM_HELPER="@0@"'.format(norm_helper), language: 'c')
+# the data of the C normalizer rn (cmorphy3-ru.bin, en-ipa.tsv)
+norm_data = get_option('prefix') / get_option('datadir') / 'speech-dispatcher-modules' / 'textnorm'
+add_project_arguments('-DTTS_NORM_DATA="@0@"'.format(norm_data), language: 'c')
 # the user's module file is read on top of the system one (common/tts-config.c)
 add_project_arguments('-DTTS_SYS_CONF_DIR="@0@"'.format(get_option('prefix') / conf_dir), language: 'c')
 
@@ -50,8 +53,36 @@ if sonic.found()
 endif
 module_deps = [speechd_module, glib, math, threads, sonic]
 
-# text normalization (ru-normalizr) through a resident Python helper; the
-# modules pass text through unchanged when it or ru_normalizr is missing
+# text normalization: rn, the C port of ru-normalizr (textnorm/), in the
+# modules; else ru-normalizr through a resident Python helper; the modules pass
+# text through unchanged when neither works
+pcre2 = dependency('libpcre2-32', required: get_option('textnorm'))
+rn_dep = dependency('', required: false)
+if pcre2.found()
+  rn_lib = static_library('rn',
+    files('textnorm/cmorphy3/cmorphy3.c', 'textnorm/num2words/n2w-ru.c',
+      'textnorm/rn/rn-abbr.c', 'textnorm/rn/rn-abbrx.c', 'textnorm/rn/rn-address.c',
+      'textnorm/rn/rn-api.c', 'textnorm/rn/rn-caps.c', 'textnorm/rn/rn-dates.c',
+      'textnorm/rn/rn-dic.c', 'textnorm/rn/rn-final.c', 'textnorm/rn/rn-ident.c',
+      'textnorm/rn/rn-lat.c', 'textnorm/rn/rn-math.c', 'textnorm/rn/rn-morph.c',
+      'textnorm/rn/rn-mx.c', 'textnorm/rn/rn-ncard.c', 'textnorm/rn/rn-ncase.c',
+      'textnorm/rn/rn-ndec.c', 'textnorm/rn/rn-nord.c', 'textnorm/rn/rn-norm.c',
+      'textnorm/rn/rn-npost.c', 'textnorm/rn/rn-nrng.c', 'textnorm/rn/rn-nrun.c',
+      'textnorm/rn/rn-nsuf.c', 'textnorm/rn/rn-nsym.c', 'textnorm/rn/rn-num.c',
+      'textnorm/rn/rn-numbering.c', 'textnorm/rn/rn-nx.c', 'textnorm/rn/rn-pat.c',
+      'textnorm/rn/rn-ph.c', 'textnorm/rn/rn-phone.c', 'textnorm/rn/rn-phones.c',
+      'textnorm/rn/rn-pre.c', 'textnorm/rn/rn-protect.c', 'textnorm/rn/rn-pystr.c',
+      'textnorm/rn/rn-re.c', 'textnorm/rn/rn-refs.c', 'textnorm/rn/rn-roman.c',
+      'textnorm/rn/rn-so.c', 'textnorm/rn/rn-stage.c',
+      'textnorm/rn/rn-tables.c', 'textnorm/rn/rn-unitform.c',
+      'textnorm/rn/rn-units.c', 'textnorm/rn/rn-urls.c', 'textnorm/rn/rn-years.c'),
+    c_args: ['-Wno-comment', '-Wno-sign-compare', '-Wno-missing-field-initializers'],
+    dependencies: [pcre2, threads],
+    pic: true)
+  rn_dep = declare_dependency(link_with: rn_lib, compile_args: '-DHAVE_RN',
+    include_directories: include_directories('textnorm/rn'), dependencies: [pcre2, threads])
+endif
+module_deps += rn_dep
 norm_src = files('common/tts-norm.c', 'common/tts-copy.c', 'common/tts-config.c')
 # the stress stage after it (Vosk dictionary; homographs later)
 stress_src = files('common/tts-stress.c', 'common/ru-stress.c')
@@ -60,9 +91,13 @@ install_data('common/tts-normalize.py', rename: 'tts-normalize',
 test('tts-config', executable('tts-config-test', 'common/tts-config-test.c', 'common/tts-config.c',
   include_directories: common_inc, dependencies: glib))
 tts_norm_test = executable('tts-norm-test', 'common/tts-norm-test.c', norm_src, stress_src,
-  include_directories: common_inc, dependencies: glib)
+  include_directories: common_inc, dependencies: [glib, rn_dep])
 test('norm-helper', find_program('tests/norm-helper.py'),
   args: [tts_norm_test, files('common/tts-normalize.py')], timeout: 120)
+if rn_dep.found()
+  # needs the data in $RN_DATA (meson test --setup or env); skipped without it
+  test('norm-rn', find_program('tests/norm-rn.py'), args: [tts_norm_test], timeout: 300)
+endif
 
 # the common module frame (threads, protocol, text) and its tests with a
 # fake engine

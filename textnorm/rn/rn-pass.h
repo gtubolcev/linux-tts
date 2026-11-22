@@ -35,6 +35,6 @@ int rn_run_abbreviations(const rn_str *in, rn_str *out);
 int rn_run_finalize(const rn_str *in, rn_str *out);
 /* PipelineNormalizer.normalize_text with the tts() options, plus the own fix passes that
  * rn_fixes enables (rn-norm.c); needs rn_morph, rn_mx_init, rn_lat_open, rn_pat_init */
-int rn_normalize(const rn_str *in, rn_str *out);
+int rn_run_pipeline(const rn_str *in, rn_str *out);
 
 #endif

@@ -1,11 +1,19 @@
 /*
  * tts-norm - text normalization for the speech-dispatcher modules
  *
- * Runs the normalizer (ru-normalizr, Python) as a resident helper process,
- * one per user for all modules, and asks it to turn "5 кг" into "пять килограммов" before the engine
- * sees the text.  The helper is started on the first message, or earlier
- * with tts_norm_start(); tts_norm_stop() disconnects when the module unloads
- * its model, and the helper exits when no module has used it for a while.
+ * Turns "5 кг" into "пять килограммов" before the engine sees the text.
+ * Two engines:
+ *  - c (default): rn, the C port of ru_normalizr (textnorm/rn), in the
+ *    module itself.  Its data (TextNormalizationData: cmorphy3-ru.bin,
+ *    en-ipa.tsv) is loaded on the first message, or earlier with
+ *    tts_norm_start(), and stays until the module exits (~0.2 s, the
+ *    dictionary is mapped and shared).  Without the data, or in a build
+ *    without rn, the python engine is used.
+ *  - python: ru_normalizr in a resident helper process, one per user for
+ *    all modules.  The helper is started on the first message, or earlier
+ *    with tts_norm_start(); tts_norm_stop() disconnects when the module
+ *    unloads its model, and the helper exits when no module has used it
+ *    for a while.
  *
  * Every failure falls back to the text as it was: no helper installed, a
  * helper that crashes, hangs, answers garbage or takes longer than the
@@ -30,6 +38,8 @@
 typedef struct
 {
   gboolean enabled;     /* TextNormalization yes|no (yes) */
+  gboolean python_only; /* TextNormalizationEngine c|python (c) */
+  gchar *data;          /* TextNormalizationData: the rn data directory */
   gchar *python;        /* TextNormalizationPython (python3) */
   gchar *helper;        /* TextNormalizationHelper (the installed script) */
   int timeout_ms;       /* TextNormalizationTimeout: per request (1500) */

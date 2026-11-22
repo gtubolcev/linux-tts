@@ -14,6 +14,9 @@
  * spaces.  An answer with another id is the late answer to a request that
  * timed out, and is skipped.
  *
+ * The c engine (rn) needs none of this: it runs in the module, and a text
+ * it cannot handle comes back NULL and passes through unnormalized.
+ *
  * Copyright (C) 2026 Grigory Tuboltsev
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
@@ -29,8 +32,15 @@
 #include <sys/un.h>
 #include <unistd.h>
 
+#ifdef HAVE_RN
+#include "rn.h"
+#endif
+
 #ifndef TTS_NORM_HELPER
 #define TTS_NORM_HELPER "/usr/libexec/speech-dispatcher-modules/tts-normalize"
+#endif
+#ifndef TTS_NORM_DATA
+#define TTS_NORM_DATA "/usr/share/speech-dispatcher-modules/textnorm"
 #endif
 
 /* after a second failure in a row, a helper that did not start, ... */
@@ -58,6 +68,7 @@ struct TtsNorm
   gchar *sock;                  /* the helper's socket */
   guint requests, timeouts;     /* for the log: how often the text went unnormalized */
   guint strikes;                /* requests failed in a row */
+  int c_state;                  /* the c engine: 0 not tried yet, 1 in use, -1 not available */
 };
 
 void
@@ -71,6 +82,8 @@ void
 tts_norm_config_init (TtsNormConfig *c)
 {
   c->enabled = TRUE;
+  c->python_only = FALSE;
+  c->data = g_strdup (TTS_NORM_DATA);
   c->python = g_strdup ("python3");
   c->helper = g_strdup (TTS_NORM_HELPER);
   c->timeout_ms = 1500;
@@ -83,6 +96,7 @@ tts_norm_config_clear (TtsNormConfig *c)
 {
   g_clear_pointer (&c->python, g_free);
   g_clear_pointer (&c->helper, g_free);
+  g_clear_pointer (&c->data, g_free);
 }
 
 static gboolean
@@ -97,6 +111,10 @@ tts_norm_config_parse (TtsNormConfig *c, const gchar *key, const gchar *value)
 {
   if (g_ascii_strcasecmp (key, "TextNormalization") == 0)
     c->enabled = parse_bool (value);
+  else if (g_ascii_strcasecmp (key, "TextNormalizationEngine") == 0)
+    c->python_only = g_ascii_strcasecmp (value, "python") == 0;
+  else if (g_ascii_strcasecmp (key, "TextNormalizationData") == 0 && *value != '\0')
+    g_free (c->data), c->data = g_strdup (value);
   else if (g_ascii_strcasecmp (key, "TextNormalizationPython") == 0 && *value != '\0')
     g_free (c->python), c->python = g_strdup (value);
   else if (g_ascii_strcasecmp (key, "TextNormalizationHelper") == 0 && *value != '\0')
@@ -123,6 +141,7 @@ tts_norm_new (const TtsNormConfig *c)
   n->cfg = *c;
   n->cfg.python = g_strdup (c->python);
   n->cfg.helper = g_strdup (c->helper);
+  n->cfg.data = g_strdup (c->data);
   n->fd = -1;
   n->in = g_string_new (NULL);
   {
@@ -248,10 +267,59 @@ spawn_helper (TtsNorm *n)
 
 
 
+/* the c engine: loads rn once per process (all TtsNorm share it); FALSE
+ * leaves the python engine */
+static gboolean
+c_start (TtsNorm *n)
+{
+#ifdef HAVE_RN
+  static GMutex lock;
+  static int opened;            /* 0 not tried, 1 open, -1 failed (for the data it was given) */
+  static gchar *opened_data;
+
+  if (n->c_state != 0)
+    return n->c_state > 0;
+  n->c_state = -1;
+  if (n->cfg.python_only)
+    return FALSE;
+  g_mutex_lock (&lock);
+  if (opened == 0 || (opened < 0 && g_strcmp0 (opened_data, n->cfg.data) != 0))
+    {
+      gchar *morph = g_build_filename (n->cfg.data, "cmorphy3-ru.bin", NULL);
+      gchar *ipa = g_build_filename (n->cfg.data, "en-ipa.tsv", NULL);
+      char err[512];
+
+      if (!g_file_test (morph, G_FILE_TEST_EXISTS) || !g_file_test (ipa, G_FILE_TEST_EXISTS))
+        {
+          g_printerr ("tts-norm: no rn data in %s; using ru_normalizr (python)\n", n->cfg.data);
+          opened = -1;
+        }
+      else if (rn_open (morph, ipa, RN_FIXES_ALL, RN_N2W_FIXES_ALL, err, sizeof err) < 0)
+        {
+          g_printerr ("tts-norm: rn: %s; using ru_normalizr (python)\n", err);
+          opened = -1;
+        }
+      else
+        opened = 1;
+      g_free (opened_data);
+      opened_data = g_strdup (n->cfg.data);
+      g_free (morph);
+      g_free (ipa);
+    }
+  if (opened > 0)
+    n->c_state = 1;
+  g_mutex_unlock (&lock);
+  return n->c_state > 0;
+#else
+  n->c_state = -1;
+  return FALSE;
+#endif
+}
+
 void
 tts_norm_start (TtsNorm *n)
 {
-  if (n == NULL || n->active)
+  if (n == NULL || n->active || c_start (n))
     return;
   if (n->retry_after != 0 && g_get_monotonic_time () < n->retry_after)
     return;
@@ -506,6 +574,33 @@ tts_norm_text (TtsNorm *n, const gchar *text, const gchar *lang)
       if (!g_ascii_isspace (*p))
         break;
     }
+#ifdef HAVE_RN
+  if (c_start (n))
+    {
+      gchar *clean = clean_text (text);
+
+      n->requests++;
+      out = rn_normalize (clean, strlen (clean));
+      if (out != NULL && *out == '\0' && *g_strstrip (clean) != '\0')
+        g_clear_pointer (&out, free);   /* lost text is worse than unnormalized text */
+      g_free (clean);
+      if (out == NULL)
+        {
+          n->timeouts++;
+          g_printerr ("tts-norm: rn could not normalize a text; it goes unnormalized"
+                      " (failure %u; %u requests so far)\n", n->timeouts, n->requests);
+          return g_strdup (text);
+        }
+      for (char *p = out; *p != '\0'; p++)
+        if (*p == '\t' || *p == '\r' || *p == '\n')
+          *p = ' ';
+      {
+        gchar *res = g_strdup (out);    /* g_free-able for the caller */
+        free (out);
+        return res;
+      }
+    }
+#endif
   /* a helper that went away (crashed, exiting when idle, updated) is
    * started again at once, once */
   for (int attempt = 0; attempt < 2 && out == NULL; attempt++)

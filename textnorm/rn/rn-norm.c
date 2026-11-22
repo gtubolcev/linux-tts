@@ -38,7 +38,7 @@ static int restore(const rn_ph *ph, rn_str *t)
 	return 0;
 }
 
-int rn_normalize(const rn_str *in, rn_str *out)
+int rn_run_pipeline(const rn_str *in, rn_str *out)
 {
 	static const stage_fn middle[] = {
 		rn_run_math, rn_run_preprocess, rn_run_roman, rn_run_caps,

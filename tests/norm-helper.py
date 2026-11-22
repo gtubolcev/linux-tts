@@ -62,10 +62,10 @@ def sock_of(rt):
 
 def client(rt, lines, *opts, env=None):
     e = dict(os.environ, XDG_RUNTIME_DIR=rt, **(env or {}))
-    return subprocess.Popen([TEST, "--python", PYTHON, "--helper", HELPER, *opts],
+    return subprocess.Popen([TEST, "--engine", "python", "--python", PYTHON, "--helper", HELPER, *opts],
                             stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True,
                             env=e, stderr=subprocess.DEVNULL) if lines is None else \
-        subprocess.run([TEST, "--python", PYTHON, "--helper", HELPER, *opts],
+        subprocess.run([TEST, "--engine", "python", "--python", PYTHON, "--helper", HELPER, *opts],
                        input="".join(x + "\n" for x in lines), capture_output=True,
                        text=True, env=e, timeout=60)
 
@@ -263,7 +263,7 @@ def t_cancel():
 def t_no_helper():
     rt = runtime("none")
     e = dict(os.environ, XDG_RUNTIME_DIR=rt)
-    r = subprocess.run([TEST, "--helper", os.path.join(ROOT, "missing")], input="a\n",
+    r = subprocess.run([TEST, "--engine", "python", "--helper", os.path.join(ROOT, "missing")], input="a\n",
                        capture_output=True, text=True, env=e, timeout=20)
     check("no helper: text unchanged", answers(r.stdout)[0][1] == "a", r.stdout)
 

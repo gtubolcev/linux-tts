@@ -7,3 +7,4 @@ option('silero', type: 'feature', value: 'auto', description: 'sd_silero and sil
 option('espeak_data', type: 'string', value: '', description: 'the system espeak-ng-data directory (default: <espeak-ng prefix>/lib/x86_64-linux-gnu/espeak-ng-data)')
 option('sonic', type: 'feature', value: 'auto', description: 'speed the audio up with libsonic above <Prefix>ModelMaxSpeed')
 option('kokoro_vulkan', type: 'feature', value: 'disabled', description: 'the synthesizer kokoro-vulkan-rs (needs onnxruntime-ep-vulkan at run time)')
+option('textnorm', type: 'feature', value: 'auto', description: 'rn, the C text normalizer (needs libpcre2-dev); without it the modules use the Python ru-normalizr helper')

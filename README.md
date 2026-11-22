@@ -28,10 +28,14 @@ ggml and the graphics card fit together: [docs/ARCHITECTURE.md](docs/ARCHITECTUR
 
 Russian text goes through [ru-normalizr](https://github.com/NickZaitsev/ru-normalizr)
 before the voice reads it: numbers, dates, units and abbreviations become words. The
-modules share one resident Python helper per user (`common/tts-normalize.py`, package
-`speech-dispatcher-text-normalizer`, ~50 MB; on a socket in `$XDG_RUNTIME_DIR`, started
-with the first message, gone a minute after the last module let go of it) and read the text as it is when the helper or `ru_normalizr` is missing, fails or
-is slow; `TextNormalization no` in a module's .conf turns it off. After it,
+modules run `textnorm/rn`, a C port of it with its quirks fixed (`textnorm/QUIRKS.md`),
+in their own process when its data (`cmorphy3-ru.bin`, `en-ipa.tsv`) is in
+`TextNormalizationData` (default `/usr/share/speech-dispatcher-modules/textnorm`).
+Without it, or with `TextNormalizationEngine python`, they share one resident Python
+helper per user (`common/tts-normalize.py`, package `speech-dispatcher-text-normalizer`,
+~50 MB; on a socket in `$XDG_RUNTIME_DIR`, started with the first message, gone a minute
+after the last module let go of it). They read the text as it is when normalization is
+missing, fails or is slow; `TextNormalization no` in a module's .conf turns it off. After it,
 `common/tts-stress.c` can mark the stress from the Vosk dictionary (`TextStress yes`,
 sd_sherpa-onnx and sd_silero; off by default, homographs not resolved yet).
 

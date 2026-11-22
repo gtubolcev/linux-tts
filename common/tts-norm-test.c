@@ -1,11 +1,12 @@
 /*
  * tts-norm-test - normalizes stdin line by line through the helper
  *
- *   tts-norm-test [--helper PATH] [--python PATH] [--timeout MS] [--idle S] [--lang ru]
+ *   tts-norm-test [--engine c|python] [--data DIR] [--helper PATH] [--python PATH]
+ *                 [--timeout MS] [--idle S] [--lang ru]
  *                 [--stress DICT] [--mark plus|acute] [--cancel-after MS]
  *
  * Prints "<ms>\t<normalized line>" for each line, so the timeouts and the
- * fallbacks of tts-norm.c can be tried with broken helpers.
+ * fallbacks of tts-norm.c can be tried with broken helpers (--engine python).
  *
  * Copyright (C) 2026 Grigory Tuboltsev
  * SPDX-License-Identifier: GPL-3.0-or-later
@@ -40,7 +41,11 @@ main (int argc, char **argv)
   tts_stress_config_init (&scfg, FALSE, RU_STRESS_PLUS);
   for (int i = 1; i + 1 < argc; i += 2)
     {
-      if (strcmp (argv[i], "--helper") == 0)
+      if (strcmp (argv[i], "--engine") == 0)
+        tts_norm_config_parse (&cfg, "TextNormalizationEngine", argv[i + 1]);
+      else if (strcmp (argv[i], "--data") == 0)
+        tts_norm_config_parse (&cfg, "TextNormalizationData", argv[i + 1]);
+      else if (strcmp (argv[i], "--helper") == 0)
         tts_norm_config_parse (&cfg, "TextNormalizationHelper", argv[i + 1]);
       else if (strcmp (argv[i], "--python") == 0)
         tts_norm_config_parse (&cfg, "TextNormalizationPython", argv[i + 1]);
