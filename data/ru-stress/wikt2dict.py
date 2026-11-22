@@ -48,8 +48,15 @@ def rare(d):
         g = " ".join(s.get("glosses", []) or s.get("raw_glosses", []))
         return g.startswith(RARE_RU) or g.startswith("(") and any(x in g[:40] for x in RARE_RU + tuple(RARE_EN))
     return all(r1(s) for s in ss)
+YO_ALIAS = re.compile(r"^(неёфицированная форма|alternative spelling of \S*ё)")
+def yo_alias(d):
+    # "еж": a page of the spelling without ё, no word of its own
+    ss = d.get("senses", [])
+    return bool(ss) and all(YO_ALIAS.match(" ".join(s.get("glosses", []) or s.get("raw_glosses", [])))
+                            for s in ss)
 def take(d, src):
     lemma = d.get("word", ""); pos = d.get("pos", "")
+    if yo_alias(d): return
     flags = ("n" if lemma[:1].isupper() or pos == "name" else "") + ("r" if rare(d) else "")
     seen = False
     for f in d.get("forms", []):

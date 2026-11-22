@@ -89,6 +89,11 @@ for l in open(VOSK, encoding="utf-8", errors="replace"):
             if p[-1] == "1": s = k; snd = p[0]
             k += 1
     if s is not None: VP.setdefault(key(w), set()).add(s); VO[key(w)].add((s, snd))
+SND = dict(zip("аяоёуюыиеэ", "aaoouuyiee"))
+def snd(f):
+    sp = spos(f)
+    v = [c for c in bare(f) if c in VOW]
+    return SND.get(v[sp]) if 0 <= sp < len(v) else None
 dropped = 0
 for k, v in W.items():
     vo = VO.get(k)
@@ -144,10 +149,15 @@ with open(OUT, "w", encoding="utf-8") as o:
         if not v: continue
         if nvow(k) == 1 and not any("ё" in f for f, p in v):
             continue            # one vowel and no ё: nothing to say
-        vp = VP.get(k, set())
+        if len(k) == 1:
+            continue            # a letter (е, ё): the normalizer names it
+        vp = VP.get(k, set()); vo = VO.get(k, set())
         def order(it):
             (f, p), r = it
-            return (D.get(k) != (f, p), r, -SC.get((k, f, p), 0.0), spos(f) not in vp, f != J.get(k), p, f)
+            # the corpus does not tell мёд from мед (no ё there): Vosk's
+            # stressed vowel breaks the tie
+            return (D.get(k) != (f, p), r, -SC.get((k, f, p), 0.0), spos(f) not in vp,
+                    (spos(f), snd(f)) not in vo, f != J.get(k), p, f)
         out = []
         for (f, p), r in sorted(v.items(), key=order):
             fl = ("n" if p else "") + ("r" if r else "") + ("d" if D.get(k) == (f, p) else "")
