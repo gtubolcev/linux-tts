@@ -8,7 +8,7 @@ Description: Fix crashes of the speak thread on configuration reload
    and read speaking_module (heap-use-after-free in output_is_speaking and
    output_set_speaking_monitor under ASan with a SIGHUP stress test).
 Author: Grigory Tuboltsev
-Forwarded: not-yet
+Forwarded: https://github.com/brailcom/speechd/pull/1151 https://github.com/brailcom/speechd/pull/1152
 Last-Update: 2026-11-20
 ---
 diff --git a/src/server/module.c b/src/server/module.c
