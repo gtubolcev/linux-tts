@@ -73,6 +73,9 @@ def main():
             mine = newest(versions)
             m = re.match(r"(.*?)" + suffix, mine)
             base = m.group(1) if m else mine
+            # a repacked orig tarball (packaging/<pkg>/repack): 1.14.0+ds-3 is
+            # built on 1.14.0-3, 1.8.0+dfsg2-3 on 1.8.0+dfsg-3
+            base = re.sub(r"\+ds(?=-)|(?<=\+dfsg)2(?=-)|(?<=\+ds)2(?=-)", "", base)
             dseries = ubuntu.getSeries(name_or_version=series)
             released, proposed = [], []
             for p in archive.getPublishedSources(source_name=name, exact_match=True,

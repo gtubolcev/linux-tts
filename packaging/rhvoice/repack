@@ -1,0 +1,5 @@
+# The voices: several are CC-BY-NC-ND or under their own non-free terms
+# (debian/copyright), so the PPA carries none. The Ubuntu archive's voice
+# packages work with our engine; xfce4-speech-settings downloads voices into
+# ~/.local/share/RHVoice. data/voices/CMakeLists.txt stays for the build.
+data/voices/*/

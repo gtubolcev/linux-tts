@@ -10,8 +10,11 @@
 # is the newest Ubuntu one of that release plus the suffix and ~ppa<N>~<codename>.
 # packaging/<pkg>/prepare.sh, when present, runs in the unpacked source
 # after the patches (e.g. to drop binary packages).
-#
-# The orig tarball is not uploaded, Launchpad takes it from the archive.
+# packaging/<pkg>/repack, when present, lists paths (shell globs, relative to
+# the source root) that our orig tarball leaves out, e.g. files under a
+# licence the PPA does not carry. The upstream version then gets +ds (+ds2,
+# +dfsg2 when Ubuntu's already ends in +ds/+dfsg) and the new orig tarball is
+# uploaded; otherwise Launchpad takes the orig tarball from the archive.
 # PPA=... overrides the target (ppa:gtubolcev/linux-tts); SIGN_KEY=... the
 # key; NO_UPLOAD=1 only builds the source package (unsigned) into _build/.
 set -euo pipefail
@@ -62,6 +65,32 @@ for try in 1 2 3 4 5; do
   sleep 60
 done
 SRCDIR=$(find . -mindepth 1 -maxdepth 1 -type d | head -1)
+
+# the upstream version of Ubuntu's package and ours
+DEBVER=$(cd "$SRCDIR" && dpkg-parsechangelog -S Version)
+EPOCH=; [[ $DEBVER == *:* ]] && EPOCH=${DEBVER%%:*}:
+UPVER=${DEBVER#*:}; DEBREV=${UPVER##*-}; UPVER=${UPVER%-*}
+NEWUP=$UPVER
+SOURCE_OPT=-sd
+if [ -f "$HERE/$PKG/repack" ]; then
+  if [[ $UPVER =~ \+(ds|dfsg)$ ]]; then NEWUP=${UPVER}2; else NEWUP=$UPVER+ds; fi
+  mapfile -t REPACK < <(sed -e 's/#.*//' -e '/^[[:space:]]*$/d' "$HERE/$PKG/repack")
+  # the orig tarball from Ubuntu's pristine one, the source tree (patches
+  # applied) loses the same paths
+  ORIG=$(ls ./*.orig.tar.*); mkdir repack
+  tar -C repack -xf "$ORIG"
+  for t in "repack/$(ls repack)" "$SRCDIR"; do
+    (cd "$t" && shopt -s nullglob && for g in "${REPACK[@]}"; do
+       m=($g); [ ${#m[@]} -gt 0 ] || { echo "error: repack: nothing matches $g" >&2; exit 1; }
+       rm -rf "${m[@]}"; done)
+  done
+  mv "repack/$(ls repack)" "repack/$PKG-$NEWUP"
+  tar -C repack --sort=name --owner=0 --group=0 --numeric-owner \
+    --mtime="@$(stat -c %Y "$ORIG")" -cJf "${PKG}_$NEWUP.orig.tar.xz" "$PKG-$NEWUP"
+  rm -rf repack ./*.dsc ./*.debian.tar.* "$ORIG"
+  mv "$SRCDIR" "$PKG-$NEWUP"; SRCDIR=$PKG-$NEWUP
+  SOURCE_OPT=-sa
+fi
 cd "$SRCDIR"
 
 mapfile -t PATCHES < <(sed -e 's/#.*//' -e '/^[[:space:]]*$/d' "$PATCHDIR/series")
@@ -74,17 +103,18 @@ for p in "${PATCHES[@]}"; do
 done
 [ -x "$HERE/$PKG/prepare.sh" ] && "$HERE/$PKG/prepare.sh"
 
-VERSION="$(dpkg-parsechangelog -S Version)$SUFFIX~ppa"
+VERSION="$EPOCH$NEWUP-$DEBREV$SUFFIX~ppa"
 VERSION=$VERSION$(next_upload "$VERSION" "$PKG")~$DIST
 dch --newversion "$VERSION" --distribution "$DIST" --force-distribution \
   "Apply the patches of linux-tts (https://github.com/gtubolcev/linux-tts): ${PATCHES[*]}"
+[ -n "${REPACK:-}" ] && dch -a "Repacked: the orig tarball leaves out ${REPACK[*]}"
 [ -f "$HERE/$PKG/changelog" ] && while read -r line; do dch -a "$line"; done < "$HERE/$PKG/changelog"
 
 if [ -n "${NO_UPLOAD:-}" ]; then
-  dpkg-buildpackage -S -d -nc -us -uc -sd
+  dpkg-buildpackage -S -d -nc -us -uc $SOURCE_OPT
   exit 0
 fi
 SIGN_KEY=${SIGN_KEY:-5B0CDBA2B566CDE5}  # the PPA (CI) key; without it dpkg picks the maintainer key
-dpkg-buildpackage -S -d -nc -sd --sign-key="$SIGN_KEY"
+dpkg-buildpackage -S -d -nc $SOURCE_OPT --sign-key="$SIGN_KEY"
 cd ..
 dput "$PPA" ./*_source.changes
