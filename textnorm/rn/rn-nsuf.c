@@ -144,6 +144,11 @@ static void generate(cands *c, const char *num, const uint32_t *suffix, size_t s
 	if (rn_py_casefold(suffix, sn, &suf) < 0)
 		nx_fail();
 	const int G[4] = {-1, rn_g.masc, rn_g.femn, rn_g.neut};
+	/* N3 (N2W_FIX_COMPOUND_ACCS) is not for the candidates: "22-х" spells the animate
+	 * accusative "двадцать двух" the writer meant, and without that form the ordinal
+	 * "двадцать вторых" won ("вижу 22-х студентов") */
+	unsigned fixes = rn_n2w_fixes;
+	rn_n2w_fixes &= ~N2W_FIX_COMPOUND_ACCS;
 	for (int ci = 0; ci < 6; ci++) {
 		int k = CASES[ci];
 		for (int g = 0; g < 4; g++)
@@ -164,6 +169,7 @@ static void generate(cands *c, const char *num, const uint32_t *suffix, size_t s
 			add(c, &r, 'o', k, -1, 1, !inan, &suf);
 		}
 	}
+	rn_n2w_fixes = fixes;
 	rn_str_free(&suf);
 }
 

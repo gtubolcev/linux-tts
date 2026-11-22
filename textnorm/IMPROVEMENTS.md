@@ -7,7 +7,7 @@ same number. All of them are on in the normal mode; flags 0 give the original ou
 ## Numbers (num2words)
 - N1: "трёх тысячи лошадей" → "три тысячи лошадей"; "одного миллион" → "один миллион".
 - N2: "-0.5" keeps its minus; "минус одна целых" → "минус одна целая".
-- N3: "двадцать двух студентов" (accusative) → "двадцать два студента" (gramota.ru 310247).
+- N3: "двадцать двух студентов" (accusative) → "двадцать два студента" (gramota.ru 310247). "вижу 22-х студентов" keeps "двадцать двух" (the writer's suffix).
 - N4: "одна тысяча триста пять" → "тысяча триста пять"; "один миллион…" → "миллион…".
 
 ## Roman numerals
