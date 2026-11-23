@@ -14,7 +14,6 @@ from pathlib import Path
 import numpy as np
 import onnx
 from onnx import numpy_helper
-from safetensors.numpy import save_file
 
 src, out = Path(sys.argv[1]), Path(sys.argv[2])
 VE = "vector_estimator.vector_estimator."
@@ -213,6 +212,30 @@ for k in sorted(dilations):
     if k.startswith("convnext_0"):
         print(" ", k, dilations[k])
         break
+
+def save_file(tensors, path, metadata):
+    """a safetensors file without the safetensors package: JSON header, then the
+    tensors in name order, little endian, 8-byte aligned header"""
+    dtypes = {"float32": "F32", "float16": "F16", "int64": "I64", "int32": "I32",
+              "int8": "I8", "uint8": "U8", "bool": "BOOL", "float64": "F64"}
+    header, offset, arrays = {"__metadata__": metadata}, 0, []
+    for name in sorted(tensors):
+        a = np.ascontiguousarray(tensors[name])
+        a = a.astype(a.dtype.newbyteorder("<"), copy=False)
+        header[name] = {"dtype": dtypes[a.dtype.name], "shape": list(a.shape),
+                        "data_offsets": [offset, offset + a.nbytes]}
+        offset += a.nbytes
+        arrays.append(a)
+    head = json.dumps(header, separators=(",", ":")).encode()
+    head += b" " * (-len(head) % 8)
+    tmp = Path(str(path) + ".part")
+    with open(tmp, "wb") as f:
+        f.write(len(head).to_bytes(8, "little"))
+        f.write(head)
+        for a in arrays:
+            f.write(a.tobytes())
+    tmp.replace(path)
+
 
 # ---- model directory
 (out / "ggml").mkdir(parents=True, exist_ok=True)
