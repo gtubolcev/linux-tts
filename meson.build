@@ -109,7 +109,7 @@ endif
 
 # the common module frame (threads, protocol, text) and its tests with a
 # fake engine
-module_src = files('common/tts-module.c', 'common/tts-keys.c') + norm_src
+module_src = files('common/tts-module.c', 'common/tts-keys.c') + norm_src + stress_src
 sd_dummy = executable('sd_dummy', 'tests/sd_dummy.c', module_src,
   include_directories: [speechd_inc, shim_inc, common_inc],
   dependencies: module_deps)
@@ -137,7 +137,7 @@ if get_option('kokoro').require(onnx_ok and espeak.found() and espeak_prog.found
     error_message: 'sd_kokoro needs json-glib, onnxruntime and espeak-ng').allowed()
   vulkan_ep_args = ['-DVULKAN_EP_LIBRARY="@0@"'.format(get_option('prefix') / get_option('libdir')
                     / 'linux-tts' / 'libonnxruntime_ep_vulkan.so')]
-  executable('sd_kokoro', 'kokoro/espeak-g2p.c', 'kokoro/en-g2p.c', 'kokoro/en-tagger.c', 'kokoro/ru-g2p.c', 'common/ru-stress.c', 'kokoro/kokoro.c', 'kokoro/sd_kokoro.c', module_src,
+  executable('sd_kokoro', 'kokoro/espeak-g2p.c', 'kokoro/en-g2p.c', 'kokoro/en-tagger.c', 'kokoro/ru-g2p.c', 'kokoro/kokoro.c', 'kokoro/sd_kokoro.c', module_src,
     c_args: vulkan_ep_args,
     include_directories: [speechd_inc, shim_inc, common_inc],
     dependencies: module_deps + [json_glib, onnxruntime, espeak],
@@ -185,7 +185,7 @@ endif
 
 # ------------------------------------------------------------- teratts
 if get_option('teratts').require(onnx_ok, error_message: 'sd_teratts needs json-glib and onnxruntime').allowed()
-  executable('sd_teratts', 'teratts/teratts.c', 'teratts/tera-text.c', 'common/num-words.c', 'common/ru-stress.c', 'teratts/sd_teratts.c', module_src,
+  executable('sd_teratts', 'teratts/teratts.c', 'teratts/tera-text.c', 'common/num-words.c', 'teratts/sd_teratts.c', module_src,
     include_directories: [speechd_inc, shim_inc, common_inc],
     dependencies: module_deps + [json_glib, onnxruntime],
     install: true, install_dir: module_dir)
@@ -212,7 +212,7 @@ if get_option('sherpa').require(sherpa.found() and espeak.found(),
                      prefix: '#include <espeak-ng/speak_lib.h>')
     sherpa_args += '-DHAVE_ESPEAK_TERMINATOR'
   endif
-  executable('sd_sherpa-onnx', 'sherpa/sd_sherpa.c', module_src, stress_src,
+  executable('sd_sherpa-onnx', 'sherpa/sd_sherpa.c', module_src,
     c_args: sherpa_args,
     include_directories: [speechd_inc, shim_inc, common_inc],
     dependencies: module_deps + [sherpa, espeak],
@@ -232,7 +232,7 @@ endif
 # -------------------------------------------------------------- silero
 # the module only; silero-server needs the user's Silero model (CC BY-NC-SA)
 if get_option('silero').allowed()
-  executable('sd_silero', 'silero/sd_silero.c', module_src, stress_src,
+  executable('sd_silero', 'silero/sd_silero.c', module_src,
     include_directories: [speechd_inc, shim_inc, common_inc],
     dependencies: module_deps,
     install: true, install_dir: module_dir)
@@ -291,9 +291,6 @@ if get_option('audiocpp').require(audiocpp_ok,
     acpp_src += ['teratts/tera-text.c', 'common/num-words.c']
     acpp_deps += [json_glib]
     acpp_cargs += ['-DAUDIOCPP_TERATTS']
-  endif
-  if espeak.found() or json_glib.found()
-    acpp_src += ['common/ru-stress.c']
   endif
   executable('sd_audiocpp', acpp_src, module_src,
     include_directories: [speechd_inc, shim_inc, common_inc, include_directories('kokoro', 'teratts')],

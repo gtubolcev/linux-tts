@@ -50,7 +50,6 @@
 #include <sherpa-onnx/c-api/c-api.h>
 
 #include "tts-module.h"
-#include "tts-stress.h"
 
 #define DBG(...) TTS_DBG (__VA_ARGS__)
 #define ERR(...) TTS_ERR (__VA_ARGS__)
@@ -104,11 +103,9 @@ static float cfg_silence_scale = 1.0f;
 #endif
 static gboolean cfg_vulkan = FALSE;      /* Provider "vulkan" */
 static guint cfg_families = ~0u;          /* Families, a bit per Family */
-static TtsStressConfig stress_cfg;        /* TextStress... keys */
 
 static GPtrArray *models = NULL;
 static GPtrArray *voices = NULL;          /* Voice, sorted */
-static TtsStress *stress_stage = NULL;
 static gunichar prev_last = 0;            /* the last character of the previous piece */
 
 
@@ -166,12 +163,6 @@ static void
 sherpa_setup (void)
 {
   cfg_models_dir = g_strdup ("/usr/share/sherpa-onnx/tts");
-  /* The mark is chosen per voice (stress_mark_for): a Piper voice gets
-   * U+0301 when its espeak-ng-data honours it (piper-espeak-ng-data >= 1.1);
-   * the original data, like espeak-ng < 1.52, takes the mark as a reason to
-   * stress some other syllable (за́мок -> zamˈok), so those voices, MMS and
-   * Supertonic (which read letters) get only ё */
-  tts_stress_config_init (&stress_cfg, TRUE, RU_STRESS_NONE);
 }
 
 
@@ -181,9 +172,7 @@ sherpa_config (const gchar *line, const gchar *value)
 {
   const gchar *key = option_name (line);
 
-  if (tts_stress_config_parse (&stress_cfg, line, value))
-    ;
-  else if (g_ascii_strcasecmp (key, "ModelsDir") == 0)
+  if (g_ascii_strcasecmp (key, "ModelsDir") == 0)
     g_free (cfg_models_dir), cfg_models_dir = g_strdup (value);
   else if (g_ascii_strcasecmp (key, "Threads") == 0)
     cfg_threads = atoi (value);
@@ -590,7 +579,11 @@ piper_reads_acute (Model *m)
   return m->reads_acute;
 }
 
-/* the stress mark a voice reads right */
+/* The stress mark a voice reads right: a Piper voice gets U+0301 when its
+ * espeak-ng-data honours it (piper-espeak-ng-data >= 1.1); the original
+ * data, like espeak-ng < 1.52, takes the mark as a reason to stress some
+ * other syllable (за́мок -> zamˈok), so those voices, MMS and Supertonic
+ * (which read letters) get only ё */
 static RuStressMark
 stress_mark_for (Voice *v)
 {
@@ -1159,37 +1152,36 @@ synthesize (Voice *v, const gchar *text, float speed, gboolean send, GError **er
 
 
 
+/* in the worker, the model loaded */
+static void
+sherpa_text_profile (const TtsVoice *voice, TtsTextProfile *p)
+{
+  Voice *v = voice->data;
+
+  p->stress = TRUE;
+  p->mark = stress_mark_for (v);
+  /* MMS knows only lower case (synthesize() lowers it too, for the test load) */
+  p->lowercase = v->model->family == FAMILY_VITS;
+}
+
 /* in the worker */
 static gboolean
 sherpa_speak (const TtsPiece *p, GError **error)
 {
   Voice *v = p->voice->data;
   const gchar *end = p->text + strlen (p->text);
-  gchar *ready;
-  gboolean ok;
 
   if (!p->first)
     send_pause (prev_last, v);
   prev_last = end > p->text ? g_utf8_get_char (g_utf8_prev_char (end)) : 0;
   if (tts_stopped ())
     return TRUE;
-  if (stress_stage == NULL && stress_cfg.enabled)
-    stress_stage = tts_stress_new (&stress_cfg);
-  ready = tts_stress_apply_mark (stress_stage, p->text, v->language, stress_mark_for (v));
   /* the frame speeds the audio up further */
-  ok = synthesize (v, ready, (float) tts_model_speed (p->settings), TRUE, error);
-  g_free (ready);
-  return ok;
+  return synthesize (v, p->text, (float) tts_model_speed (p->settings), TRUE, error);
 }
 
 
 
-static void
-sherpa_close (void)
-{
-  tts_stress_free (stress_stage);
-  stress_stage = NULL;
-}
 
 
 
@@ -1232,5 +1224,5 @@ const TtsEngine tts_engine = {
   .model_path = sherpa_model_path,
   .probe_salt = sherpa_probe_salt,
   .speak = sherpa_speak,
-  .close = sherpa_close,
+  .text_profile = sherpa_text_profile,
 };

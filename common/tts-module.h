@@ -37,6 +37,8 @@
 #include <glib.h>
 #include <speech-dispatcher/spd_module_main.h>
 
+#include "ru-stress.h"
+
 /* the voice settings of a message, taken when it is queued */
 typedef struct
 {
@@ -66,6 +68,19 @@ typedef struct
   SPDMessageType type;       /* TEXT, CHAR or KEY */
   gboolean first;            /* the first piece of the message */
 } TtsPiece;
+
+/* What the text stages after the normalizer give a voice: its profile
+ * (RESEARCH-text-normalization.md section 5).  The frame fills in the
+ * defaults (no stress stage, mixed case) and asks the engine per message. */
+typedef struct
+{
+  gboolean stress;       /* ё and stress marks from the stress dictionaries
+                          * (TextStress, on by default); FALSE: the engine
+                          * finds the stress itself */
+  RuStressMark mark;     /* the mark the voice reads; RU_STRESS_NONE: only
+                          * ё.  TextStressMark overrides it */
+  gboolean lowercase;    /* the engine knows lower case only */
+} TtsTextProfile;
 
 typedef struct
 {
@@ -99,6 +114,9 @@ typedef struct
   /* the language the text of a message is read in, for the normalizer;
    * NULL: the voice's */
   const gchar *(*text_language) (const TtsSettings *s, const TtsVoice *voice);
+  /* the text profile of a voice (its model is loaded), in the worker; may
+   * be NULL: the defaults */
+  void (*text_profile) (const TtsVoice *voice, TtsTextProfile *p);
   /* at QUIT after the worker stopped; may be NULL */
   void (*close) (void);
   /* the file or directory a model is loaded from; may be NULL.  Before a

@@ -40,7 +40,6 @@
 #include <unistd.h>
 
 #include "tts-module.h"
-#include "tts-stress.h"
 
 #define DBG(...) TTS_DBG (__VA_ARGS__)
 #define ERR(...) TTS_ERR (__VA_ARGS__)
@@ -51,8 +50,6 @@ static gchar *cfg_dir = NULL;
 static gchar *cfg_version = NULL;
 static int cfg_threads = 0;
 static int cfg_load_timeout = 60;
-static TtsStressConfig stress_cfg;  /* TextStress... keys */
-static TtsStress *stress_stage = NULL;
 
 /* the speakers of the model versions */
 static const struct { const char *version, *language, *speaker, *gender; } speakers[] = {
@@ -554,8 +551,6 @@ silero_setup (void)
     watch_loop (watch);   /* never returns */
   cfg_server = g_strdup ("/usr/bin/silero-server");
   cfg_version = g_strdup ("v5_6_ru");
-  /* Silero reads "+" before the stressed vowel */
-  tts_stress_config_init (&stress_cfg, TRUE, RU_STRESS_PLUS);
 }
 
 
@@ -563,9 +558,7 @@ silero_setup (void)
 static gboolean
 silero_config (const gchar *key, const gchar *value)
 {
-  if (tts_stress_config_parse (&stress_cfg, key, value))
-    ;
-  else if (g_ascii_strcasecmp (key, "SileroServer") == 0)
+  if (g_ascii_strcasecmp (key, "SileroServer") == 0)
     g_free (cfg_server), cfg_server = g_strdup (value);
   else if (g_ascii_strcasecmp (key, "SileroDir") == 0)
     g_free (cfg_dir), cfg_dir = g_strdup (value);
@@ -890,7 +883,6 @@ static gboolean
 silero_speak (const TtsPiece *p, GError **error)
 {
   GByteArray *pcm;
-  gchar *ready;
   int rate = 48000;
   gboolean ok;
 
@@ -902,27 +894,24 @@ silero_speak (const TtsPiece *p, GError **error)
       g_set_error (error, G_FILE_ERROR, G_FILE_ERROR_FAILED, "silero-server is gone");
       return FALSE;
     }
-  if (stress_stage == NULL && stress_cfg.enabled)
-    stress_stage = tts_stress_new (&stress_cfg);
-  ready = tts_stress_apply (stress_stage, p->text, p->voice->language);
   pcm = g_byte_array_new ();
-  ok = generate (ready, p, pcm, &rate);
+  ok = generate (p->text, p, pcm, &rate);
   if (ok)
     tts_audio_float ((const float *) pcm->data, pcm->len / sizeof (float), rate);
   else if (!tts_stopped ())
     g_set_error (error, G_FILE_ERROR, G_FILE_ERROR_FAILED, "silero-server failed");
   g_byte_array_free (pcm, TRUE);
-  g_free (ready);
   return ok || tts_stopped ();
 }
 
 
 
+/* Silero reads "+" before the stressed vowel */
 static void
-silero_close (void)
+silero_text_profile (const TtsVoice *voice, TtsTextProfile *p)
 {
-  tts_stress_free (stress_stage);
-  stress_stage = NULL;
+  p->stress = TRUE;
+  p->mark = RU_STRESS_PLUS;
 }
 
 
@@ -939,5 +928,5 @@ const TtsEngine tts_engine = {
   .load = silero_load,
   .unload = silero_unload,
   .speak = silero_speak,
-  .close = silero_close,
+  .text_profile = silero_text_profile,
 };

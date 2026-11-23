@@ -61,6 +61,7 @@
 #include "tts-copy.h"
 #include "tts-module.h"
 #include "tts-norm.h"
+#include "tts-stress.h"
 
 #define E (&tts_engine)
 /* how often the main thread looks whether the configuration changed */
@@ -92,6 +93,7 @@ static double cfg_model_max_speed = 1.3;   /* what the model does of it: faster
 static gchar *cfg_preload = NULL;          /* "1", a voice name; NULL: off */
 static int cfg_probe_timeout = -1;         /* s; -1: PROBE_TIMEOUT, 0: no test loads */
 static TtsNormConfig norm_cfg;
+static TtsStressConfig stress_cfg;
 static TtsCopyConfig copy_cfg;
 
 static GPtrArray *voices = NULL;           /* TtsVoice */
@@ -134,6 +136,7 @@ static gint64 idle_since = 0;
 static gboolean idle_done = TRUE;
 
 static TtsNorm *norm = NULL;
+static TtsStress *stress = NULL;         /* the stress stage, in the worker */
 static TtsCopy *copy = NULL;
 static gboolean copy_made = FALSE;
 
@@ -296,6 +299,7 @@ typedef struct
 {
   GHashTable *lang_voice;
   TtsNormConfig norm;
+  TtsStressConfig stress;
   TtsCopyConfig copy;
 } Parsed;
 
@@ -331,6 +335,7 @@ parse_config (gchar *contents, Parsed *c, gboolean engine)
       value = tts_unquote (value);
 
       if (tts_norm_config_parse (&c->norm, line, value)
+          || tts_stress_config_parse (&c->stress, line, value)
           || tts_copy_config_parse (&c->copy, line, value))
         ;
       else if (is_key (line, "IdleTimeout"))
@@ -401,13 +406,20 @@ static gchar *conf_given = NULL, *conf_user = NULL, *conf_sys = NULL;
 static Stamp stamp_user, stamp_sys;
 static Stamp stamp_load;                  /* of load_path */
 /* what the worker has (or gets) of the normalizer and copy settings */
-static gchar *norm_sig = NULL, *copy_sig = NULL;
+static gchar *norm_sig = NULL, *stress_sig = NULL, *copy_sig = NULL;
 
 static gchar *
 norm_signature (const TtsNormConfig *c)
 {
   return g_strdup_printf ("%d\x1f%s\x1f%s\x1f%d\x1f%d\x1f%d", c->enabled, c->python ? c->python : "",
                           c->helper ? c->helper : "", c->timeout_ms, c->start_ms, c->idle_s);
+}
+
+static gchar *
+stress_signature (const TtsStressConfig *c)
+{
+  return g_strdup_printf ("%d\x1f%s\x1f%d\x1f%d", c->enabled, c->dictionary ? c->dictionary : "",
+                          c->mark, c->mark_set);
 }
 
 static gchar *
@@ -447,6 +459,7 @@ module_config (const char *configfile)
   Parsed c = { NULL };
 
   tts_norm_config_init (&c.norm);
+  tts_stress_config_init (&c.stress, TRUE, RU_STRESS_NONE);
   tts_copy_config_init (&c.copy);
   if (E->setup != NULL)
     E->setup ();
@@ -484,8 +497,10 @@ module_config (const char *configfile)
   g_free (contents);
   cfg_lang_voice = c.lang_voice;
   norm_cfg = c.norm;
+  stress_cfg = c.stress;
   copy_cfg = c.copy;
   norm_sig = norm_signature (&norm_cfg);
+  stress_sig = stress_signature (&stress_cfg);
   copy_sig = copy_signature (&copy_cfg);
   if (probe_voice != NULL)
     probe_child ();
@@ -1645,6 +1660,28 @@ speak_piece (Msg *m, const gchar *text, gboolean *first)
   g_free (rest);
 }
 
+/* the stages after the normalizer, as the voice's profile asks: a new
+ * string */
+static gchar *
+profile_text (const TtsTextProfile *prof, const gchar *text, const gchar *lang)
+{
+  gchar *s, *low;
+
+  if (prof->stress && stress_cfg.enabled)
+    {
+      if (stress == NULL)
+        stress = tts_stress_new (&stress_cfg);
+      s = tts_stress_apply_mark (stress, text, lang, prof->mark);
+    }
+  else
+    s = g_strdup (text);
+  if (!prof->lowercase)
+    return s;
+  low = g_utf8_strdown (s, -1);
+  g_free (s);
+  return low;
+}
+
 static void
 speak_text (Msg *m)
 {
@@ -1652,6 +1689,7 @@ speak_text (Msg *m)
   const gchar *lang = E->text_language != NULL ? E->text_language (&m->s, m->voice)
                                               : m->voice->language;
   gboolean first = TRUE;
+  TtsTextProfile prof = { FALSE, RU_STRESS_NONE, FALSE };
 
   /* the helper starts while the model loads */
   tts_norm_start (get_norm ());
@@ -1660,6 +1698,8 @@ speak_text (Msg *m)
       tts_segments_free (segs);
       return;
     }
+  if (E->text_profile != NULL)
+    E->text_profile (m->voice, &prof);
   for (guint i = 0; i < segs->len && !tts_stopped (); i++)
     {
       TtsSegment *seg = &g_array_index (segs, TtsSegment, i);
@@ -1671,9 +1711,11 @@ speak_text (Msg *m)
         {
           const gchar *piece = g_ptr_array_index (pieces, j);
           gchar *normed = whole ? NULL : tts_norm_text (norm, piece, lang);
+          gchar *ready = profile_text (&prof, normed != NULL ? normed : piece, lang);
 
           if (!tts_stopped ())
-            speak_piece (m, normed != NULL ? normed : piece, &first);
+            speak_piece (m, ready, &first);
+          g_free (ready);
           g_free (normed);
         }
       g_ptr_array_free (pieces, TRUE);
@@ -2022,20 +2064,32 @@ load_request_check (void)
 /* the worker owns the normalizer and the copy: it takes their new settings
  * before its next message (under q_lock) */
 static TtsNormConfig *pending_norm = NULL;
+static TtsStressConfig *pending_stress = NULL;
 static TtsCopyConfig *pending_copy = NULL;
 
 static void
 take_config (void)
 {
   TtsNormConfig *n;
+  TtsStressConfig *st;
   TtsCopyConfig *c;
 
   g_mutex_lock (&q_lock);
   n = pending_norm;
+  st = pending_stress;
   c = pending_copy;
   pending_norm = NULL;
+  pending_stress = NULL;
   pending_copy = NULL;
   g_mutex_unlock (&q_lock);
+  if (st != NULL)
+    {
+      tts_stress_free (stress);
+      stress = NULL;
+      tts_stress_config_clear (&stress_cfg);
+      stress_cfg = *st;
+      g_free (st);
+    }
   if (n != NULL)
     {
       tts_norm_free (norm);
@@ -2077,6 +2131,7 @@ config_check (void)
   TTS_DBG ("configuration changed, reading it again");
 
   tts_norm_config_init (&c.norm);
+  tts_stress_config_init (&c.stress, TRUE, RU_STRESS_NONE);
   tts_copy_config_init (&c.copy);
   old_preload = g_strdup (cfg_preload);
   reset_scalars ();
@@ -2101,6 +2156,21 @@ config_check (void)
   else
     {
       tts_norm_config_clear (&c.norm);
+      g_free (sig);
+    }
+  sig = stress_signature (&c.stress);
+  if (strcmp (sig, stress_sig) != 0)
+    {
+      if (pending_stress != NULL)
+        tts_stress_config_clear (pending_stress);
+      g_free (pending_stress);
+      pending_stress = g_memdup2 (&c.stress, sizeof c.stress);
+      g_free (stress_sig);
+      stress_sig = sig;
+    }
+  else
+    {
+      tts_stress_config_clear (&c.stress);
       g_free (sig);
     }
   sig = copy_signature (&c.copy);
@@ -2240,6 +2310,8 @@ close_module (gboolean reply)
     E->close ();
   tts_norm_free (norm);
   norm = NULL;
+  tts_stress_free (stress);
+  stress = NULL;
   tts_copy_free (copy);
   copy = NULL;
 }
