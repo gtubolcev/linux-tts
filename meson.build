@@ -270,9 +270,20 @@ if not get_option('audiocpp').disabled()
 endif
 if get_option('audiocpp').require(audiocpp_ok,
     error_message: 'sd_audiocpp needs libaudiocpp (libaudiocpp-tts-dev, or set -Daudiocpp_dir)').allowed()
-  executable('sd_audiocpp', 'audiocpp/sd_audiocpp.c', module_src,
-    include_directories: [speechd_inc, shim_inc, common_inc],
-    dependencies: module_deps + [acpp_dep],
+  # Kokoro's phonemes from sd_kokoro's front end (phonemizer=kokoro)
+  acpp_src = ['audiocpp/sd_audiocpp.c']
+  acpp_deps = [acpp_dep]
+  acpp_cargs = []
+  if espeak.found()
+    acpp_src += ['kokoro/espeak-g2p.c', 'kokoro/en-g2p.c', 'kokoro/en-tagger.c',
+                 'kokoro/ru-g2p.c', 'common/ru-stress.c']
+    acpp_deps += [espeak]
+    acpp_cargs += ['-DAUDIOCPP_KOKORO']
+  endif
+  executable('sd_audiocpp', acpp_src, module_src,
+    include_directories: [speechd_inc, shim_inc, common_inc, include_directories('kokoro')],
+    c_args: acpp_cargs,
+    dependencies: module_deps + acpp_deps,
     install_rpath: acpp_rpath,
     install: true, install_dir: module_dir)
   install_data('audiocpp/audiocpp.conf', install_dir: conf_dir)

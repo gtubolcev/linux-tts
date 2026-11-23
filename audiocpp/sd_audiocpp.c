@@ -16,6 +16,11 @@
  *   speed=false                        the model takes no "speed" option:
  *                                      the audio is sped up instead
  *   warmup=Привет.                     the text of the first run (load)
+ *   phonemizer=kokoro                  the module turns the text into
+ *                                      Kokoro's phonemes itself (the front
+ *                                      end of sd_kokoro: Russian with stress
+ *                                      marks, misaki's English) and passes
+ *                                      them as the option "phonemes"
  *
  *   [load-options]       key=value     audiocpp's --load-option
  *   [session-options]    key=value     --session-option
@@ -27,6 +32,8 @@
  *                                      float WAV), for cloning families
  *   voice-id=                          or a voice the model has itself
  *   language=                          another language than the model's
+ *   phoneme-language=                  the phonemizer's language (default
+ *                                      the voice's: ru, en-US, en-GB, ...)
  *
  * A model without [voice ...] sections has one voice, <name>-<language>.
  * A voice of the user's directory hides a system one of the same name.
@@ -58,6 +65,15 @@
 
 #include "tts-module.h"
 
+#ifdef AUDIOCPP_KOKORO
+#include "espeak-g2p.h"
+#include "ru-g2p.h"
+#include "ru-stress.h"
+
+/* Kokoro takes at most this many phonemes in one chunk */
+#define KOKORO_MAX_PHONEMES 510
+#endif
+
 #define DBG(...) TTS_DBG (__VA_ARGS__)
 #define ERR(...) TTS_ERR (__VA_ARGS__)
 
@@ -71,6 +87,7 @@ typedef struct
   gchar *text_language;      /* NULL: none */
   gchar *warmup;
   gboolean speed;            /* takes the request option "speed" */
+  gboolean kokoro;           /* phonemizer=kokoro */
   gchar **load_opts;         /* key, value, key, value, ..., NULL */
   gchar **session_opts;
   gchar **request_opts;
@@ -85,6 +102,7 @@ typedef struct
 {
   gchar *reference;          /* path; NULL: none */
   gchar *voice_id;           /* NULL: none */
+  gchar *phoneme_lang;       /* with phonemizer=kokoro */
   /* the reference while the model is loaded */
   float *samples;
   gsize frames;
@@ -96,6 +114,12 @@ static gchar *cfg_models_dir = NULL;
 static gchar *cfg_backend = NULL;
 static int cfg_device = 0;
 static int cfg_threads = 0;
+#ifdef AUDIOCPP_KOKORO
+static gchar *cfg_kokoro_data = NULL;      /* espeak-ng-data, misaki */
+static gchar *cfg_dictionary = NULL;       /* the stress dictionaries */
+static int kokoro_state = 0;               /* 1 ready, -1 failed */
+static RuG2p *ru_g2p = NULL;
+#endif
 
 static GPtrArray *models = NULL;           /* Model */
 static audiocpp_registry *registry = NULL;
@@ -107,6 +131,10 @@ audiocpp_setup (void)
 {
   cfg_models_dir = g_strdup ("/usr/share/audiocpp-tts");
   cfg_backend = g_strdup ("cpu");
+#ifdef AUDIOCPP_KOKORO
+  cfg_kokoro_data = g_strdup ("/usr/share/speech-dispatcher-kokoro");
+  cfg_dictionary = g_strdup (RU_STRESS_DEFAULT_DICTIONARIES);
+#endif
 }
 
 
@@ -122,6 +150,12 @@ audiocpp_config (const gchar *key, const gchar *value)
     cfg_device = MAX (atoi (value), 0);
   else if (g_ascii_strcasecmp (key, "AudiocppThreads") == 0)
     cfg_threads = atoi (value);
+#ifdef AUDIOCPP_KOKORO
+  else if (g_ascii_strcasecmp (key, "AudiocppKokoroData") == 0)
+    g_free (cfg_kokoro_data), cfg_kokoro_data = g_strdup (value);
+  else if (g_ascii_strcasecmp (key, "AudiocppDictionary") == 0)
+    g_free (cfg_dictionary), cfg_dictionary = g_strdup (value);
+#endif
   else
     return FALSE;
   return TRUE;
@@ -285,9 +319,58 @@ model_file (const gchar *dir, const gchar *name)
   return g_path_is_absolute (name) ? g_strdup (name) : g_build_filename (dir, name, NULL);
 }
 
+#ifdef AUDIOCPP_KOKORO
+/* starts sd_kokoro's front end for a voice of @lang: espeak-ng once, the
+ * stress dictionaries with the first Russian voice */
+static gboolean
+kokoro_ready (const gchar *dir, const gchar *lang)
+{
+  GError *error = NULL;
+
+  if (kokoro_state == 0)
+    {
+      if (espeak_g2p_init (cfg_kokoro_data, &error))
+        {
+          gchar *misaki = g_build_filename (cfg_kokoro_data, "misaki", NULL);
+          kokoro_g2p_set_lexicon_dir (misaki);
+          g_free (misaki);
+          kokoro_state = 1;
+        }
+      else
+        {
+          ERR ("%s: Kokoro's phonemes: %s", dir, error->message);
+          g_clear_error (&error);
+          kokoro_state = -1;
+        }
+    }
+  if (kokoro_state < 0)
+    return FALSE;
+  if (strcmp (lang, "ru") == 0)
+    {
+      if (ru_g2p == NULL)
+        ru_g2p = ru_g2p_new (*cfg_dictionary != '\0' ? cfg_dictionary : NULL, cfg_kokoro_data,
+                             &error);
+      if (ru_g2p == NULL)
+        {
+          ERR ("%s: Russian phonemes: %s", dir, error->message);
+          g_clear_error (&error);
+          return FALSE;
+        }
+      return TRUE;
+    }
+  if (!kokoro_g2p_speaks (lang))
+    {
+      ERR ("%s: no Kokoro phonemes for %s", dir, lang);
+      return FALSE;
+    }
+  return TRUE;
+}
+#endif
+
 static void
 add_voice (Model *m, const gchar *synth, const gchar *lang, const gchar *id,
-           const gchar *gender, const gchar *reference, const gchar *voice_id)
+           const gchar *gender, const gchar *reference, const gchar *voice_id,
+           const gchar *phoneme_lang)
 {
   gchar *full = id != NULL ? g_strdup_printf ("%s-%s-%s", synth, lang, id)
                            : g_strdup_printf ("%s-%s", synth, lang);
@@ -307,9 +390,23 @@ add_voice (Model *m, const gchar *synth, const gchar *lang, const gchar *id,
       g_free (name);
       return;
     }
+  if (phoneme_lang == NULL)
+    phoneme_lang = lang;
+  if (m->kokoro)
+    {
+#ifdef AUDIOCPP_KOKORO
+      if (!kokoro_ready (m->dir, phoneme_lang))
+#endif
+        {
+          DBG ("%s: %s left out: no phonemizer", m->dir, name);
+          g_free (name);
+          return;
+        }
+    }
   v = g_new0 (Voice, 1);
   v->reference = g_strdup (reference);
   v->voice_id = g_strdup (voice_id);
+  v->phoneme_lang = m->kokoro ? g_strdup (phoneme_lang) : NULL;
   if (gender != NULL && strcmp (gender, "male") != 0 && strcmp (gender, "female") != 0)
     gender = NULL;
   tts_voice_add (name, lang, gender, m, v);
@@ -323,7 +420,7 @@ add_model_dir (const gchar *dir)
   gchar *ini = g_build_filename (dir, MANIFEST, NULL);
   GKeyFile *kf = g_key_file_new ();
   GError *error = NULL;
-  gchar *family = NULL, *file = NULL, *synth = NULL, *lang = NULL;
+  gchar *family = NULL, *file = NULL, *synth = NULL, *lang = NULL, *phonemizer = NULL;
   gchar **groups = NULL;
   Model *m;
   guint sections = 0;
@@ -366,11 +463,15 @@ add_model_dir (const gchar *dir)
   m->load_opts = read_options (kf, "load-options");
   m->session_opts = read_options (kf, "session-options");
   m->request_opts = read_options (kf, "request-options");
+  phonemizer = key_string (kf, "model", "phonemizer");
+  if (phonemizer != NULL && strcmp (phonemizer, "kokoro") != 0)
+    ERR ("%s: unknown phonemizer %s, the model reads the text itself", ini, phonemizer);
+  m->kokoro = g_strcmp0 (phonemizer, "kokoro") == 0;
 
   groups = g_key_file_get_groups (kf, NULL);
   for (gchar **g = groups; *g != NULL; g++)
     {
-      gchar *gender, *ref, *vid, *vlang, *refpath;
+      gchar *gender, *ref, *vid, *vlang, *refpath, *plang;
 
       if (!g_str_has_prefix (*g, "voice "))
         continue;
@@ -379,8 +480,11 @@ add_model_dir (const gchar *dir)
       ref = key_string (kf, *g, "reference");
       vid = key_string (kf, *g, "voice-id");
       vlang = key_string (kf, *g, "language");
+      plang = key_string (kf, *g, "phoneme-language");
       refpath = ref != NULL ? model_file (dir, ref) : NULL;
-      add_voice (m, synth, vlang != NULL ? vlang : lang, g_strstrip (*g + 6), gender, refpath, vid);
+      add_voice (m, synth, vlang != NULL ? vlang : lang, g_strstrip (*g + 6), gender, refpath, vid,
+                 plang);
+      g_free (plang);
       g_free (gender);
       g_free (ref);
       g_free (vid);
@@ -388,7 +492,7 @@ add_model_dir (const gchar *dir)
       g_free (refpath);
     }
   if (sections == 0)
-    add_voice (m, synth, lang, NULL, NULL, NULL, NULL);
+    add_voice (m, synth, lang, NULL, NULL, NULL, NULL, NULL);
   /* the model stays known even without voices: they point at it */
   g_ptr_array_add (models, m);
 
@@ -398,6 +502,7 @@ out:
   g_free (file);
   g_free (synth);
   g_free (lang);
+  g_free (phonemizer);
   g_key_file_free (kf);
   g_free (ini);
 }
@@ -583,6 +688,71 @@ audiocpp_unload (gpointer model)
 
 /* ------------------------------------------------------------------ speech */
 
+#ifdef AUDIOCPP_KOKORO
+static gchar *
+kokoro_phonemes (const gchar *lang, const gchar *text)
+{
+  return strcmp (lang, "ru") == 0 ? ru_g2p_phonemize (ru_g2p, text) : kokoro_g2p (lang, text);
+}
+
+/* Kokoro's phonemes of @text into @chunks, each at most KOKORO_MAX_PHONEMES:
+ * a longer text is split in halves at a word or punctuation boundary */
+static void
+kokoro_chunks (const gchar *lang, const gchar *text, GPtrArray *chunks)
+{
+  gchar *ipa = kokoro_phonemes (lang, text);
+  glong len = g_utf8_strlen (ipa, -1);
+  glong chars = g_utf8_strlen (text, -1);
+
+  if (len > KOKORO_MAX_PHONEMES && chars > 1)
+    {
+      const gchar *mid = g_utf8_offset_to_pointer (text, tts_cut_point (text, chars / 2));
+      gchar *first = g_strndup (text, mid - text);
+      gchar *rest = g_strdup (mid);
+
+      g_free (ipa);
+      kokoro_chunks (lang, g_strstrip (first), chunks);
+      kokoro_chunks (lang, g_strstrip (rest), chunks);
+      g_free (first);
+      g_free (rest);
+      return;
+    }
+  if (len > KOKORO_MAX_PHONEMES)
+    *g_utf8_offset_to_pointer (ipa, KOKORO_MAX_PHONEMES) = '\0';
+  /* an empty entry is refused: nothing to say there */
+  if (*g_strstrip (ipa) != '\0')
+    g_ptr_array_add (chunks, ipa);
+  else
+    g_free (ipa);
+}
+#endif
+
+/* FALSE without an error: nothing to say (a text without phonemes) */
+static gboolean
+set_phonemes (audiocpp_request *rq, Voice *v, const gchar *text, GError **error)
+{
+#ifdef AUDIOCPP_KOKORO
+  GPtrArray *chunks = g_ptr_array_new_with_free_func (g_free);
+  gboolean ok = TRUE;
+
+  kokoro_chunks (v->phoneme_lang, text, chunks);
+  if (chunks->len == 0)
+    ok = FALSE;
+  else if (api_failed (audiocpp_request_set_option_array (rq, "phonemes",
+                                                          (const char *const *) chunks->pdata,
+                                                          chunks->len), "phonemes", error))
+    ok = FALSE;
+  else if (tts_debug)
+    for (guint i = 0; i < chunks->len; i++)
+      DBG ("phonemes: %s", (const gchar *) g_ptr_array_index (chunks, i));
+  g_ptr_array_free (chunks, TRUE);
+  return ok;
+#else
+  g_set_error (error, g_quark_from_static_string ("audiocpp"), 0, "built without Kokoro's phonemizer");
+  return FALSE;
+#endif
+}
+
 static audiocpp_request *
 make_request (Model *m, TtsVoice *tv, const gchar *text, double speed, GError **error)
 {
@@ -590,6 +760,8 @@ make_request (Model *m, TtsVoice *tv, const gchar *text, double speed, GError **
   Voice *v = tv->data;
 
   if (api_failed (audiocpp_request_set_text (rq, text, m->text_language), "text", error))
+    goto fail;
+  if (v->phoneme_lang != NULL && !set_phonemes (rq, v, text, error))
     goto fail;
   if (v->voice_id != NULL
       && api_failed (audiocpp_request_set_voice_id (rq, v->voice_id), "voice-id", error))
@@ -658,7 +830,8 @@ static gboolean
 synthesize (Model *m, TtsVoice *tv, const gchar *text, double speed, gboolean really,
             GError **error)
 {
-  audiocpp_request *rq = make_request (m, tv, text, speed, error);
+  GError *nothing = NULL;
+  audiocpp_request *rq = make_request (m, tv, text, speed, &nothing);
   const float *s;
   gsize n = 0, total = 0;
   int rate = 0;
@@ -666,7 +839,13 @@ synthesize (Model *m, TtsVoice *tv, const gchar *text, double speed, gboolean re
   gint64 t0 = g_get_monotonic_time (), first = 0;
 
   if (rq == NULL)
-    return FALSE;
+    {
+      /* without an error: no phonemes in the text, nothing to say */
+      if (nothing == NULL)
+        return TRUE;
+      g_propagate_error (error, nothing);
+      return FALSE;
+    }
 
   if (!m->streaming)
     {
