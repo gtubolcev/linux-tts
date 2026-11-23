@@ -42,8 +42,8 @@ a private shared library the modules load with dlopen
 (`TextNormalizationLibrary`, default `<libdir>/linux-tts/libzyphra_textnorm.so.0`,
 package `libzyphra-textnorm-tts` from `packaging/zyphra-textnorm`); without it they pass
 through unchanged. After it,
-`common/tts-stress.c` can mark the stress from the Vosk dictionary (`TextStress yes`,
-sd_sherpa-onnx and sd_silero; off by default, homographs not resolved yet).
+`common/tts-stress.c` marks the stress and ё from the stress dictionaries (`TextStress`,
+sd_sherpa-onnx and sd_silero; on by default, homographs not resolved yet).
 
 A settings dialog for Xfce: [xfce4-speech-settings](https://github.com/gtubolcev/xfce4-speech-settings).
 
