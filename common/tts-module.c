@@ -87,7 +87,8 @@ static int cfg_idle_timeout = -1;          /* -1: the engine's default */
 static int cfg_first_chunk = -1;
 static int cfg_max_models = 0;             /* 0: the engine's */
 static double cfg_max_rate = 4.0;          /* speed at rate 100 */
-static double cfg_model_max_speed = 2.0;   /* what the model does of it */
+static double cfg_model_max_speed = 1.3;   /* what the model does of it: faster
+                                              * spoils Supertonic, Kokoro */
 static gchar *cfg_preload = NULL;          /* "1", a voice name; NULL: off */
 static int cfg_probe_timeout = -1;         /* s; -1: PROBE_TIMEOUT, 0: no test loads */
 static TtsNormConfig norm_cfg;
@@ -304,7 +305,7 @@ reset_scalars (void)
   cfg_idle_timeout = -1;
   cfg_first_chunk = -1;
   cfg_max_rate = 4.0;
-  cfg_model_max_speed = 2.0;
+  cfg_model_max_speed = 1.3;
   cfg_max_models = 0;
   cfg_probe_timeout = -1;
   g_clear_pointer (&cfg_preload, g_free);

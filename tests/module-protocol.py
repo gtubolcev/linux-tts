@@ -605,7 +605,7 @@ def t_quiet_volume(m):
 
 
 def t_rate(m):
-    # rate 100: 4 times, the model 2 of it, the frame (sonic) the rest
+    # rate 100: 4 times, the model 1.3 of it, the frame (sonic) the rest
     def samples(rate):
         m.set(rate=str(rate))
         start = len(m.lines)
@@ -615,12 +615,13 @@ def t_rate(m):
     full = samples(0)
     check(full == 1200, "rate 0: %d" % full)
     check(samples(-100) == 2400, "rate -100")
-    check(samples(50) == 600, "rate 50 (2 times, all by the model)")
+    half = samples(50)
     fast = samples(100)
     sonic = "dummy: sonic" in m.stderr()
     speeds = [l for l in m.stderr().splitlines() if l.startswith("dummy: speed")]
-    check(speeds == ["dummy: speed 0.50", "dummy: speed 2.00",
-                     "dummy: speed %s" % ("2.00" if sonic else "4.00")], speeds)
+    check(speeds == ["dummy: speed 0.50"] + (["dummy: speed 1.30"] * 2 if sonic else
+                     ["dummy: speed 2.00", "dummy: speed 4.00"]), speeds)
+    check(half == 600 if not sonic else 550 <= half <= 650, "rate 50 (2 times): %d" % half)
     if not sonic:
         # the model does it all
         check(fast == 300, "rate 100 without sonic: %d" % fast)

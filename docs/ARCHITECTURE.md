@@ -79,8 +79,8 @@ piece of text. The frame does the rest the same way for everyone:
   "контрол альт делит"), past the normalizer;
 - rate and volume: rate 0..100 is speed 1..`<Prefix>MaxRate` (default 4,
   -100 is 0.5). An engine asks `tts_model_speed()` for its speed parameter,
-  which goes up to `<Prefix>ModelMaxSpeed` (default 2; more spoils most
-  models); the frame speeds the audio up by the rest with libsonic, at the
+  which goes up to `<Prefix>ModelMaxSpeed` (default 1.3; Supertonic
+  at 1.7 speaks garbage, Kokoro slurs); the frame speeds the audio up by the rest with libsonic, at the
   same pitch. Volume above 0 makes it up to 2 times louder with soft peaks;
 - the common keys: `<Prefix>Voice`, `<Prefix>Preload` (1 or a voice),
   `<Prefix>IdleTimeout`, `<Prefix>FirstChunk`, `<Prefix>MaxModels`,
