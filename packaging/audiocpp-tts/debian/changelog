@@ -1,3 +1,10 @@
+audiocpp-tts (0.9.6+ds-3) noble; urgency=medium
+
+  * tiny-voca-ru.patch: the families tiny_voca and tiny_voca_ru
+    (tiny-voca-ru, Russian, voices F and M).
+
+ -- Grigory Tuboltsev <gtubolcev@gmail.com>  Mon, 23 Nov 2026 20:03:16 +0100
+
 audiocpp-tts (0.9.6+ds-2) noble; urgency=medium
 
   * supertonic-teratts.patch: Supertonic models with a distilled sampler and

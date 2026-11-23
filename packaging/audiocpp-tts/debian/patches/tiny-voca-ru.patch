@@ -1,0 +1,1888 @@
+Description: tiny-voca-ru, the Russian tiny-voca model
+ tiny-voca-ru (egnch/tiny-voca-ru, Apache-2.0) is the tiny-voca
+ architecture trained on Russian.  The new family tiny_voca_ru runs on the
+ tiny_voca runtime with a port of the model's rule-based frontend (clean,
+ lexicon, g2p, tokenizer) for stressed ("+" or U+0301), normalised text.
+ tiny_voca: the phonemes and vowels come from the config ("phones",
+ "vowels") when it has them, the phonemizer section is optional, and the
+ assets loader takes the family name.
+ Checked against the Python package: the same tokens on 1514 of 1517 test
+ lines (the other 3 it refuses), equal durations and a median waveform
+ error of 4.5e-4 of the peak on 190 utterances.
+Author: Grigory Tuboltsev
+Forwarded: not-yet
+Last-Update: 2026-11-23
+---
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index bd9352a..452f2f0 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -1291,6 +1291,24 @@ if (MSVC)
+     target_compile_options(engine_model_tiny_voca PRIVATE /utf-8)
+ endif()
+ 
++audiocpp_add_model(tiny_voca_ru
++    SOURCES
++        src/community_models/tiny_voca_ru/g2p.cpp
++        src/community_models/tiny_voca_ru/session.cpp
++    INCLUDES
++        engine/community_models/tiny_voca_ru/session.h
++    LOADERS
++        engine::models::tiny_voca_ru::make_tiny_voca_ru_loader
++    DEPENDS
++        tiny_voca
++)
++if (TARGET engine_model_tiny_voca_ru)
++    target_include_directories(engine_model_tiny_voca_ru PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src/community_models/tiny_voca)
++    if (MSVC)
++        target_compile_options(engine_model_tiny_voca_ru PRIVATE /utf-8)
++    endif()
++endif()
++
+ audiocpp_add_model(piper_tts
+     SOURCES
+         src/community_models/piper_tts/assets.cpp
+@@ -4024,6 +4042,16 @@ if (ENGINE_BUILD_TESTS OR ENGINE_BUILD_EXTENDED_TESTS OR ENGINE_BUILD_MODEL_TEST
+         endif()
+         add_test(NAME tiny_voca_unit_test COMMAND tiny_voca_unit_test)
+     endif()
++    if (ENGINE_BUILD_MODEL_TESTS AND tiny_voca_ru IN_LIST AUDIOCPP_LINKED_MODELS)
++        add_executable(tiny_voca_ru_frontend_probe tests/community_models/tiny_voca_ru/frontend_probe.cpp)
++        target_include_directories(tiny_voca_ru_frontend_probe PRIVATE
++            ${CMAKE_CURRENT_SOURCE_DIR}/src/community_models/tiny_voca_ru
++            ${CMAKE_CURRENT_SOURCE_DIR}/src/community_models/tiny_voca)
++        target_link_libraries(tiny_voca_ru_frontend_probe PRIVATE engine_runtime ggml)
++        if (MSVC)
++            target_compile_options(tiny_voca_ru_frontend_probe PRIVATE /utf-8)
++        endif()
++    endif()
+     if (ENGINE_BUILD_MODEL_TESTS AND tiny_voca IN_LIST AUDIOCPP_LINKED_MODELS)
+         # Speaks given phoneme ids with given noise, for the comparison with the Python model.
+         add_executable(tiny_voca_synth_probe tests/community_models/tiny_voca/synth_probe.cpp)
+diff --git a/include/engine/community_models/tiny_voca/assets.h b/include/engine/community_models/tiny_voca/assets.h
+index 69c15a3..a384167 100644
+--- a/include/engine/community_models/tiny_voca/assets.h
++++ b/include/engine/community_models/tiny_voca/assets.h
+@@ -39,7 +39,12 @@ struct TinyVocaConfig {
+     int64_t max_tokens = 512;
+     int64_t max_frames = 3000;
+     float pitch_reference_hz = 200.0F;
+-    int64_t phonemizer_version = 0;
++    int64_t phonemizer_version = 0;     // 0 when the config names no phonemizer
++    // By id: the tokens that always sound (phonemes) and the vowels, which are
++    // always voiced. From the config's "phones" and "vowels" lists when it has
++    // them, else the English model's inventory (every id from 17 on is a phoneme).
++    std::vector<bool> phone_tokens;
++    std::vector<bool> vowel_tokens;
+ };
+ 
+ struct TinyVocaAssets {
+@@ -49,6 +54,13 @@ struct TinyVocaAssets {
+     std::shared_ptr<const assets::TensorSource> g2p_weights;
+ };
+ 
+-std::shared_ptr<const TinyVocaAssets> load_tiny_voca_assets(const std::filesystem::path & model_path);
++// `family` names the model spec; the phonemizer weights (g2p_weights) are
++// loaded for the English model only.
++std::shared_ptr<const TinyVocaAssets> load_tiny_voca_assets(
++    const std::filesystem::path & model_path, const std::string & family = "tiny_voca");
++
++// The model settings of a tiny-voca config ("config" resource). Shared with the
++// models of other languages that run on the same runtime (tiny_voca_ru).
++TinyVocaConfig parse_tiny_voca_config(const assets::ResourceBundle & resources);
+ 
+ }  // namespace engine::models::tiny_voca
+diff --git a/include/engine/community_models/tiny_voca_ru/session.h b/include/engine/community_models/tiny_voca_ru/session.h
+new file mode 100644
+index 0000000..72eefa9
+--- /dev/null
++++ b/include/engine/community_models/tiny_voca_ru/session.h
+@@ -0,0 +1,68 @@
++#pragma once
++
++#include "engine/community_models/tiny_voca/assets.h"
++#include "engine/community_models/tiny_voca/runtime.h"
++#include "engine/framework/model_spec/metadata.h"
++#include "engine/framework/runtime/session_base.h"
++
++#include <memory>
++#include <string>
++#include <vector>
++
++namespace engine::models::tiny_voca_ru {
++
++std::shared_ptr<runtime::IVoiceModelLoader> make_tiny_voca_ru_loader();
++
++// Turns a request away, with runtime::InvalidRequestError, when it names a
++// language other than Russian (ru, ru-ru, Russian, in any case). No language
++// is Russian.
++void require_russian(const runtime::TaskRequest & request);
++
++// The sentences of a text, without a break after an abbreviation (тыс., ул.)
++// or an initial (tokenize.split_sentences).
++std::vector<std::string> sentences(const std::string & text);
++// The text with a full stop added when it ends without a mark
++// (tokenize.ensure_terminal_punctuation).
++std::string finished(const std::string & text);
++// The text in smaller pieces: cut after commas and the like if it has any,
++// else in two between words. Empty for a single word (tokenize.split_clause).
++std::vector<std::string> shorter(const std::string & text);
++
++// tiny-voca-ru: the tiny-voca architecture trained on Russian, with its own
++// phoneme set and a rule-based frontend. The text has to carry its stress
++// ("+" before the stressed vowel, or U+0301 after it) and be normalised
++// already: digits and Latin letters are not read.
++class TinyVocaRuSession final
++    : public runtime::RuntimeSessionBase
++    , public runtime::IOfflineVoiceTaskSession {
++public:
++    TinyVocaRuSession(
++        runtime::TaskSpec task,
++        runtime::SessionOptions options,
++        std::shared_ptr<const tiny_voca::TinyVocaAssets> assets,
++        std::shared_ptr<const engine::model_spec::ModelContract> contract);
++    ~TinyVocaRuSession() override;
++
++    std::string family() const override;
++    runtime::VoiceTaskKind task_kind() const override;
++    runtime::RunMode run_mode() const override;
++    void prepare(const runtime::SessionPreparationRequest & request) override;
++    runtime::TaskResult run(const runtime::TaskRequest & request) override;
++
++private:
++    tiny_voca::TinyVocaGenerationOptions generation_options(const runtime::TaskRequest & request) const;
++    // Speaks one piece of text, cutting it smaller when it is too long for one pass.
++    void speak(
++        const std::string & text,
++        const tiny_voca::TinyVocaGenerationOptions & options,
++        std::vector<std::vector<float>> & waves,
++        int64_t & spoken);
++
++    runtime::TaskSpec task_;
++    std::shared_ptr<const tiny_voca::TinyVocaAssets> assets_;
++    std::shared_ptr<const engine::model_spec::ModelContract> contract_;
++    std::unique_ptr<tiny_voca::TinyVocaRuntime> runtime_;
++    std::vector<int32_t> id_of_symbol_;     // frontend symbol id -> model vocabulary id
++};
++
++}  // namespace engine::models::tiny_voca_ru
+diff --git a/model_specs/tiny_voca_ru.json b/model_specs/tiny_voca_ru.json
+new file mode 100644
+index 0000000..ca4fc88
+--- /dev/null
++++ b/model_specs/tiny_voca_ru.json
+@@ -0,0 +1,187 @@
++{
++  "schema_version": 1,
++  "family": "tiny_voca_ru",
++  "display_name": "tiny-voca-ru",
++  "description": "A 4.5M-parameter Russian text-to-speech model with two voices (F, M) and a rule-based frontend. The text must carry its stress ('+' before the stressed vowel or U+0301 after it) and be normalised: digits and Latin letters are skipped.",
++  "category": "tts",
++  "status": "community",
++  "tasks": [
++    "tts"
++  ],
++  "modes": [
++    "offline"
++  ],
++  "languages": [
++    "ru"
++  ],
++  "runtime": {
++    "tags": [
++      "gguf"
++    ]
++  },
++  "capabilities": {
++    "tts": [
++      "built_in_voices",
++      "long_form"
++    ]
++  },
++  "options": {
++    "request": [
++      {
++        "name": "voice_id",
++        "type": "enum",
++        "description": "Built-in voice: F (female) or M (male).",
++        "values": [
++          "F",
++          "M"
++        ],
++        "required": false,
++        "default": "F"
++      },
++      {
++        "name": "speed",
++        "type": "float",
++        "description": "Speech speed multiplier; larger values produce faster speech.",
++        "required": false,
++        "min": 0.25,
++        "max": 4.0,
++        "default": 1.0
++      },
++      {
++        "name": "semitone_shift",
++        "type": "int",
++        "description": "Pitch shift in whole semitones; 0 leaves the voice as it is.",
++        "required": false,
++        "min": -24,
++        "max": 24,
++        "default": 0
++      },
++      {
++        "name": "language",
++        "type": "string",
++        "description": "Language of the text. The model reads Russian only: ru, ru-ru or Russian.",
++        "required": false,
++        "default": "ru"
++      },
++      {
++        "name": "pitch_shift",
++        "type": "float",
++        "description": "Fine pitch shift, added to semitone_shift, in units of the natural log of the pitch: 0.0578 is one semitone, 0.693 one octave.",
++        "required": false,
++        "min": -1.4,
++        "max": 1.4,
++        "default": 0.0
++      },
++      {
++        "name": "pitch_range",
++        "type": "float",
++        "description": "Scales pitch movement around the mean; 1 leaves it as predicted, larger values are livelier.",
++        "required": false,
++        "min": 0.0,
++        "max": 3.0,
++        "default": 1.0
++      },
++      {
++        "name": "seed",
++        "type": "int",
++        "description": "Seed of the noise in the voice; the same seed gives the same audio. Default 0.",
++        "required": false,
++        "min": 0,
++        "default": 0
++      },
++      {
++        "name": "text_chunk_mode",
++        "type": "enum",
++        "description": "Long-form text chunking mode.",
++        "values": [
++          "default",
++          "tag_aware",
++          "japanese",
++          "endline"
++        ],
++        "required": false,
++        "default": "default"
++      },
++      {
++        "name": "text_chunk_size",
++        "type": "int",
++        "description": "Maximum Unicode codepoints per long-form chunk.",
++        "required": false,
++        "min": 1,
++        "default": 400
++      }
++    ],
++    "session": [],
++    "load": []
++  },
++  "package_defaults": {
++    "download": {
++      "kind": "huggingface_snapshot",
++      "repo": "egnch/tiny-voca-ru",
++      "revision": "main",
++      "gated": false
++    }
++  },
++  "packages": [
++    {
++      "id": "tiny_voca_ru_orig",
++      "display_name": "tiny-voca-ru Original-Dtype GGUF",
++      "default": true,
++      "format": "gguf",
++      "precision": "orig",
++      "target_directory": "tiny-voca-ru-GGUF",
++      "files": [
++        "gguf/tiny-voca-ru-orig.gguf"
++      ],
++      "strip_prefix": "gguf"
++    }
++  ],
++  "dependencies": [],
++  "ui": {
++    "recommended_package": "tiny_voca_ru_orig",
++    "tags": [
++      "TTS",
++      "GGUF"
++    ],
++    "builtin_voices": [
++      "F",
++      "M"
++    ],
++    "default_voice": "F",
++    "docs": [
++      "docs/models/tiny_voca_ru.md",
++      "docs/tts.md",
++      "docs/gguf.md"
++    ]
++  },
++  "sources": [
++    {
++      "format": "gguf",
++      "roots": {
++        "model": ".",
++        "weights": "$gguf"
++      },
++      "files": {
++        "config": "model:config.json"
++      },
++      "tensors": {
++        "weights": {
++          "source": "weights:",
++          "prefix": "model"
++        }
++      }
++    },
++    {
++      "format": "safetensors",
++      "roots": {
++        "model": "."
++      },
++      "files": {
++        "config": "model:config.json"
++      },
++      "tensors": {
++        "weights": "model:model.safetensors"
++      }
++    }
++  ]
++}
+diff --git a/src/community_models/tiny_voca/assets.cpp b/src/community_models/tiny_voca/assets.cpp
+index 1c53ec6..8439fec 100644
+--- a/src/community_models/tiny_voca/assets.cpp
++++ b/src/community_models/tiny_voca/assets.cpp
+@@ -4,6 +4,7 @@
+ #include "engine/framework/io/json.h"
+ #include "engine/framework/model_spec/package.h"
+ 
++#include <algorithm>
+ #include <stdexcept>
+ 
+ namespace engine::models::tiny_voca {
+@@ -11,7 +12,29 @@ namespace {
+ 
+ namespace json = engine::io::json;
+ 
+-TinyVocaConfig parse_config(const assets::ResourceBundle & resources) {
++// The vowels of the English model, which predates the "vowels" list.
++const char * const kEnglishVowels[] = {
++    "ə", "ɐ", "ɚ", "ᵻ", "ɪ", "i", "iː", "ɛ", "æ", "ʌ", "ɑː", "ɔ", "ɔː", "ʊ", "uː", "ɜː", "eɪ", "aɪ", "ɔɪ", "oʊ", "aʊ", "iə", "oː",
++    "ɑːɹ", "ɔːɹ", "oːɹ", "ɪɹ", "ɛɹ", "ʊɹ", "aɪɚ", "aɪə", "əl", "n\xCC\xA9",
++};
++
++// Marks the symbols of a list ("phones" or "vowels" of the config) by id.
++std::vector<bool> marked(const json::Value & list, const std::vector<std::string> & symbols, const char * what) {
++    std::vector<bool> out(symbols.size(), false);
++    for (const auto & item : list.as_array()) {
++        const std::string & symbol = item.as_string();
++        const auto found = std::find(symbols.begin(), symbols.end(), symbol);
++        if (found == symbols.end()) {
++            throw std::runtime_error(std::string("tiny-voca config: a symbol of \"") + what + "\" is not in the vocabulary: " + symbol);
++        }
++        out[static_cast<size_t>(found - symbols.begin())] = true;
++    }
++    return out;
++}
++
++}  // namespace
++
++TinyVocaConfig parse_tiny_voca_config(const assets::ResourceBundle & resources) {
+     const auto root = resources.parse_json("config");
+     const auto & model = root.require("model");
+     TinyVocaConfig out;
+@@ -42,7 +65,9 @@ TinyVocaConfig parse_config(const assets::ResourceBundle & resources) {
+     out.max_tokens = json::require_i64(model, "max_tokens");
+     out.max_frames = json::require_i64(model, "max_frames");
+     out.pitch_reference_hz = model.require("pitch_reference_hz").as_f32();
+-    out.phonemizer_version = json::require_i64(root.require("phonemizer"), "version");
++    if (const auto * phonemizer = root.find("phonemizer"); phonemizer != nullptr) {
++        out.phonemizer_version = json::require_i64(*phonemizer, "version");
++    }
+ 
+     // The phoneme inventory, in id order.
+     out.symbols.assign(static_cast<size_t>(out.vocab_size), std::string());
+@@ -54,6 +79,28 @@ TinyVocaConfig parse_config(const assets::ResourceBundle & resources) {
+         out.symbols[static_cast<size_t>(index)] = symbol;
+     }
+ 
++    if (const auto * phones = root.find("phones"); phones != nullptr) {
++        out.phone_tokens = marked(*phones, out.symbols, "phones");
++    } else {
++        // Symbols 0-4 are special tokens and 5-16 punctuation; every later one is a phoneme.
++        out.phone_tokens.assign(out.symbols.size(), false);
++        for (size_t id = 17; id < out.symbols.size(); ++id) {
++            out.phone_tokens[id] = true;
++        }
++    }
++    if (const auto * vowels = root.find("vowels"); vowels != nullptr) {
++        out.vowel_tokens = marked(*vowels, out.symbols, "vowels");
++    } else {
++        out.vowel_tokens.assign(out.symbols.size(), false);
++        for (size_t id = 17; id < out.symbols.size(); ++id) {
++            for (const char * symbol : kEnglishVowels) {
++                if (out.symbols[id] == symbol) {
++                    out.vowel_tokens[id] = true;
++                }
++            }
++        }
++    }
++
+     for (const int64_t value : {out.sample_rate, out.hop, out.vocab_size, out.channels, out.heads, out.feedforward, out.kernel,
+                                 out.encoder_layers, out.prosody_layers, out.acoustic_layers, out.predictor_channels, out.synth_fft,
+                                 out.synth_hop, out.noise_fft, out.noise_hop, out.cep_causal, out.cep_anti, out.noise_cep,
+@@ -70,14 +117,14 @@ TinyVocaConfig parse_config(const assets::ResourceBundle & resources) {
+     return out;
+ }
+ 
+-}  // namespace
+-
+-std::shared_ptr<const TinyVocaAssets> load_tiny_voca_assets(const std::filesystem::path & model_path) {
+-    auto resources = engine::model_spec::load_resource_bundle_for_family(model_path, "tiny_voca");
++std::shared_ptr<const TinyVocaAssets> load_tiny_voca_assets(const std::filesystem::path & model_path, const std::string & family) {
++    auto resources = engine::model_spec::load_resource_bundle_for_family(model_path, family);
+     TinyVocaAssets out;
+-    out.config = parse_config(resources);
++    out.config = parse_tiny_voca_config(resources);
+     out.weights = resources.open_tensor_source("weights");
+-    out.g2p_weights = resources.open_tensor_source("g2p_weights");
++    if (family == "tiny_voca") {
++        out.g2p_weights = resources.open_tensor_source("g2p_weights");
++    }
+     out.resources = std::move(resources);
+     return std::make_shared<TinyVocaAssets>(std::move(out));
+ }
+diff --git a/src/community_models/tiny_voca/runtime.cpp b/src/community_models/tiny_voca/runtime.cpp
+index 0307e22..bab0617 100644
+--- a/src/community_models/tiny_voca/runtime.cpp
++++ b/src/community_models/tiny_voca/runtime.cpp
+@@ -437,21 +437,8 @@ struct TinyVocaRuntime::State {
+         acoustic = {"acoustic_stack", c.acoustic_layers, 2};
+ 
+         // Which tokens are phonemes (they always sound) and which are vowels (always voiced).
+-        phone.assign(static_cast<size_t>(c.vocab_size), false);
+-        vowel.assign(static_cast<size_t>(c.vocab_size), false);
+-        static const char * const vowels[] = {
+-            "ə", "ɐ", "ɚ", "ᵻ", "ɪ", "i", "iː", "ɛ", "æ", "ʌ", "ɑː", "ɔ", "ɔː", "ʊ", "uː", "ɜː", "eɪ", "aɪ", "ɔɪ", "oʊ", "aʊ", "iə", "oː",
+-            "ɑːɹ", "ɔːɹ", "oːɹ", "ɪɹ", "ɛɹ", "ʊɹ", "aɪɚ", "aɪə", "əl", "n\xCC\xA9",
+-        };
+-        // Symbols 0-4 are special tokens and 5-16 punctuation; every later one is a phoneme.
+-        for (size_t id = 17; id < c.symbols.size(); ++id) {
+-            phone[id] = true;
+-            for (const char * symbol : vowels) {
+-                if (c.symbols[id] == symbol) {
+-                    vowel[id] = true;
+-                }
+-            }
+-        }
++        phone = c.phone_tokens;
++        vowel = c.vowel_tokens;
+     }
+ 
+     // Runs one stack over `length` rows of `channels` values, in place.
+diff --git a/src/community_models/tiny_voca/session.cpp b/src/community_models/tiny_voca/session.cpp
+index 6a1aeee..f66faa6 100644
+--- a/src/community_models/tiny_voca/session.cpp
++++ b/src/community_models/tiny_voca/session.cpp
+@@ -232,7 +232,7 @@ runtime::TaskResult TinyVocaSession::run(const runtime::TaskRequest & request) {
+ std::shared_ptr<runtime::IVoiceModelLoader> make_tiny_voca_loader() {
+     runtime::SpecBackedVoiceModelConfig<TinyVocaAssets> config;
+     config.family = kFamily;
+-    config.load_assets = load_tiny_voca_assets;
++    config.load_assets = [](const std::filesystem::path & path) { return load_tiny_voca_assets(path); };
+     config.create_session = [](
+                                 const runtime::TaskSpec & task,
+                                 const runtime::SessionOptions & options,
+diff --git a/src/community_models/tiny_voca_ru/g2p.cpp b/src/community_models/tiny_voca_ru/g2p.cpp
+new file mode 100644
+index 0000000..783476d
+--- /dev/null
++++ b/src/community_models/tiny_voca_ru/g2p.cpp
+@@ -0,0 +1,842 @@
++#include "g2p.h"
++
++#include "dizione/pyre.h"
++
++#include <map>
++#include <optional>
++#include <set>
++#include <utility>
++
++namespace engine::models::tiny_voca_ru {
++namespace {
++
++using dizione::Str;
++using dizione::StrView;
++namespace py = dizione::py;
++namespace pyre = dizione::pyre;
++
++// ---------------------------------------------------------------- symbols.py
++
++const std::vector<std::string> kSpecials = {"<pad>", "<bos>", "<eos>", "<sp>", "<unk>"};
++const std::vector<std::string> kPunctuation = {",", ".", "?", "!", ";", ":", "\"", "'", "(", ")", "—", "…"};
++const std::vector<std::string> kConsonants = {
++    "p", "pʲ", "b", "bʲ", "t", "tʲ", "d", "dʲ", "k", "kʲ", "ɡ", "ɡʲ",     // stops, hard and soft
++    "f", "fʲ", "v", "vʲ", "s", "sʲ", "z", "zʲ",                           // fricatives
++    "ʂ", "ʐ", "ɕ", "x", "xʲ",                                             // ш ж (always hard), щ, х
++    "ts", "tɕ",                                                           // ц (always hard), ч (always soft)
++    "m", "mʲ", "n", "nʲ", "l", "lʲ", "r", "rʲ", "j",                      // sonorants
++};
++// Full vowels, and reduced ɐ (first pretonic, word-initial) and ə (other unstressed а/о).
++const std::vector<std::string> kVowels = {"a", "o", "e", "i", "u", "ɨ", "ɐ", "ə"};
++
++const std::string kBos = "<bos>";
++const std::string kEos = "<eos>";
++const std::string kSp = "<sp>";
++const std::string kUnk = "<unk>";
++
++using Set = std::set<std::string>;
++
++const Set & vowel_set() {
++    static const Set value(kVowels.begin(), kVowels.end());
++    return value;
++}
++
++const Set & phone_set() {
++    static const Set value = [] {
++        Set out(kConsonants.begin(), kConsonants.end());
++        out.insert(kVowels.begin(), kVowels.end());
++        return out;
++    }();
++    return value;
++}
++
++bool is_vowel(const std::string & phone) { return vowel_set().count(phone) != 0; }
++
++// Paired hard/soft consonants (ж ш ц are always hard; ч щ й are always soft).
++const std::map<std::string, std::string> & soft() {
++    static const std::map<std::string, std::string> value = [] {
++        std::map<std::string, std::string> out;
++        for (const char * hard : {"p", "b", "t", "d", "k", "ɡ", "f", "v", "s", "z", "x", "m", "n", "l", "r"}) {
++            out.emplace(hard, std::string(hard) + "ʲ");
++        }
++        return out;
++    }();
++    return value;
++}
++
++const Set kVoiceless = {"p", "pʲ", "t", "tʲ", "k", "kʲ", "f", "fʲ", "s", "sʲ", "ʂ", "ɕ", "x", "xʲ", "ts", "tɕ"};
++// х, ц, ч, щ have no voiced partner in the inventory and stay voiceless.
++const std::map<std::string, std::string> kVoicedPartner = {
++    {"p", "b"}, {"pʲ", "bʲ"}, {"t", "d"}, {"tʲ", "dʲ"}, {"k", "ɡ"}, {"kʲ", "ɡʲ"},
++    {"f", "v"}, {"fʲ", "vʲ"}, {"s", "z"}, {"sʲ", "zʲ"}, {"ʂ", "ʐ"},
++};
++
++const std::map<std::string, std::string> & voiceless_partner() {
++    static const std::map<std::string, std::string> value = [] {
++        std::map<std::string, std::string> out;
++        for (const auto & [voiceless, voiced] : kVoicedPartner) {
++            out.emplace(voiced, voiceless);
++        }
++        return out;
++    }();
++    return value;
++}
++
++const Set & obstruents() {
++    static const Set value = [] {
++        Set out = kVoiceless;
++        for (const auto & entry : voiceless_partner()) {
++            out.insert(entry.first);
++        }
++        return out;
++    }();
++    return value;
++}
++
++// ---------------------------------------------------------------- lexicon.py
++
++using StrMap = std::map<Str, Str>;
++using StrSet = std::set<Str>;
++
++// Whole words (lowercase, ё kept), respelled with the same number of vowels.
++const StrMap kWords = {
++    // чт / чн pronounced шт / шн
++    {U"что", U"што"}, {U"чтоб", U"штоб"}, {U"чтобы", U"штобы"}, {U"ничто", U"ништо"}, {U"нечто", U"нешто"},
++    {U"конечно", U"конешно"}, {U"нарочно", U"нарошно"}, {U"бог", U"бох"},
++    // indeclinable loanwords with hard е
++    {U"кафе", U"кафэ"}, {U"шоссе", U"шоссэ"}, {U"пюре", U"пюрэ"}, {U"купе", U"купэ"}, {U"тире", U"тирэ"},
++    {U"турне", U"турнэ"}, {U"кашне", U"кашнэ"}, {U"пенсне", U"пенснэ"}, {U"кабаре", U"кабарэ"}, {U"реле", U"рэлэ"},
++    {U"резюме", U"резюмэ"}, {U"ателье", U"атэлье"}, {U"фрикасе", U"фрикасэ"}, {U"безе", U"безэ"},
++};
++
++// The endings a stem may take, so that stems do not match unrelated words (тесто is not тест + о).
++const StrSet kNounEndings = {U"", U"а", U"у", U"ом", U"е", U"ы", U"и", U"ов", U"ам", U"ами", U"ах", U"ь", U"ей", U"ю",
++                             U"ью", U"я", U"ем", U"ям", U"ями", U"ях"};
++const StrSet kAdjectiveEndings = {U"о", U"а", U"ы", U"ый", U"ий", U"ой", U"ая", U"яя", U"ое", U"ее", U"ые", U"ие", U"ого", U"его",
++                                  U"ому", U"ему", U"ым", U"им", U"ом", U"ем", U"ую", U"юю", U"ых", U"их", U"ыми", U"ими", U"ей"};
++
++const StrMap kNounStems = {
++    // loanwords with hard е
++    {U"тест", U"тэст"}, {U"интернет", U"интэрнэт"}, {U"модел", U"модэл"}, {U"отел", U"отэл"},
++    {U"компьютер", U"компьютэр"}, {U"менеджер", U"мэнэджэр"}, {U"менеджмент", U"мэнэджмэнт"}, {U"бизнес", U"бизнэс"},
++    {U"тенденци", U"тэндэнци"}, {U"теннис", U"тэннис"}, {U"темп", U"тэмп"}, {U"стенд", U"стэнд"}, {U"свитер", U"свитэр"},
++    {U"детектив", U"дэтэктив"}, {U"антенн", U"антэнн"}, {U"лидер", U"лидэр"}, {U"рейтинг", U"рэйтинг"}, {U"бренд", U"брэнд"},
++    {U"тренд", U"трэнд"}, {U"сленг", U"слэнг"}, {U"гаджет", U"гаджэт"}, {U"хакер", U"хакэр"}, {U"тостер", U"тостэр"},
++    {U"постер", U"постэр"}, {U"кластер", U"кластэр"}, {U"бартер", U"бартэр"}, {U"блогер", U"блогэр"}, {U"кетчуп", U"кэтчуп"},
++    {U"кемпинг", U"кэмпинг"}, {U"фейк", U"фэйк"}, {U"модем", U"модэм"}, {U"тембр", U"тэмбр"}, {U"партер", U"партэр"},
++    {U"диспансер", U"диспансэр"}, {U"бутерброд", U"бутэрброд"}, {U"интервал", U"интэрвал"}, {U"интерфейс", U"интэрфэйс"},
++    {U"тезис", U"тэзис"}, {U"пастел", U"пастэл"}, {U"модерн", U"модэрн"}, {U"демпинг", U"дэмпинг"},
++    {U"бестселлер", U"бэстсэллэр"}, {U"тент", U"тэнт"}, {U"тестировани", U"тэстировани"}, {U"тестировщик", U"тэстировщик"},
++    // г -> в, чн -> шн
++    {U"сегодн", U"севодн"}, {U"яичниц", U"яишниц"}, {U"скворечник", U"скворешник"},
++};
++
++const StrMap kAdjectiveStems = {
++    {U"скучн", U"скушн"}, {U"прачечн", U"прачешн"}, {U"сегодняшн", U"севодняшн"}, {U"тестов", U"тэстов"},
++    {U"компьютерн", U"компьютэрн"}, {U"модельн", U"модэльн"}, {U"теннисн", U"тэннисн"},
++};
++
++// Words in -ого/-его where г is pronounced /ɡ/, not genitive /v/.
++const StrSet kKeepG = {U"ого", U"много", U"немного", U"строго", U"нестрого", U"убого", U"дорого", U"недорого",
++                       U"полого", U"отлого", U"разлого"};
++
++// Function words and loanwords whose unstressed о does not reduce.
++const StrSet kNonreducing = {U"но", U"то", U"что", U"чтоб", U"радио", U"какао", U"трио", U"кредо", U"боа"};
++
++// Prepositions and negation; when stressed (на́ дом, не́ был), the following word becomes enclitic.
++const StrSet kProclitics = {U"без", U"безо", U"в", U"во", U"для", U"до", U"за", U"из", U"изо", U"к", U"ко", U"на",
++                            U"над", U"надо", U"о", U"об", U"обо", U"от", U"ото", U"по", U"под", U"подо", U"пред",
++                            U"предо", U"при", U"про", U"с", U"со", U"у", U"через", U"сквозь", U"между", U"перед",
++                            U"передо", U"не", U"ни"};
++
++// Particles leaning onto the preceding host word.
++const StrSet kEnclitics = {U"бы", U"б", U"же", U"ж", U"ли", U"ль"};
++
++// ---------------------------------------------------------------- g2p.py
++
++constexpr char32_t kStress = U'+';
++
++bool is_vowel_letter(char32_t c) { return Str(U"аеёиоуыэюя").find(c) != Str::npos; }
++
++const char * vowel_phone(char32_t c) {
++    switch (c) {
++    case U'а': case U'я': return "a";
++    case U'о': case U'ё': return "o";
++    case U'у': case U'ю': return "u";
++    case U'э': case U'е': return "e";
++    case U'ы': return "ɨ";
++    case U'и': return "i";
++    default: return nullptr;
++    }
++}
++
++const char * consonant_phone(char32_t c) {
++    switch (c) {
++    case U'б': return "b";
++    case U'в': return "v";
++    case U'г': return "ɡ";
++    case U'д': return "d";
++    case U'ж': return "ʐ";
++    case U'з': return "z";
++    case U'й': return "j";
++    case U'к': return "k";
++    case U'л': return "l";
++    case U'м': return "m";
++    case U'н': return "n";
++    case U'п': return "p";
++    case U'р': return "r";
++    case U'с': return "s";
++    case U'т': return "t";
++    case U'ф': return "f";
++    case U'х': return "x";
++    case U'ц': return "ts";
++    case U'ч': return "tɕ";
++    case U'ш': return "ʂ";
++    case U'щ': return "ɕ";
++    default: return nullptr;
++    }
++}
++
++bool softening(char32_t c) { return c != 0 && Str(U"еёиюяь").find(c) != Str::npos; }
++bool iotated(char32_t c) { return Str(U"яюеё").find(c) != Str::npos; }
++bool hushing(char32_t c) { return c != 0 && Str(U"жшц").find(c) != Str::npos; }  // always hard: и -> ɨ, unstressed е -> ɨ
++
++const Set & soft_phones() {
++    static const Set value = [] {
++        Set out;
++        for (const auto & entry : soft()) {
++            out.insert(entry.second);
++        }
++        out.insert({"tɕ", "ɕ", "j"});
++        return out;
++    }();
++    return value;
++}
++
++bool is_soft_phone(const std::string & phone) { return soft_phones().count(phone) != 0; }
++
++// Ordered consonant-cluster respellings that keep the number of vowel letters.
++const std::vector<std::pair<pyre::Regex, Str>> & clusters() {
++    static const std::vector<std::pair<pyre::Regex, Str>> value = [] {
++        std::vector<std::pair<pyre::Regex, Str>> out;
++        const std::pair<const char *, const char32_t *> rules[] = {
++            {"ть?ся$", U"ца"},                   // учится, учиться
++            {"вств", U"ств"},                    // чувство, здравствуй
++            {"стск", U"ск"},                     // туристский
++            {"н[тд](?=ск|ц)", U"н"},             // гигантский, голландцы
++            {"нтг", U"нг"},                      // рентген
++            {"ндш", U"нш"},                      // ландшафт
++            {"стн", U"сн"},                      // честный
++            {"здн", U"зн"},                      // поздно
++            {"стл", U"сл"},                      // счастливый
++            {"лнц", U"нц"},                      // солнце
++            {"рдц", U"рц"},                      // сердце
++            {"[тд]ств", U"цтв"},                 // детство
++            {"[тд]ск(?=(ий|ая|ое|ие|ого|ому|ом|ой|ую|их|им|ими|а|у|е)?$)", U"цк"},  // детский, городской
++        };
++        for (const auto & [pattern, replacement] : rules) {
++            out.emplace_back(pyre::Regex(pattern), Str(replacement));
++        }
++        return out;
++    }();
++    return value;
++}
++
++const pyre::Regex & not_letter() {
++    static const pyre::Regex value("[^а-яё+]");
++    return value;
++}
++
++const pyre::Regex & stray_stress() {
++    static const pyre::Regex value("\\+(?![аеёиоуыэюя])");
++    return value;
++}
++
++const pyre::Regex & hard_e() {
++    static const pyre::Regex value("[бвгджзклмнпрстфхц]\\+?э");
++    return value;
++}
++
++// One written word or hyphenated component.
++struct Unit {
++    Str text;               // with stress marks
++    Str key;                // without stress marks
++    bool hyphen = false;    // follows a hyphen: кто-то, скажи-ка
++    bool stressed = false;
++};
++
++enum class Context { None, Soft, Hard, Hush };
++
++// A phonetic segment while the rules run.
++struct Segment {
++    std::string phone;
++    char32_t letter = 0;            // source letter of a consonant (в is transparent to voicing)
++    Context context = Context::None; // vowels: after a soft or hard consonant, after ж ш ц, or after none
++    bool stressed = false;
++    bool full = false;              // keeps its quality when unstressed
++    bool last = false;              // last vowel of its written word
++    bool initial = false;           // first segment of its written word
++    bool loan = false;              // the word has a hard е (respelled э after a consonant)
++    size_t unit = 0;
++};
++
++Str without_stress(StrView word) { return py::replace(word, U"+", U""); }
++
++std::optional<Str> stem(const Str & plain) {
++    for (size_t cut = plain.size(); cut > 0; --cut) {
++        const Str base = plain.substr(0, cut);
++        const Str ending = plain.substr(cut);
++        if (const auto found = kNounStems.find(base); found != kNounStems.end() && kNounEndings.count(ending) != 0) {
++            return found->second + ending;
++        }
++        if (const auto found = kAdjectiveStems.find(base); found != kAdjectiveStems.end() && kAdjectiveEndings.count(ending) != 0) {
++            return found->second + ending;
++        }
++    }
++    return std::nullopt;
++}
++
++// Puts the stress marks of `source` on the same vowels (by count) of `target`.
++Str restress(const Str & source, const Str & target) {
++    std::set<size_t> marks;
++    size_t count = 0;
++    bool mark = false;
++    for (const char32_t c : source) {
++        if (c == kStress) {
++            mark = true;
++        } else if (is_vowel_letter(c)) {
++            if (mark) {
++                marks.insert(count);
++            }
++            ++count;
++            mark = false;
++        }
++    }
++    Str out;
++    count = 0;
++    for (const char32_t c : target) {
++        if (is_vowel_letter(c)) {
++            if (marks.count(count) != 0) {
++                out.push_back(kStress);
++            }
++            ++count;
++        }
++        out.push_back(c);
++    }
++    return out;
++}
++
++// Lexicon and cluster respellings; the stress stays on the same vowel.
++Str respell(const Str & word) {
++    const Str plain = without_stress(word);
++    Str spelled;
++    if (const auto found = kWords.find(plain); found != kWords.end()) {
++        spelled = found->second;
++    } else if (auto stemmed = stem(plain)) {
++        spelled = std::move(*stemmed);
++    } else {
++        spelled = plain;
++    }
++    for (const auto & [pattern, replacement] : clusters()) {
++        spelled = pattern.sub(replacement, spelled);
++    }
++    if (py::endswith_any(spelled, {U"ого", U"его"}) && kKeepG.count(plain) == 0) {
++        spelled = spelled.substr(0, spelled.size() - 2) + U"во";  // нового, его: genitive г -> в
++    }
++    return spelled != plain ? restress(word, spelled) : word;
++}
++
++// The letters (with "+" marks) of one word as raw segments.
++std::vector<Segment> spell(const Str & word) {
++    Str letters;
++    std::set<size_t> stressed;
++    for (const char32_t c : word) {
++        if (c == kStress) {
++            stressed.insert(letters.size());
++        } else {
++            letters.push_back(c);
++        }
++    }
++    if (stressed.empty()) {
++        for (size_t i = 0; i < letters.size(); ++i) {
++            if (letters[i] == U'ё') {
++                stressed.insert(i);
++            }
++        }
++    }
++    std::vector<Segment> out;
++    for (size_t i = 0; i < letters.size(); ++i) {
++        const char32_t c = letters[i];
++        const char32_t before = i > 0 ? letters[i - 1] : 0;
++        const char32_t after = i + 1 < letters.size() ? letters[i + 1] : 0;
++        if (const char * consonant = consonant_phone(c)) {
++            std::string phone = consonant;
++            if (const auto paired = soft().find(phone); paired != soft().end() && softening(after)) {
++                phone = paired->second;
++            }
++            Segment segment;
++            segment.phone = phone;
++            segment.letter = c;
++            out.push_back(std::move(segment));
++        } else if (const char * vowel = vowel_phone(c)) {
++            std::string quality = vowel;
++            Context context = Context::None;
++            if (before != 0 && consonant_phone(before) != nullptr) {
++                if (hushing(before)) {
++                    context = c == U'э' ? Context::Hard : Context::Hush;  // э only in respelled loanwords
++                    if (c == U'и') {
++                        quality = "ɨ";
++                    }
++                } else {
++                    context = is_soft_phone(out.back().phone) ? Context::Soft : Context::Hard;
++                }
++            } else if (iotated(c) || ((before == U'ь' || before == U'ъ') && (c == U'и' || c == U'о'))) {
++                Segment j;
++                j.phone = "j";
++                out.push_back(std::move(j));
++                context = Context::Soft;
++            }
++            Segment segment;
++            segment.phone = quality;
++            segment.letter = c;
++            segment.context = context;
++            segment.stressed = stressed.count(i) != 0;
++            segment.full = c == U'ё' && stressed.count(i) == 0;
++            out.push_back(std::move(segment));
++        }
++    }
++    for (auto it = out.rbegin(); it != out.rend(); ++it) {
++        if (is_vowel(it->phone)) {
++            it->last = true;
++            break;
++        }
++    }
++    if (!out.empty()) {
++        out.front().initial = true;
++    }
++    return out;
++}
++
++std::vector<Unit> units(const Str & word) {
++    std::vector<Unit> out;
++    const std::vector<Str> parts = py::split(py::lower(word), U"-");
++    for (size_t index = 0; index < parts.size(); ++index) {
++        Unit unit;
++        unit.text = stray_stress().sub(U"", not_letter().sub(U"", parts[index]));
++        unit.key = without_stress(unit.text);
++        if (unit.key.empty()) {
++            continue;
++        }
++        unit.hyphen = index > 0;
++        unit.stressed = py::contains(unit.text, kStress) || py::contains(unit.key, U'ё');
++        out.push_back(std::move(unit));
++    }
++    return out;
++}
++
++// Written units grouped into phonetic words: each stressed host with its clitics.
++std::vector<std::vector<Unit>> groups(const std::vector<Unit> & all) {
++    std::vector<std::vector<Unit>> out;
++    std::vector<Unit> pending;
++    for (const Unit & unit : all) {
++        if (unit.stressed) {
++            pending.push_back(unit);
++            out.push_back(std::move(pending));
++            pending.clear();
++        } else if (!out.empty() && pending.empty() &&
++                   (unit.hyphen || kEnclitics.count(unit.key) != 0 ||
++                    (out.back().back().stressed && kProclitics.count(out.back().back().key) != 0))) {
++            out.back().push_back(unit);
++        } else {
++            pending.push_back(unit);
++        }
++    }
++    if (!pending.empty()) {
++        if (!out.empty()) {
++            out.back().insert(out.back().end(), pending.begin(), pending.end());
++        } else {
++            out.push_back(std::move(pending));
++        }
++    }
++    return out;
++}
++
++std::vector<Segment> segments(const std::vector<Unit> & group) {
++    std::vector<Segment> out;
++    for (size_t number = 0; number < group.size(); ++number) {
++        const Unit & unit = group[number];
++        const Str text = respell(unit.text);
++        std::vector<Segment> spelled = spell(text);
++        const bool full = kNonreducing.count(unit.key) != 0 && !unit.hyphen;
++        const bool loan = static_cast<bool>(hard_e().search(text));
++        for (Segment & segment : spelled) {
++            segment.unit = number;
++            segment.loan = loan;
++            segment.full = segment.full || (full && segment.phone == "o");
++        }
++        if (!spelled.empty()) {
++            Segment & first = spelled.front();
++            if (is_vowel(first.phone) && !out.empty() && !is_vowel(out.back().phone) && !is_soft_phone(out.back().phone)) {
++                first.context = Context::Hard;  // к игре -> kɨɡrʲe, в огороде
++                if (first.phone == "i") {
++                    first.phone = "ɨ";
++                }
++            }
++        }
++        out.insert(out.end(), spelled.begin(), spelled.end());
++    }
++    return out;
++}
++
++// Regressive palatalization (с сестрой, женщина, есть, песня).
++void soften(std::vector<Segment> & segments) {
++    if (segments.size() < 2) {
++        return;
++    }
++    for (size_t k = segments.size() - 1; k-- > 0;) {
++        Segment & segment = segments[k];
++        const Segment & following = segments[k + 1];
++        const auto paired = soft().find(segment.phone);
++        if (paired == soft().end()) {
++            continue;
++        }
++        const std::string & p = segment.phone;
++        const std::string & f = following.phone;
++        if (f == paired->second ||
++            (segment.unit == following.unit &&
++             ((p == "n" && (f == "tɕ" || f == "ɕ")) ||
++              ((p == "s" || p == "z") && (f == "tʲ" || f == "dʲ" || f == "nʲ") && !segment.initial && !segment.loan)))) {
++            segment.phone = paired->second;
++        }
++    }
++}
++
++// Soft or hard г before к or ч becomes х (легко, мягкий).
++void velar(std::vector<Segment> & segments) {
++    for (size_t k = 0; k + 1 < segments.size(); ++k) {
++        Segment & segment = segments[k];
++        const Segment & following = segments[k + 1];
++        if ((segment.phone == "ɡ" || segment.phone == "ɡʲ") &&
++            (following.phone == "k" || following.phone == "kʲ" || following.phone == "tɕ") && segment.unit == following.unit) {
++            segment.phone = segment.phone == "ɡ" ? "x" : "xʲ";
++        }
++    }
++}
++
++// Regressive voicing assimilation and devoicing at the end of the word (в is transparent).
++void voicing(std::vector<Segment> & segments) {
++    enum class State { None, Voiceless, Voiced };
++    State state = State::Voiceless;  // word-final devoicing
++    for (auto it = segments.rbegin(); it != segments.rend(); ++it) {
++        Segment & segment = *it;
++        if (obstruents().count(segment.phone) == 0) {
++            state = State::None;
++            continue;
++        }
++        if (state == State::Voiceless) {
++            if (const auto found = voiceless_partner().find(segment.phone); found != voiceless_partner().end()) {
++                segment.phone = found->second;
++            }
++        } else if (state == State::Voiced) {
++            if (const auto found = kVoicedPartner.find(segment.phone); found != kVoicedPartner.end()) {
++                segment.phone = found->second;
++            }
++        }
++        if (segment.letter != U'в') {
++            state = kVoiceless.count(segment.phone) != 0 ? State::Voiceless : State::Voiced;
++        }
++    }
++}
++
++// Geminates and assimilated sibilant/affricate clusters become one token.
++std::vector<Segment> merge(const std::vector<Segment> & segments) {
++    std::vector<Segment> out;
++    for (const Segment & segment : segments) {
++        if (out.empty() || is_vowel(out.back().phone) || is_vowel(segment.phone)) {
++            out.push_back(segment);
++            continue;
++        }
++        const std::string previous = out.back().phone;
++        const std::string & phone = segment.phone;
++        if (phone == previous) {
++            continue;
++        }
++        const bool s_hush = (previous == "s" || previous == "sʲ" || previous == "ʂ") && (phone == "tɕ" || phone == "ɕ");
++        if (s_hush || ((previous == "s" || previous == "sʲ") && phone == "ʂ") ||
++            ((previous == "z" || previous == "zʲ") && phone == "ʐ") ||
++            ((previous == "t" || previous == "tʲ" || previous == "d" || previous == "dʲ") && (phone == "ts" || phone == "tɕ"))) {
++            out.back().phone = phone == "tɕ" && (previous == "s" || previous == "sʲ" || previous == "ʂ") ? "ɕ" : phone;
++        } else {
++            out.push_back(segment);
++        }
++    }
++    return out;
++}
++
++enum class Position { Pre, Pre1, Post };
++
++std::string reduced(const Segment & segment, Position position, bool before_soft) {
++    const std::string & quality = segment.phone;
++    if (quality == "u" || quality == "i" || quality == "ɨ") {
++        return quality;
++    }
++    if (segment.context == Context::Soft) {
++        // ə in the last syllable (тётя, вишням), i before a soft consonant (память)
++        return quality == "a" && position == Position::Post && segment.last && !before_soft ? "ə" : "i";
++    }
++    if (quality == "e") {  // hard е in loanwords stays e (интернет)
++        return segment.context == Context::None ? "i" : segment.context == Context::Hard ? "e" : "ɨ";
++    }
++    if (position == Position::Pre1 || (position == Position::Pre && segment.context == Context::None)) {
++        return "ɐ";
++    }
++    return "ə";
++}
++
++// Unstressed vowel reduction, relative to the stressed vowel.
++void reduce(std::vector<Segment> & segments) {
++    std::vector<size_t> vowels;
++    for (size_t k = 0; k < segments.size(); ++k) {
++        if (is_vowel(segments[k].phone)) {
++            vowels.push_back(k);
++        }
++    }
++    std::optional<size_t> stress;
++    for (const size_t k : vowels) {
++        if (segments[k].stressed) {
++            stress = k;
++            break;
++        }
++    }
++    if (!stress) {
++        return;  // a phrase of clitics only
++    }
++    for (size_t n = 0; n < vowels.size(); ++n) {
++        const size_t k = vowels[n];
++        Segment & segment = segments[k];
++        if (segment.stressed || segment.full) {
++            continue;
++        }
++        Position position = Position::Pre;
++        if (k > *stress) {
++            position = Position::Post;
++        } else if (n + 1 < vowels.size() && vowels[n + 1] == *stress) {
++            position = Position::Pre1;
++        }
++        const bool before_soft = k + 1 < segments.size() && is_soft_phone(segments[k + 1].phone);
++        segment.phone = reduced(segment, position, before_soft);
++    }
++}
++
++// ---------------------------------------------------------------- clean.py
++
++// The compositions of Unicode NFC that make a letter of the Cyrillic block from
++// a letter and a combining mark. Others do not matter here: whatever they make
++// is not a Russian letter and is dropped anyway.
++char32_t composed(char32_t base, char32_t mark) {
++    struct Entry {
++        char32_t base, mark, out;
++    };
++    static const Entry table[] = {
++        {0x0415, 0x0300, 0x0400}, {0x0435, 0x0300, 0x0450}, {0x0415, 0x0308, 0x0401}, {0x0435, 0x0308, 0x0451},
++        {0x0418, 0x0300, 0x040D}, {0x0438, 0x0300, 0x045D}, {0x0418, 0x0306, 0x0419}, {0x0438, 0x0306, 0x0439},
++        {0x0413, 0x0301, 0x0403}, {0x0433, 0x0301, 0x0453}, {0x041A, 0x0301, 0x040C}, {0x043A, 0x0301, 0x045C},
++        {0x0423, 0x0306, 0x040E}, {0x0443, 0x0306, 0x045E}, {0x0406, 0x0308, 0x0407}, {0x0456, 0x0308, 0x0457},
++        {0x0410, 0x0306, 0x04D0}, {0x0430, 0x0306, 0x04D1}, {0x0410, 0x0308, 0x04D2}, {0x0430, 0x0308, 0x04D3},
++        {0x0415, 0x0306, 0x04D6}, {0x0435, 0x0306, 0x04D7}, {0x0416, 0x0306, 0x04C1}, {0x0436, 0x0306, 0x04C2},
++        {0x0416, 0x0308, 0x04DC}, {0x0436, 0x0308, 0x04DD}, {0x0417, 0x0308, 0x04DE}, {0x0437, 0x0308, 0x04DF},
++        {0x0418, 0x0304, 0x04E2}, {0x0438, 0x0304, 0x04E3}, {0x0418, 0x0308, 0x04E4}, {0x0438, 0x0308, 0x04E5},
++        {0x041E, 0x0308, 0x04E6}, {0x043E, 0x0308, 0x04E7}, {0x042D, 0x0308, 0x04EC}, {0x044D, 0x0308, 0x04ED},
++        {0x0423, 0x0304, 0x04EE}, {0x0443, 0x0304, 0x04EF}, {0x0423, 0x0308, 0x04F0}, {0x0443, 0x0308, 0x04F1},
++        {0x0423, 0x030B, 0x04F2}, {0x0443, 0x030B, 0x04F3}, {0x0427, 0x0308, 0x04F4}, {0x0447, 0x0308, 0x04F5},
++        {0x042B, 0x0308, 0x04F8}, {0x044B, 0x0308, 0x04F9},
++    };
++    for (const Entry & entry : table) {
++        if (entry.base == base && entry.mark == mark) {
++            return entry.out;
++        }
++    }
++    return 0;
++}
++
++char32_t quote(char32_t c) {
++    switch (c) {
++    case U'«': case U'»': case U'„': case U'“': case U'”': case U'‟': return U'"';
++    case U'‘': case U'’': case U'‚': case U'‛': case U'`': case U'´': return U'\'';
++    case U'[': case U'{': return U'(';
++    case U']': case U'}': return U')';
++    case U'−': case U'‐': case U'‑': return U'-';
++    case U'‒': return U'–';
++    case U'―': return U'—';
++    case 0x00A0: case 0x2009: case 0x202F: case 0x2007: return U' ';
++    // ℃ and the vulgar fractions become digits and signs in tiny-voca-ru, which go anyway
++    case U'℃': case U'¼': case U'½': case U'¾': case U'⅓': case U'⅔': return U'#';
++    default: return c;
++    }
++}
++
++// Normalises quotes, dashes, spaces, the ellipsis and combining accents.
++Str unify(StrView text) {
++    static const pyre::Regex accent("([аеёиоуыэюяАЕЁИОУЫЭЮЯ])[\\u0301\\u0300]");
++    static const pyre::Regex combining("[\\u0300-\\u036f]");
++    static const pyre::Regex dots("\\.{3,}");
++    Str out;
++    out.reserve(text.size());
++    for (const char32_t c : text) {
++        if (!out.empty()) {
++            if (const char32_t one = composed(out.back(), c)) {
++                out.back() = one;
++                continue;
++            }
++        }
++        out.push_back(quote(c));
++    }
++    out = accent.sub(U"+\\1", out);  // за́мок -> з+амок
++    out = combining.sub(U"", out);
++    return dots.sub(U"…", out);
++}
++
++// Dashes, hyphens, stray signs and whitespace.
++Str tidy(Str text) {
++    static const pyre::Regex dashes("-{2,}|–");
++    static const pyre::Regex lone_hyphen("(?<![а-яёА-ЯЁ+])-|-(?![а-яёА-ЯЁ+])");
++    static const pyre::Regex other("[^\\sа-яёА-ЯЁ+\\-,\\.\\?!;:\"'\\(\\)—…]");
++    static const pyre::Regex dash_before("(?<=\\S)—");
++    static const pyre::Regex dash_after("—(?=\\S)");
++    static const pyre::Regex mark_dots("(?<=[?!])\\.\\.(?!\\.)");
++    static const pyre::Regex two_dots("(?<!\\.)\\.\\.(?!\\.)");
++    static const pyre::Regex space("\\s+");
++    text = dashes.sub(U"—", text);
++    text = lone_hyphen.sub(U" — ", text);  // a hyphen outside a word is a dash
++    text = other.sub(U" ", text);
++    text = dash_before.sub(U" —", text);
++    text = dash_after.sub(U"— ", text);
++    text = mark_dots.sub(U"", text);
++    text = two_dots.sub(U".", text);
++    return py::strip(space.sub(U" ", text));
++}
++
++bool is_punctuation(const std::string & token) {
++    for (const std::string & mark : kPunctuation) {
++        if (token == mark) {
++            return true;
++        }
++    }
++    return false;
++}
++
++}  // namespace
++
++const std::vector<std::string> & symbols() {
++    static const std::vector<std::string> value = [] {
++        std::vector<std::string> out = kSpecials;
++        out.insert(out.end(), kPunctuation.begin(), kPunctuation.end());
++        out.insert(out.end(), kConsonants.begin(), kConsonants.end());
++        out.insert(out.end(), kVowels.begin(), kVowels.end());
++        return out;
++    }();
++    return value;
++}
++
++const std::vector<std::string> & phones() {
++    static const std::vector<std::string> value = [] {
++        std::vector<std::string> out = kConsonants;
++        out.insert(out.end(), kVowels.begin(), kVowels.end());
++        out.push_back(kUnk);
++        return out;
++    }();
++    return value;
++}
++
++const std::vector<std::string> & vowels() { return kVowels; }
++
++Str clean(StrView text) { return tidy(unify(text)); }
++
++std::vector<PhoneticWord> phrase_phones(const std::vector<Str> & words) {
++    std::vector<Unit> all;
++    for (const Str & word : words) {
++        for (Unit & unit : units(word)) {
++            all.push_back(std::move(unit));
++        }
++    }
++    std::vector<PhoneticWord> out;
++    for (const std::vector<Unit> & group : groups(all)) {
++        std::vector<Segment> list = segments(group);
++        velar(list);
++        voicing(list);
++        soften(list);
++        list = merge(list);
++        reduce(list);
++        if (!list.empty()) {
++            PhoneticWord word;
++            for (const Segment & segment : list) {
++                word.emplace_back(segment.phone, segment.stressed ? 1 : 0);
++            }
++            out.push_back(std::move(word));
++        }
++    }
++    return out;
++}
++
++Tokens tokenize(const std::string & text) {
++    static const pyre::Regex token("[,\\.\\?!;:\"'\\(\\)—…]|[^\\s,\\.\\?!;:\"'\\(\\)—…]+");
++    static const std::map<std::string, int32_t> ids = [] {
++        std::map<std::string, int32_t> out;
++        for (size_t id = 0; id < symbols().size(); ++id) {
++            out.emplace(symbols()[id], static_cast<int32_t>(id));
++        }
++        return out;
++    }();
++    Tokens out;
++    out.symbols.push_back(kBos);
++    out.stress.push_back(0);
++    std::vector<Str> words;
++    const auto sounds = [](const std::string & symbol) { return phone_set().count(symbol) != 0 || symbol == kUnk; };
++    const auto flush = [&] {
++        if (words.empty()) {
++            return;
++        }
++        for (const PhoneticWord & word : phrase_phones(words)) {
++            if (word.empty()) {
++                continue;
++            }
++            if (sounds(out.symbols.back())) {
++                out.symbols.push_back(kSp);
++                out.stress.push_back(0);
++            }
++            for (const auto & [phone, level] : word) {
++                out.symbols.push_back(phone_set().count(phone) != 0 ? phone : kUnk);
++                out.stress.push_back(level);
++            }
++        }
++        words.clear();
++    };
++    for (const Str & piece : token.findall(clean(dizione::decode(text)))) {
++        const std::string encoded = dizione::encode(piece);
++        if (is_punctuation(encoded)) {
++            flush();
++            if (out.symbols.back() != encoded) {  // collapse repeated punctuation like "!!"
++                out.symbols.push_back(encoded);
++                out.stress.push_back(0);
++            }
++        } else {
++            words.push_back(piece);
++        }
++    }
++    flush();
++    out.symbols.push_back(kEos);
++    out.stress.push_back(0);
++    bool any = false;
++    for (const std::string & symbol : out.symbols) {
++        any = any || sounds(symbol);
++    }
++    if (!any) {
++        throw dizione::ValueError("the text has nothing to pronounce");
++    }
++    for (const std::string & symbol : out.symbols) {
++        out.ids.push_back(ids.at(symbol));
++    }
++    return out;
++}
++
++}  // namespace engine::models::tiny_voca_ru
+diff --git a/src/community_models/tiny_voca_ru/g2p.h b/src/community_models/tiny_voca_ru/g2p.h
+new file mode 100644
+index 0000000..f7cc24e
+--- /dev/null
++++ b/src/community_models/tiny_voca_ru/g2p.h
+@@ -0,0 +1,52 @@
++// Russian stressed orthography -> phonemes: the port of tiny-voca-ru's
++// frontend (tiny_voca_ru/frontend: clean.py, lexicon.py, g2p.py and the
++// tokenizer of tokenize.py), rule for rule. The text it takes is already
++// normalised (numbers, abbreviations and Latin words written out in Cyrillic)
++// and carries its stress: "+" before the stressed vowel, or U+0301 after it.
++//
++// Text normalisation and automatic stress (tiny-voca-ru's normalize.py,
++// numbers.py and stress models) are not part of the port. A word without a
++// mark is read without stress, with every vowel in full; "ё" is stressed.
++#pragma once
++
++#include "dizione/text.h"
++
++#include <cstdint>
++#include <string>
++#include <utility>
++#include <vector>
++
++namespace engine::models::tiny_voca_ru {
++
++// One phonetic word: (phone, stress level 0 or 1).
++using PhoneticWord = std::vector<std::pair<std::string, int>>;
++
++// The phoneme inventory of the model, in id order (61 symbols).
++const std::vector<std::string> & symbols();
++// The phonemes (they always sound; <unk> counts as one) and the vowels.
++const std::vector<std::string> & phones();
++const std::vector<std::string> & vowels();
++
++// clean(): Unicode, quotes and dashes made uniform, U+0301 turned into "+",
++// everything but Russian letters, "+", "-", whitespace and the model's
++// punctuation replaced by spaces. tiny-voca-ru refuses digits, Latin letters
++// and signs here (they need its normaliser); the port drops them.
++dizione::Str clean(dizione::StrView text);
++
++// The stressed words of one phrase (no punctuation between them) as phonetic
++// words: each stressed word with its clitics, after respelling, assimilation
++// and vowel reduction (g2p.phrase_phones).
++std::vector<PhoneticWord> phrase_phones(const std::vector<dizione::Str> & words);
++
++struct Tokens {
++    std::vector<std::string> symbols;
++    std::vector<int32_t> ids;
++    std::vector<int32_t> stress;
++};
++
++// Cleaned text -> tokens with <bos>, <sp> between words and <eos>
++// (tokenize.phonemize(text, stressed=True)). Throws dizione::ValueError when
++// there is nothing to pronounce.
++Tokens tokenize(const std::string & text);
++
++}  // namespace engine::models::tiny_voca_ru
+diff --git a/src/community_models/tiny_voca_ru/session.cpp b/src/community_models/tiny_voca_ru/session.cpp
+new file mode 100644
+index 0000000..cb377b8
+--- /dev/null
++++ b/src/community_models/tiny_voca_ru/session.cpp
+@@ -0,0 +1,354 @@
++#include "engine/community_models/tiny_voca_ru/session.h"
++
++#include "g2p.h"
++
++#include "dizione/pyre.h"
++
++#include "engine/framework/debug/profiler.h"
++#include "engine/framework/runtime/errors.h"
++#include "engine/framework/runtime/options.h"
++#include "engine/framework/runtime/spec_backed_model.h"
++#include "engine/framework/text/chunking.h"
++
++#include <algorithm>
++#include <chrono>
++#include <cmath>
++#include <stdexcept>
++#include <utility>
++
++namespace engine::models::tiny_voca_ru {
++namespace {
++
++using dizione::Str;
++namespace py = dizione::py;
++namespace pyre = dizione::pyre;
++using tiny_voca::TinyVocaGenerationOptions;
++
++constexpr const char * kFamily = "tiny_voca_ru";
++constexpr const char * kModelName = "tiny-voca-ru";
++constexpr int64_t kDefaultTextChunkSize = 400;
++// The loudest sample of the audio a request returns (see tiny_voca).
++constexpr float kPeak = 0.99F;
++// One semitone, in the units of log F0.
++constexpr float kSemitone = 0.057762265F;
++
++bool is_russian(const std::string & language) {
++    std::string name;
++    for (const char c : language) {
++        name.push_back(c == '_' ? '-' : (c >= 'A' && c <= 'Z' ? static_cast<char>(c - 'A' + 'a') : c));
++    }
++    return name.empty() || name == "ru" || name == "ru-ru" || name == "russian";
++}
++
++const pyre::Regex & space() {
++    static const pyre::Regex value(R"re([\s\U0000FEFF]+)re");
++    return value;
++}
++
++bool has_alnum(const Str & text) {
++    for (const char32_t c : text) {
++        if (dizione::uni::is_alnum(c)) {
++            return true;
++        }
++    }
++    return false;
++}
++
++}  // namespace
++
++std::vector<std::string> sentences(const std::string & text) {
++    // tiny-voca-ru's pattern, with "+" allowed before the capital that opens
++    // the next sentence: the texts here carry their stress marks.
++    static const pyre::Regex sentence_end(
++        R"re((?:(?<=[.!?…])|(?<=[.!?…]["')\]»“]))\s+(?=["'(\[«„]?\+?[A-ZА-ЯЁ0-9]))re");
++    static const pyre::Regex not_an_end(
++        R"re((?:\b(?:тыс|млн|млрд|руб|коп|долл|ул|пр|просп|пер|наб|пл|обл|кв|корп|стр|рис|табл|см|ср|напр|проф|акад|доц|им|св|гр|тел|др|т\.е|т\.д|т\.п|т\.к|т\.н)|\b[A-ZА-ЯЁ])\.$)re",
++        pyre::IGNORECASE);
++    const Str flat = py::strip(space().sub(U" ", dizione::decode(text)));
++    std::vector<std::string> parts;
++    Str current;
++    const auto keep = [&](const Str & part) {
++        if (has_alnum(part)) {
++            parts.push_back(dizione::encode(part));
++        }
++    };
++    for (const Str & piece : sentence_end.split(flat)) {
++        current = current.empty() ? piece : current + U" " + piece;
++        // the abbreviation test ignores stress marks: т.+е.
++        if (!not_an_end.search(py::replace(current, U"+", U""))) {
++            keep(current);
++            current.clear();
++        }
++    }
++    if (!current.empty()) {
++        keep(current);
++    }
++    return parts;
++}
++
++std::string finished(const std::string & text) {
++    static const pyre::Regex text_end(R"re([\s\U0000FEFF]+$)re");
++    const Str body = text_end.sub(U"", dizione::decode(text));
++    if (body.empty()) {
++        return text;
++    }
++    const Str last = space().split(body).back();
++    const Str closing = {U'"', U'\'', 0x201D, 0x2019, U')', U']', 0xBB};
++    bool marked = false;
++    if (has_alnum(last)) {
++        const Str core = py::rstrip(last, closing);
++        const char32_t end = core.empty() ? U'\0' : core.back();
++        marked = end == U'.' || end == U'!' || end == U'?' || end == 0x2026 || end == U',' || end == U';' || end == U':';
++    } else {
++        for (const char32_t c : last) {
++            marked = marked || c == U'.' || c == U'!' || c == U'?' || c == 0x2026;
++        }
++        marked = marked || last == U"," || last == U";" || last == U":";
++    }
++    return marked ? text : dizione::encode(body) + ".";
++}
++
++std::vector<std::string> shorter(const std::string & text) {
++    static const pyre::Regex clause_end(R"re((?<=[,;:—])\s+)re");
++    const Str whole = dizione::decode(text);
++    std::vector<std::string> out;
++    const std::vector<Str> pieces = clause_end.split(whole);
++    if (pieces.size() > 1) {
++        for (const Str & piece : pieces) {
++            out.push_back(dizione::encode(piece));
++        }
++        return out;
++    }
++    const std::vector<Str> words = py::split(whole, U" ");
++    if (words.size() < 2) {
++        return out;
++    }
++    const size_t half = (words.size() + 1) / 2;
++    out.push_back(dizione::encode(py::join(U" ", std::vector<Str>(words.begin(), words.begin() + static_cast<std::ptrdiff_t>(half)))));
++    out.push_back(dizione::encode(py::join(U" ", std::vector<Str>(words.begin() + static_cast<std::ptrdiff_t>(half), words.end()))));
++    return out;
++}
++
++void require_russian(const runtime::TaskRequest & request) {
++    std::string language;
++    if (request.text_input.has_value() && !is_russian(request.text_input->language)) {
++        language = request.text_input->language;
++    } else if (const auto option = runtime::find_option(request.options, {"language"}); option.has_value() && !is_russian(*option)) {
++        language = *option;
++    } else {
++        return;
++    }
++    throw runtime::InvalidRequestError(
++        "tiny-voca-ru reads Russian only: language '" + language + "' is not supported. Use ru, ru-ru or Russian, or leave the language out.");
++}
++
++TinyVocaRuSession::TinyVocaRuSession(
++    runtime::TaskSpec task,
++    runtime::SessionOptions options,
++    std::shared_ptr<const tiny_voca::TinyVocaAssets> assets,
++    std::shared_ptr<const engine::model_spec::ModelContract> contract)
++    : RuntimeSessionBase(options),
++      task_(task),
++      assets_(std::move(assets)),
++      contract_(std::move(contract)) {
++    if (assets_ == nullptr || contract_ == nullptr) {
++        throw std::runtime_error("tiny-voca-ru session requires assets and a model contract");
++    }
++    if (task_.task != runtime::VoiceTaskKind::Tts || task_.mode != runtime::RunMode::Offline) {
++        throw std::runtime_error("tiny-voca-ru only supports offline TTS");
++    }
++    runtime::validate_spec_backed_session_options(RuntimeSessionBase::options(), *contract_, kFamily, kModelName);
++    // The frontend's symbols are looked up in the model's vocabulary, so a
++    // model with another order or a missing phoneme is refused here.
++    const auto & vocabulary = assets_->config.symbols;
++    for (const std::string & symbol : tiny_voca_ru::symbols()) {
++        const auto found = std::find(vocabulary.begin(), vocabulary.end(), symbol);
++        if (found == vocabulary.end()) {
++            throw std::runtime_error("tiny-voca-ru: the model has no token for the phoneme " + symbol);
++        }
++        id_of_symbol_.push_back(static_cast<int32_t>(found - vocabulary.begin()));
++    }
++    runtime_ = std::make_unique<tiny_voca::TinyVocaRuntime>(assets_, options.backend);
++}
++
++TinyVocaRuSession::~TinyVocaRuSession() = default;
++
++std::string TinyVocaRuSession::family() const { return kFamily; }
++runtime::VoiceTaskKind TinyVocaRuSession::task_kind() const { return task_.task; }
++runtime::RunMode TinyVocaRuSession::run_mode() const { return task_.mode; }
++
++void TinyVocaRuSession::prepare(const runtime::SessionPreparationRequest & request) {
++    (void)request;
++    mark_prepared();
++}
++
++TinyVocaGenerationOptions TinyVocaRuSession::generation_options(const runtime::TaskRequest & request) const {
++    TinyVocaGenerationOptions out;
++    const auto & voices = assets_->config.voices;
++    std::string voice = voices.front();
++    if (request.voice.has_value() && request.voice->speaker.has_value() && request.voice->speaker->cached_voice_id.has_value()) {
++        voice = *request.voice->speaker->cached_voice_id;
++    } else if (const auto value = runtime::find_option(request.options, {"voice_id"})) {
++        voice = *value;
++    }
++    const auto found = std::find(voices.begin(), voices.end(), voice);
++    if (found == voices.end()) {
++        std::string names;
++        for (const auto & name : voices) {
++            names += (names.empty() ? "" : ", ") + name;
++        }
++        throw std::runtime_error("tiny-voca-ru has no voice named " + voice + " (voices: " + names + ")");
++    }
++    out.voice = static_cast<int64_t>(found - voices.begin());
++    if (const auto value = runtime::parse_finite_float_option(request.options, {"speed"})) {
++        out.speed = *value;
++    } else if (request.voice.has_value() && request.voice->style.has_value() && request.voice->style->speaking_rate.has_value()) {
++        out.speed = *request.voice->style->speaking_rate;
++    }
++    if (out.speed < 0.25F || out.speed > 4.0F) {
++        throw std::runtime_error("tiny-voca-ru speed must be between 0.25 and 4");
++    }
++    if (const auto value = runtime::parse_i64_option(request.options, {"semitone_shift"})) {
++        if (*value < -24 || *value > 24) {
++            throw std::runtime_error("tiny-voca-ru semitone_shift must be between -24 and 24");
++        }
++        out.pitch_shift = static_cast<float>(*value) * kSemitone;
++    }
++    if (const auto value = runtime::parse_finite_float_option(request.options, {"pitch_shift"})) {
++        if (*value < -1.4F || *value > 1.4F) {
++            throw std::runtime_error("tiny-voca-ru pitch_shift must be between -1.4 and 1.4");
++        }
++        out.pitch_shift += *value;
++    }
++    if (const auto value = runtime::parse_finite_float_option(request.options, {"pitch_range"})) {
++        out.pitch_range = *value;
++    }
++    if (out.pitch_range < 0.0F || out.pitch_range > 3.0F) {
++        throw std::runtime_error("tiny-voca-ru pitch_range must be between 0 and 3");
++    }
++    if (const auto value = runtime::parse_u64_option(request.options, {"seed"})) {
++        out.seed = static_cast<uint32_t>(*value);
++    }
++    return out;
++}
++
++void TinyVocaRuSession::speak(
++    const std::string & text, const TinyVocaGenerationOptions & options, std::vector<std::vector<float>> & waves, int64_t & spoken) {
++    Tokens tokens;
++    try {
++        tokens = tokenize(text);
++    } catch (const dizione::ValueError &) {
++        return;                                 // nothing to pronounce: another script, signs only
++    }
++    if (static_cast<int64_t>(tokens.ids.size()) <= assets_->config.max_tokens - 12) {
++        std::vector<int32_t> ids;
++        ids.reserve(tokens.ids.size());
++        for (const int32_t id : tokens.ids) {
++            ids.push_back(id_of_symbol_.at(static_cast<size_t>(id)));
++        }
++        try {
++            TinyVocaGenerationOptions own = options;
++            own.seed += static_cast<uint32_t>(spoken);
++            tiny_voca::TinyVocaOutput out = runtime_->synthesize(ids, tokens.stress, own);
++            for (const float sample : out.samples) {
++                if (!std::isfinite(sample)) {
++                    throw std::runtime_error("tiny-voca-ru produced non-finite audio");
++                }
++            }
++            waves.push_back(std::move(out.samples));
++            ++spoken;
++            return;
++        } catch (const tiny_voca::TinyVocaTooLong &) {
++            // cut it smaller, below
++        }
++    }
++    const std::vector<std::string> pieces = shorter(text);
++    if (pieces.empty()) {
++        throw std::runtime_error("tiny-voca-ru: one word is too long to speak: " + text.substr(0, 40));
++    }
++    for (const std::string & piece : pieces) {
++        speak(piece, options, waves, spoken);
++    }
++}
++
++runtime::TaskResult TinyVocaRuSession::run(const runtime::TaskRequest & request) {
++    require_prepared("tiny-voca-ru run");
++    if (!request.text_input.has_value() || request.text_input->text.empty()) {
++        throw std::runtime_error("tiny-voca-ru requires text input");
++    }
++    if (request.audio_input.has_value()) {
++        throw std::runtime_error("tiny-voca-ru does not accept audio input");
++    }
++    require_russian(request);
++    runtime::validate_spec_backed_request_options(request.options, request.option_arrays, *contract_, kModelName);
++    const TinyVocaGenerationOptions options = generation_options(request);
++    const int64_t chunk_size = engine::text::parse_text_chunk_size_override(request.options).value_or(kDefaultTextChunkSize);
++    const auto chunk_mode =
++        engine::text::parse_text_chunk_mode_override(request.options).value_or(engine::text::TextChunkMode::Default);
++    const auto chunks = runtime::chunk_text_request(request, chunk_size, chunk_mode);
++
++    const auto start = std::chrono::steady_clock::now();
++    std::vector<std::vector<float>> waves;
++    int64_t spoken = 0;
++    for (size_t index = 0; index < chunks.size(); ++index) {
++        if (!chunks[index].text_input.has_value()) {
++            continue;
++        }
++        // One sentence at a time, as the model was trained; the last one gets
++        // a full stop when it has no mark, so that the voice falls at the end.
++        std::string text = chunks[index].text_input->text;
++        if (index + 1 == chunks.size()) {
++            text = finished(text);
++        }
++        for (const std::string & sentence : sentences(text)) {
++            speak(sentence, options, waves, spoken);
++        }
++    }
++    if (spoken == 0) {
++        throw std::runtime_error("tiny-voca-ru: nothing in the text could be read. It reads Russian (Cyrillic) text only.");
++    }
++    runtime::AudioBuffer audio;
++    audio.sample_rate = static_cast<int>(assets_->config.sample_rate);
++    audio.channels = 1;
++    size_t total = 0;
++    for (const auto & wave : waves) {
++        total += wave.size();
++    }
++    audio.samples.reserve(total);
++    for (auto & wave : waves) {
++        audio.samples.insert(audio.samples.end(), wave.begin(), wave.end());
++        std::vector<float>().swap(wave);
++    }
++    float loudest = 0.0F;
++    for (const float sample : audio.samples) {
++        loudest = std::max(loudest, std::fabs(sample));
++    }
++    if (loudest > kPeak) {
++        const float scale = kPeak / loudest;
++        for (float & sample : audio.samples) {
++            sample *= scale;
++        }
++    }
++    engine::debug::trace_log_scalar("tiny_voca_ru.text_chunk_count", static_cast<int64_t>(chunks.size()));
++    engine::debug::trace_log_scalar("tiny_voca_ru.utterance_count", spoken);
++    engine::debug::timing_log_scalar("session.wall_ms", engine::debug::elapsed_ms(start));
++    runtime::TaskResult result;
++    result.audio_output = std::move(audio);
++    return result;
++}
++
++std::shared_ptr<runtime::IVoiceModelLoader> make_tiny_voca_ru_loader() {
++    runtime::SpecBackedVoiceModelConfig<tiny_voca::TinyVocaAssets> config;
++    config.family = kFamily;
++    config.load_assets = [](const std::filesystem::path & path) { return tiny_voca::load_tiny_voca_assets(path, kFamily); };
++    config.create_session = [](
++                                const runtime::TaskSpec & task,
++                                const runtime::SessionOptions & options,
++                                std::shared_ptr<const tiny_voca::TinyVocaAssets> assets,
++                                std::shared_ptr<const engine::model_spec::ModelContract> contract) {
++        return std::make_unique<TinyVocaRuSession>(task, options, std::move(assets), std::move(contract));
++    };
++    return runtime::make_spec_backed_voice_loader(std::move(config));
++}
++
++}  // namespace engine::models::tiny_voca_ru
+diff --git a/tools/community_models/convert_tiny_voca_ru.py b/tools/community_models/convert_tiny_voca_ru.py
+new file mode 100644
+index 0000000..ce540a2
+--- /dev/null
++++ b/tools/community_models/convert_tiny_voca_ru.py
+@@ -0,0 +1,110 @@
++#!/usr/bin/env python3
++"""Pack tiny-voca-ru as one GGUF file for audio.cpp.
++
++    python tools/community_models/convert_tiny_voca_ru.py \
++        --source /path/to/tiny-voca-ru --output models/tiny-voca-ru-GGUF/tiny-voca-ru-orig.gguf
++
++``--source`` is a copy of https://huggingface.co/egnch/tiny-voca-ru: it needs
++``config.json`` and ``model.safetensors``. The weights are stored as float32,
++bit for bit. The config is rewritten in the layout of the English tiny-voca
++(``model``, ``vocab``) with the lists of phonemes and vowels that the runtime
++reads. ``--check`` reads the GGUF back and compares.
++
++Needs numpy and safetensors, and a built ``audiocpp_gguf``.
++"""
++
++import argparse
++import json
++from pathlib import Path
++import subprocess
++import tempfile
++
++import numpy as np
++from safetensors.numpy import load_file, save_file
++
++REPO = Path(__file__).resolve().parents[2]
++# tiny_voca_ru.frontend.symbols: 5 special tokens, 12 punctuation marks, the consonants, then these vowels.
++VOWELS = ["a", "o", "e", "i", "u", "ɨ", "ɐ", "ə"]
++SPECIALS = ["<pad>", "<bos>", "<eos>", "<sp>", "<unk>"]
++PUNCTUATION_COUNT = 12
++
++
++def model_config(source):
++    data = json.loads((source / "config.json").read_text(encoding="utf-8"))
++    if data.get("format_version") != 1:
++        raise ValueError(f"unknown tiny-voca-ru config format {data.get('format_version')}")
++    symbols, model = data["symbols"], data["config"]
++    if symbols[:5] != SPECIALS or symbols[-len(VOWELS):] != VOWELS or len(symbols) != model["vocab_size"]:
++        raise ValueError("the phoneme inventory is not the one of tiny-voca-ru 0.2")
++    phones = symbols[len(SPECIALS) + PUNCTUATION_COUNT:] + ["<unk>"]   # <unk> stands for a phoneme, too
++    return {
++        "model": model,
++        "vocab": {symbol: index for index, symbol in enumerate(symbols)},
++        "phones": phones,
++        "vowels": VOWELS,
++        "frontend": "ru",
++        "step": data.get("step"),
++    }
++
++
++def model_tensors(source):
++    tensors = load_file(str(source / "model.safetensors"))
++    for name, array in tensors.items():
++        if array.dtype != np.float32:
++            raise ValueError(f"{name} is {array.dtype}; a float32 checkpoint is expected")
++    return {name: np.ascontiguousarray(array) for name, array in tensors.items()}
++
++
++def write_model_directory(source, root):
++    """The files audio.cpp reads, in a folder: it can be loaded as it is, too."""
++    root.mkdir(parents=True, exist_ok=True)
++    (root / "config.json").write_text(json.dumps(model_config(source), ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
++    tensors = model_tensors(source)
++    save_file(tensors, str(root / "model.safetensors"))
++    return tensors
++
++
++def check(path, tensors):
++    """Every tensor in the GGUF equals the source, byte for byte."""
++    import gguf
++    reader = gguf.GGUFReader(str(path))
++    stored = {tensor.name: tensor for tensor in reader.tensors}
++    wrong = 0
++    for name, array in tensors.items():
++        found = next((stored[key] for key in (f"model/{name}", f"model.{name}", name) if key in stored), None)
++        if found is None or np.asarray(found.data).tobytes() != array.tobytes():
++            wrong += 1
++            print("DIFFERENT" if found is not None else "MISSING", name)
++    print(f"{len(tensors)} tensors checked, {wrong} wrong; {len(stored)} tensors in the file")
++    return wrong == 0
++
++
++def main():
++    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
++    parser.add_argument("--source", type=Path, required=True, help="A copy of the Hugging Face repository egnch/tiny-voca-ru")
++    parser.add_argument("--output", type=Path, required=True)
++    parser.add_argument("--converter", type=Path, default=REPO / "build/bin/audiocpp_gguf")
++    parser.add_argument("--directory", type=Path, help="Also keep the unpacked model folder here (loadable as it is)")
++    parser.add_argument("--check", action="store_true", help="Read the GGUF back and compare every tensor (needs the gguf package)")
++    parser.add_argument("--overwrite", action="store_true")
++    args = parser.parse_args()
++    if args.output.exists() and not args.overwrite:
++        raise FileExistsError(args.output)
++    args.output.parent.mkdir(parents=True, exist_ok=True)
++    with tempfile.TemporaryDirectory(prefix=".tiny-voca-ru-", dir=args.output.parent) as temporary:
++        root = args.directory or Path(temporary) / "tiny-voca-ru"
++        tensors = write_model_directory(args.source, root)
++        command = [str(args.converter.resolve()), "--input", f"model={root / 'model.safetensors'}", "--root", str(root),
++                   "--family", "tiny_voca_ru", "--model-spec", str(REPO / "model_specs/tiny_voca_ru.json"), "--type", "orig",
++                   "--output", str(args.output.resolve())]
++        if args.overwrite:
++            command.append("--overwrite")
++        subprocess.run(command, check=True)
++    print(f"wrote {args.output} ({args.output.stat().st_size / 1e6:.1f} MB): {len(tensors)} tensors, "
++          f"{sum(v.size for v in tensors.values()):,} parameters")
++    if args.check and not check(args.output, tensors):
++        raise SystemExit(1)
++
++
++if __name__ == "__main__":
++    main()

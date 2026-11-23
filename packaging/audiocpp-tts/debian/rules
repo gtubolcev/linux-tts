@@ -13,7 +13,7 @@ include /usr/share/dpkg/pkg-info.mk
 PRIV = usr/lib/$(DEB_HOST_MULTIARCH)/linux-tts
 LIBDIR = $(PRIV)/audiocpp
 B = obj-$(DEB_HOST_GNU_TYPE)
-MODELS = piper_tts;kokoro_tts;supertonic;pocket_tts;pocket_tts_small;kitten_tts;kitten_tts2
+MODELS = piper_tts;kokoro_tts;supertonic;pocket_tts;pocket_tts_small;kitten_tts;kitten_tts2;tiny_voca;tiny_voca_ru
 UPVER = $(firstword $(subst +, ,$(DEB_VERSION_UPSTREAM)))
 
 %:

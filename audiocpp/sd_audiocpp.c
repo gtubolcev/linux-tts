@@ -32,6 +32,12 @@
  *                                      or vocabulary (TeraTTS: supertonic)
  *   speed-base=1.05                    the model's own speed: the request
  *                                      option "speed" is this times the rate
+ *   stress=plus                        the model reads Russian stress marks:
+ *                                      the text gets them from the stress
+ *                                      dictionaries (TextStress), "+" before
+ *                                      the vowel ("plus") or U+0301 after it
+ *                                      ("acute"); default none, only ё
+ *                                      (tiny-voca-ru: plus)
  *
  *   [load-options]       key=value     audiocpp's --load-option
  *   [session-options]    key=value     --session-option
@@ -107,6 +113,7 @@ typedef struct
   gboolean tera;             /* phonemizer=teratts */
   gchar *model_spec;         /* NULL: audio.cpp's */
   double speed_base;
+  RuStressMark stress;       /* stress=: RU_STRESS_NONE without */
 #ifdef AUDIOCPP_TERATTS
   struct TeraText *tera_text;
 #endif
@@ -453,7 +460,7 @@ add_model_dir (const gchar *dir)
   GKeyFile *kf = g_key_file_new ();
   GError *error = NULL;
   gchar *family = NULL, *file = NULL, *synth = NULL, *lang = NULL, *phonemizer = NULL;
-  gchar *spec = NULL, *base = NULL;
+  gchar *spec = NULL, *base = NULL, *stress = NULL;
 #ifdef AUDIOCPP_TERATTS
   struct TeraText *tera_text = NULL;
 #endif
@@ -534,6 +541,18 @@ add_model_dir (const gchar *dir)
       ERR ("%s: speed-base %s out of 0.25..4", ini, base);
       m->speed_base = 1.0;
     }
+  stress = key_string (kf, "model", "stress");
+  if (stress == NULL || g_ascii_strcasecmp (stress, "none") == 0)
+    m->stress = RU_STRESS_NONE;
+  else if (g_ascii_strcasecmp (stress, "plus") == 0 || strcmp (stress, "+") == 0)
+    m->stress = RU_STRESS_PLUS;
+  else if (g_ascii_strcasecmp (stress, "acute") == 0)
+    m->stress = RU_STRESS_ACUTE;
+  else
+    {
+      ERR ("%s: unknown stress %s, the text gets no stress marks", ini, stress);
+      m->stress = RU_STRESS_NONE;
+    }
 
   groups = g_key_file_get_groups (kf, NULL);
   for (gchar **g = groups; *g != NULL; g++)
@@ -572,6 +591,7 @@ out:
   g_free (phonemizer);
   g_free (spec);
   g_free (base);
+  g_free (stress);
 #ifdef AUDIOCPP_TERATTS
   tera_text_free (tera_text);
 #endif
@@ -1103,6 +1123,21 @@ audiocpp_model_path (gpointer model)
 
 
 
+/* in the worker, the model loaded: a model with stress=... gets the
+ * stress marks of the dictionaries (tiny-voca-ru reads "+"); the others
+ * the defaults */
+static void
+audiocpp_text_profile (const TtsVoice *voice, TtsTextProfile *p)
+{
+  const Model *m = voice->model;
+
+  if (m->stress != RU_STRESS_NONE)
+    {
+      p->stress = TRUE;
+      p->mark = m->stress;
+    }
+}
+
 const TtsEngine tts_engine = {
   .name = "sd_audiocpp",
   .prefix = "Audiocpp",
@@ -1117,5 +1152,6 @@ const TtsEngine tts_engine = {
   .model_path = audiocpp_model_path,
   .probe_salt = audiocpp_probe_salt,
   .speak = audiocpp_speak,
+  .text_profile = audiocpp_text_profile,
   .close = audiocpp_close,
 };
