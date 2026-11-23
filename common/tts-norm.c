@@ -599,6 +599,25 @@ backend_for (TtsNorm *n, const gchar *lang, gchar zt_lang[8])
   return zt_language (lang, zt_lang) ? BACKEND_ZT : BACKEND_NONE;
 }
 
+/* speech-dispatcher's "decimal point"/"decimal comma" symbols put a space
+ * in front of the separator ("3.5" arrives as "3 .5", "5,32" as "5 ,32");
+ * the Russian normalizer copes, zyphra-textnorm reads "$5 .32" as "five
+ * dollars point three two".  Joins "<digit> <.|,><digit>" again, in place. */
+static void
+join_decimals (gchar *s)
+{
+  gchar *w = s;
+
+  for (const gchar *r = s; *r != '\0'; r++)
+    {
+      if (*r == ' ' && w > s && g_ascii_isdigit (w[-1])
+          && (r[1] == '.' || r[1] == ',') && g_ascii_isdigit (r[2]))
+        continue;
+      *w++ = *r;
+    }
+  *w = '\0';
+}
+
 static gchar *
 zt_normalize (TtsNorm *n, const gchar *text, const gchar *zt_lang)
 {
@@ -606,6 +625,7 @@ zt_normalize (TtsNorm *n, const gchar *text, const gchar *zt_lang)
   char *out;
   gchar *res;
 
+  join_decimals (clean);
   n->requests++;
   out = zt.normalize (zt.tn, clean, strlen (clean), zt_lang, strlen (zt_lang));
   if (out == NULL || !g_utf8_validate (out, -1, NULL)
