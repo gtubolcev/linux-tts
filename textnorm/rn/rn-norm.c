@@ -1,7 +1,8 @@
 /* normalizer.py PipelineNormalizer._normalize_text with NormalizeOptions.tts(): the whole
  * pipeline. The URL stage runs (enable_url_normalization), numeric footnotes are removed
  * (remove_links), the dictionary stage has no rules (it is the identity with the bundled
- * dictionaries). R4 (RN_FIX_SO) runs last, after the protected fragments are back. */
+ * dictionaries). R4 (RN_FIX_SO) runs last, after the protected fragments are back; our
+ * rn_run_tech (R27–R30) first. */
 #include "rn-lat.h"
 #include "rn-num.h"
 #include "rn-pass.h"
@@ -49,6 +50,8 @@ int rn_run_pipeline(const rn_str *in, rn_str *out)
 	rn_str t = {0}, u = {0};
 	int r = -1;
 	if (rn_str_put(&t, in->s, in->n) < 0 || (!t.s && rn_str_put(&t, NULL, 0) < 0) ||
+	    ((rn_fixes & (RN_FIX_TECH_NUM | RN_FIX_NO_SIGN | RN_FIX_DIV_SLASH | RN_FIX_LAT_WORDS)) &&
+	     step(rn_run_tech, &t) < 0) ||
 	    step(rn_run_urls, &t) < 0)
 		goto done;
 	if (rn_protect_paths(&t, &u, &paths) < 0 || (!u.s && rn_str_put(&u, NULL, 0) < 0))

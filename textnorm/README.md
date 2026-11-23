@@ -96,6 +96,9 @@ and listed in `QUIRKS.md` for review.
     2026-11-21: exact on core (13 754 pairs), big (75 739) and 23 probes; ASan/UBSan clean.
     Fixes R12–R19 are `RN_FIXES` 0x100–0x4000. IMPROVEMENTS.md lists every fix for people.
   - `rn-so.c`: our own pass for R4 ("со сто восьмой", "со второго"), `RN_FIXES` 0x80;
+  - `rn-tech.c`: our own first pass for technical text (R27–R30: version numbers after
+    Latin names, "No 5", "10 / 2", a table of Latin names such as Linux, GitHub, GNOME),
+    `RN_FIXES` 0x400000–0x2000000;
     to run last. `RN_N2W_FIXES` in rn-stage-test sets the num2words fixes (N1–N4).
   - `rn-unitform.c`: resolve_unit_form (a unit by an inflected name; needs the morphology).
   - `rn-units.[ch]`: UnitRegistry.resolve and resolve_unit_expression; `gen-units.py RN_SRC

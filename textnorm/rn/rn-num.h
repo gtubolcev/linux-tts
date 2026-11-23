@@ -31,6 +31,10 @@ extern unsigned rn_fixes;
 #define RN_FIX_ABBR_MIXED 0x80000u     /* R23, "СПбГУ" */
 #define RN_FIX_ABBR_MORE 0x100000u     /* R24, "проф.", "т. н.", "в т. ч.", "ок.", "ж. д." */
 #define RN_FIX_ABBR_SENT_CAP 0x200000u /* R25, "Ок. 5 тысяч" → "Около пяти тысяч" */
+#define RN_FIX_TECH_NUM 0x400000u      /* R27, "с GNOME 50", "Python 3.10" (rn-tech.c) */
+#define RN_FIX_NO_SIGN 0x800000u       /* R28, "No 5" → "№ 5" */
+#define RN_FIX_DIV_SLASH 0x1000000u    /* R29, "10 / 2" → "10 делить на 2" */
+#define RN_FIX_LAT_WORDS 0x2000000u    /* R30, "Linux" → "линукс" (rn_tech_word) */
 
 #define RN_NO_GENDER (-1)
 

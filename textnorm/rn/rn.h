@@ -11,7 +11,7 @@
 
 /* RN_FIX_* / N2W_FIX_* masks: what rn_open() takes for "all fixes" (QUIRKS.md); 0 gives the
  * output of ru_normalizr itself */
-#define RN_FIXES_ALL 0x3FFFFFu
+#define RN_FIXES_ALL 0x3FFFFFFu
 #define RN_N2W_FIXES_ALL 0xFu
 
 /* load the data (morph: cmorphy3-ru.bin, ipa: en-ipa.tsv) and compile the patterns; 0, or -1 with a message in err. Once loaded, later

@@ -73,7 +73,7 @@ if pcre2.found()
       'textnorm/rn/rn-ph.c', 'textnorm/rn/rn-phone.c', 'textnorm/rn/rn-phones.c',
       'textnorm/rn/rn-pre.c', 'textnorm/rn/rn-protect.c', 'textnorm/rn/rn-pystr.c',
       'textnorm/rn/rn-re.c', 'textnorm/rn/rn-refs.c', 'textnorm/rn/rn-roman.c',
-      'textnorm/rn/rn-so.c', 'textnorm/rn/rn-stage.c',
+      'textnorm/rn/rn-so.c', 'textnorm/rn/rn-stage.c', 'textnorm/rn/rn-tech.c',
       'textnorm/rn/rn-tables.c', 'textnorm/rn/rn-unitform.c',
       'textnorm/rn/rn-units.c', 'textnorm/rn/rn-urls.c', 'textnorm/rn/rn-years.c'),
     c_args: ['-Wno-comment', '-Wno-sign-compare', '-Wno-missing-field-initializers'],

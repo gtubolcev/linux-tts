@@ -9,6 +9,7 @@
 
 #include "rn-dic.h"
 #include "rn-lat.h"
+#include "rn-pass.h"
 #include "rn-pat.h"
 #include "rn-pystr.h"
 #include "rn-tables.h"
@@ -372,7 +373,10 @@ static int token_repl(const rn_match *m, rn_str *out, void *ctx)
 	for (size_t i = 0; i < w.n; i++)
 		if (w.s[i] == 0x2019)
 			w.s[i] = '\'';
-	if (r >= 0)
+	const uint32_t *own = r >= 0 ? rn_tech_word(w.s, w.n) : NULL;   /* R30 */
+	if (own)
+		r = rn_puts(out, own);
+	else if (r >= 0)
 		r = word_reading(&w, out);
 	rn_str_free(&w);
 	return r;

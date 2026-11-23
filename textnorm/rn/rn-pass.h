@@ -6,6 +6,9 @@
 #include "rn-re.h"
 
 int rn_run_urls(const rn_str *in, rn_str *out);
+/* our first pass (rn-tech.c, R27–R30) and its table of Latin names for latinization */
+int rn_run_tech(const rn_str *in, rn_str *out);
+const uint32_t *rn_tech_word(const uint32_t *w, size_t n);
 int rn_run_math(const rn_str *in, rn_str *out);
 /* _run_preprocess_steps(apply_caps_normalization=False), _run_caps_normalization, and
  * remove_numeric_footnotes with the default ignore interval */
