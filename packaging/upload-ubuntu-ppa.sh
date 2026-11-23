@@ -97,9 +97,14 @@ mapfile -t PATCHES < <(sed -e 's/#.*//' -e '/^[[:space:]]*$/d' "$PATCHDIR/series
 for p in "${PATCHES[@]}"; do
   cp "$PATCHDIR/$p" "debian/patches/linux-tts-$p"
   echo "linux-tts-$p" >> debian/patches/series
-  # the source package keeps them unapplied; check that they apply exactly
-  patch -p1 -F0 --dry-run -s < "debian/patches/linux-tts-$p" >/dev/null 2>&1 \
+  # check that they apply exactly, each on top of the ones before it
+  patch -p1 -F0 -s --no-backup-if-mismatch < "debian/patches/linux-tts-$p" >/dev/null 2>&1 \
     || { echo "error: $p does not apply" >&2; exit 1; }
+done
+# the source package keeps them unapplied
+for ((i = ${#PATCHES[@]} - 1; i >= 0; i--)); do
+  patch -p1 -R -s -E < "debian/patches/linux-tts-${PATCHES[i]}" >/dev/null 2>&1 \
+    || { echo "error: ${PATCHES[i]} does not revert" >&2; exit 1; }
 done
 [ -x "$HERE/$PKG/prepare.sh" ] && "$HERE/$PKG/prepare.sh"
 

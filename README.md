@@ -43,7 +43,15 @@ a private shared library the modules load with dlopen
 package `libzyphra-textnorm-tts` from `packaging/zyphra-textnorm`); without it they pass
 through unchanged. After it,
 `common/tts-stress.c` marks the stress and ё from the stress dictionaries (`TextStress`,
-sd_sherpa-onnx and sd_silero; on by default, homographs not resolved yet).
+on by default, homographs not resolved yet), with the mark each voice reads (the module's
+text profile: "+" for Silero, U+0301 or only ё for Piper; Vosk, Kokoro, TeraTTS and
+audio.cpp find the stress themselves).
+
+The same stages are a private library, `liblinux-tts-text.so.0` (package
+`linux-tts-text`, `common/linux-tts-text.h`), for other engines' modules: the PPA's
+`sd_rhvoice` loads it (`packaging/rhvoice/patches/sd-module-text-stages`) and then reads
+normalized text with ё, and "+" stress marks when `languages.Russian.stress_marker=+` is
+set in RHVoice.conf.
 
 A settings dialog for Xfce: [xfce4-speech-settings](https://github.com/gtubolcev/xfce4-speech-settings).
 

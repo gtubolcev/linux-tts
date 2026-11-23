@@ -107,6 +107,18 @@ if rn_dep.found()
   test('norm-rn', find_program('tests/norm-rn.py'), args: [tts_norm_test], timeout: 300)
 endif
 
+# the same text stages as a private library for other engines' modules
+# (the PPA's sd_rhvoice loads it with dlopen)
+linux_tts_text = shared_library('linux-tts-text', 'common/linux-tts-text.c', norm_src, stress_src,
+  include_directories: common_inc,
+  dependencies: [glib, rn_dep, cc.find_library('dl', required: false)],
+  gnu_symbol_visibility: 'hidden', soversion: '0',
+  link_args: '-Wl,--version-script=' + meson.current_source_dir() / 'common/linux-tts-text.map',
+  link_depends: 'common/linux-tts-text.map',
+  install: true, install_dir: get_option('libdir') / 'linux-tts')
+test('linux-tts-text', executable('linux-tts-text-test', 'common/linux-tts-text-test.c',
+  include_directories: common_inc, link_with: linux_tts_text, dependencies: glib))
+
 # the common module frame (threads, protocol, text) and its tests with a
 # fake engine
 module_src = files('common/tts-module.c', 'common/tts-keys.c') + norm_src + stress_src

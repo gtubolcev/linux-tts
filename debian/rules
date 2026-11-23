@@ -15,6 +15,10 @@ override_dh_auto_configure:
 	  -Dsilero=enabled -Dsherpa=enabled -Dsherpa_vulkan=enabled -Dkokoro_vulkan=enabled \
 	  -Daudiocpp=enabled
 
+# a private library (dlopen), no shlibs file
+override_dh_makeshlibs:
+	dh_makeshlibs -Xlinux-tts/liblinux-tts-text
+
 override_dh_shlibdeps:
 	dh_shlibdeps -l$(ORTDIR) -l$(ORTDIR)/audiocpp
 

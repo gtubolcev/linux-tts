@@ -199,6 +199,19 @@ Description: text normalization for the speech-dispatcher-modules voices
  "TextNormalizationEngine python" (it needs speech-dispatcher-ru-normalizr);
  with "TextNormalization no" in a module's .conf the text is spoken as it is.
 
+Package: linux-tts-text
+Architecture: any
+Depends: ${misc:Depends}, ${shlibs:Depends}
+Recommends: speech-dispatcher-ru-normalizr-data, libzyphra-textnorm-tts
+Suggests: vosk-tts-model-ru-0.9-multi
+Description: text normalization and stress marks for other speech-dispatcher modules
+ A private library (liblinux-tts-text.so.0 in /usr/lib/<arch>/linux-tts) with
+ the text stages of the speech-dispatcher-modules voices, for modules of
+ other engines that load it: the RHVoice module of this archive reads
+ numbers, dates, units and abbreviations as words with it (rn for Russian,
+ zyphra-textnorm for 43 other languages) and gets ё and stress marks from
+ the stress dictionaries (the Vosk model's one).
+
 Package: linux-tts-ru
 Architecture: all
 Depends: speech-dispatcher-sherpa-onnx (>= ${source:Version}),
