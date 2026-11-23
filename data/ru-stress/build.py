@@ -34,14 +34,16 @@ def spos(st):  # index of the stressed vowel among the vowels
     return vs.index("ё") if "ё" in vs else -1
 # key -> {(form, proper): rare_all}
 W = collections.defaultdict(dict)
-rows = []; PL = set()
+rows = []; PL = set(); CN = set(); AUTO = set()  # AUTO: one-vowel rows whose е got its acute from canon()
 for l in open(WIKT, encoding="utf-8"):
     f = l.rstrip("\n").split("\t")
     st = canon(f[1], one=True)
     if st is None: continue
     fl = f[6] if len(f) > 6 else ""
     if "n" in fl and nvow(st) > 1: PL.add(f[2])
+    if "n" not in fl and "canonical" in f[4]: CN.add(f[2])
     rows.append((st, f[2], f[5], fl, f[3], f[4]))
+    if nvow(st) == 1 and "ё" not in st.lower() and AC not in f[1]: AUTO.add(len(rows) - 1)
 # lemma frequencies of the Russian National Corpus (Lyashevskaya, Sharov
 # 2009), only to order the readings: the more frequent lemma first
 POS = {"noun": ("s",), "name": ("s",), "verb": ("v",), "adj": ("a", "apro", "anum"),
@@ -61,14 +63,23 @@ for st, lem, src, fl, pos, tags in rows:
     HEAD[(key(st), st)] &= lem == bare(st)
 for st, lem, src, fl, pos, tags in rows:
     if "comparative" in tags or "superlative" in tags: CMP.add((key(st), st))
+# a form of a proper name's page is proper too, unless the lemma is also a
+# common word (тёш of тёша, not Тёш of the name Тёша)
 for st, lem, src, fl, pos, tags in rows:
-    p = "n" in fl or (src == "ru" and lem in PL)
+    p = "n" in fl or (src == "ru" and lem in PL and lem not in CN)
     r = RR[(key(st), st, p)]; nc = tags != "canonical" and "canonical," not in tags
     r[0] += 1; r[1] += "r" in fl; r[2] += nc; r[3] += nc and "r" in fl
     r[4] += not nc and lem == bare(st) and "r" not in fl  # the headword itself
     if not ((key(st), st) in CMP and lem == bare(st)):
         sc = max((F.get((lem.replace("ё", "е"), x), 0.0) for x in (("s.PROP",) if p else POS.get(pos, ()))), default=0.0)
         SC[(key(st), st, p)] = max(SC[(key(st), st, p)], sc)
+LEM = collections.defaultdict(set)   # (key, form, proper) -> lemmas
+EXPL = set()                         # (key, form, proper) with a stress mark in some source row
+for i, (st, lem, src, fl, pos, tags) in enumerate(rows):
+    if nvow(st) != 1: continue
+    p = "n" in fl or (src == "ru" and lem in PL and lem not in CN)
+    LEM[(key(st), st, p)].add(lem.lower())
+    if i not in AUTO: EXPL.add((key(st), st, p))
 for (k, st, p), (n, nr, nc, ncr, head) in RR.items():
     # rare when every row is, or every row of an inflection (the headword
     # rows of form pages say nothing about it)
@@ -112,6 +123,20 @@ for k, v in W.items():
         if (sp, "o") in vo and (sp, "e") not in vo and any(spos(g) == sp and "ё" in g for g, _ in v):
             del v[(f, p)]; dropped += 1
 print("dropped е́ where Vosk says ё", dropped)
+# "мед" next to "мёд": a page of the ё word spelled without ё (no stress
+# mark of its own, given as an alternative spelling of the ё word). A page of
+# its own is kept (ден, ре, Лель); wrong ones of those go to the verdicts
+# ("пет|Пе́т": "drop")
+unyo = []
+for k, v in W.items():
+    if nvow(k) != 1 or k[0] == "-": continue
+    for (f, p) in list(v):
+        if "ё" in f or (k, f, p) in EXPL: continue
+        for g, q in v:
+            if q == p and "ё" in g and bare(g).lower() in LEM[(k, f, p)] \
+                    and LEM[(k, f, p)] <= {bare(f), bare(g).lower()}:
+                del v[(f, p)]; unyo.append(f + ("/n" if p else "")); break
+print("dropped е́ spelling of a ё word", len(unyo), " ".join(sorted(unyo)), file=sys.stderr)
 DV = {}
 for l in open(DIS, encoding="utf-8"):
     w, _, v = l.rstrip("\n").partition("  vosk: ")
@@ -135,9 +160,11 @@ for st, verdict in uv.items():
 D = {}  # key -> (form, proper) default
 for rk, m in um.items():
     w, _, rd = rk.partition("|")
-    c = canon(rd)
+    c = canon(rd, one=True)
     if c is None: continue
     k = key(c); p = rd[:1] != rd[:1].lower(); v = W[k]
+    if m == "drop":             # a reading that does not exist (Пе́т, Тёш)
+        v.pop((c, p), None); user["mark-drop"] += 1; continue
     if (c, p) not in v: v[(c, p)] = False
     if m == "rare": v[(c, p)] = True
     elif m == "def": D[k] = (c, p)
