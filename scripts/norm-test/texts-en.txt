@@ -1,0 +1,2 @@
+money	The price rose by 3.5% to $5.32 on March 12, 2024.
+mixed	Dr. Smith lives at 221B Baker St.; call 555-1234 at 10:30 am.
