@@ -847,11 +847,30 @@ vocab_load (VoskModel *m, const gchar *path, GError **error)
 
 
 
+typedef struct
+{
+  const gchar *path;
+  int          threads;
+  OrtSession  *session;
+  GError      *error;
+} BertLoad;
+
+static gpointer
+bert_load_main (gpointer data)
+{
+  BertLoad *bl = data;
+
+  session_new (bl->path, bl->threads, FALSE, &bl->session, &bl->error);
+  return NULL;
+}
+
 gboolean
 vosk_model_load (VoskModel *m, int threads, gboolean use_bert, const gchar *cache_dir, GError **error)
 {
-  gchar *path;
-  gboolean ok;
+  gchar *path, *apath;
+  gboolean ok = TRUE;
+  BertLoad bl = { NULL, 0, NULL, NULL };
+  GThread *bert_thread = NULL;
 
   if (m->acoustic != NULL)
     return TRUE;
@@ -860,16 +879,46 @@ vosk_model_load (VoskModel *m, int threads, gboolean use_bert, const gchar *cach
   if (!dict_open (m, cache_dir, error))
     return FALSE;
 
-  path = g_build_filename (m->dir, "model.onnx", NULL);
-  ok = session_new (path, threads, TRUE, &m->acoustic, error);
-  g_free (path);
-
+  /* The two sessions are made at the same time: creating one is mostly a
+   * single thread parsing the protobuf and setting up the graph (the
+   * acoustic model ~7 s, BERT ~4 s on a laptop), so together they take
+   * about as long as the acoustic model alone. */
   path = g_build_filename (m->dir, "bert", "model.onnx", NULL);
-  if (ok && use_bert && g_file_test (path, G_FILE_TEST_EXISTS))
+  if (use_bert && g_file_test (path, G_FILE_TEST_EXISTS))
     {
       gchar *vocab = g_build_filename (m->dir, "bert", "vocab.txt", NULL);
-      ok = vocab_load (m, vocab, error) && session_new (path, threads, FALSE, &m->bert, error);
+
+      if (vocab_load (m, vocab, error))
+        {
+          bl.path = path;
+          bl.threads = threads;
+          bert_thread = g_thread_try_new ("vosk-bert", bert_load_main, &bl, NULL);
+          if (bert_thread == NULL)
+            bert_load_main (&bl);     /* no thread: one after the other */
+        }
+      else
+        ok = FALSE;
       g_free (vocab);
+    }
+
+  apath = g_build_filename (m->dir, "model.onnx", NULL);
+  if (ok)
+    ok = session_new (apath, threads, TRUE, &m->acoustic, error);
+  g_free (apath);
+
+  if (bert_thread != NULL)
+    g_thread_join (bert_thread);
+  if (bl.path != NULL)
+    {
+      m->bert = bl.session;
+      if (bl.error != NULL)
+        {
+          if (ok)
+            g_propagate_error (error, bl.error);
+          else
+            g_error_free (bl.error);
+          ok = FALSE;
+        }
     }
   g_free (path);
   if (!ok)
