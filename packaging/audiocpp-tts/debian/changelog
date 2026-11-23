@@ -1,3 +1,11 @@
+audiocpp-tts (0.9.6+ds-2) noble; urgency=medium
+
+  * supertonic-teratts.patch: Supertonic models with a distilled sampler and
+    another vocabulary size (TeraTTS v2), the request option raw_text, and
+    tts.json text.duration_skip.
+
+ -- Grigory Tuboltsev <gtubolcev@gmail.com>  Mon, 23 Nov 2026 12:00:00 +0100
+
 audiocpp-tts (0.9.6+ds-1) noble; urgency=medium
 
   * Initial release: libaudiocpp of audio.cpp v0.9.6 (04a37f2e) with ggml,
