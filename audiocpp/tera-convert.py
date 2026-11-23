@@ -15,6 +15,8 @@ import numpy as np
 import onnx
 from onnx import numpy_helper
 
+if len(sys.argv) < 3:
+    sys.exit(__doc__.strip())
 src, out = Path(sys.argv[1]), Path(sys.argv[2])
 VE = "vector_estimator.vector_estimator."
 VF = VE + "tts.ttl.vector_field."
