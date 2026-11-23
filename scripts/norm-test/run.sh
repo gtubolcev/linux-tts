@@ -7,6 +7,9 @@
 # the user configuration) and runtime dir, and no reachable audio server.
 # Results: $OUT/<module>-<lang>$TAG/ (default /home/grigory/Storage/Claude/norm-test).
 # NORM=yes|no adds "TextNormalization <NORM>" to the module's configuration.
+# SYMBOLS=<dir> puts <dir> in as the user's locale/ (symbols.dic overrides,
+# e.g. <dir>/ru/symbols.dic); speechd reads those only from the user config
+# dir, so the server then runs with XDG_CONFIG_HOME/speech-dispatcher = conf.
 # Then: collect.py <result dir> joins each message into <test>.16k.wav, and
 # asr.py (in a container with vosk) transcribes them all.
 set -eu
@@ -42,6 +45,11 @@ X
   [ -n "${NORM:-}" ] && printf '\nTextNormalization %s\n' "$NORM" >> "$W/conf/modules/$M.conf"
   printf '#!/bin/sh\nexec python3 -I %s/proxy.py /usr/lib/speech-dispatcher-modules/%s "$@"\n' "$CP" "$BIN" > "$W/mods/sd_proxy"
   chmod +x "$W/mods/sd_proxy"
+  CONFOPT="-C $W/conf"
+  if [ -n "${SYMBOLS:-}" ]; then
+    mkdir -p "$W/conf/locale"; cp -r "$SYMBOLS/." "$W/conf/locale/"
+    ln -s "$W/conf" "$W/xdg/speech-dispatcher"; CONFOPT=
+  fi
   # the private server and the modules play into record.py, nothing else
   cat > "$W/asound.conf" <<X
 pcm.!default {
@@ -54,8 +62,8 @@ X
 
   env CHECK_OUT="$W" XDG_RUNTIME_DIR="$W/run" XDG_CONFIG_HOME="$W/xdg" \
       PULSE_SERVER=unix:/nonexistent PIPEWIRE_REMOTE=/nonexistent \
-      ALSA_CONFIG_PATH="$W/asound.conf" \
-      speech-dispatcher -s -t 0 -l 4 -C "$W/conf" -m "$W/mods" \
+      ALSA_CONFIG_PATH="$W/asound.conf" XDG_DATA_HOME="$W/xdg-data" \
+      speech-dispatcher -s -t 0 -l 4 $CONFOPT -m "$W/mods" \
         -S "$W/run/sock" -P "$W/run/pid" -L "$W/log" &
   S=$!
   i=0; while [ ! -S "$W/run/sock" ] && [ $i -lt 50 ]; do sleep 0.2; i=$((i+1)); done
