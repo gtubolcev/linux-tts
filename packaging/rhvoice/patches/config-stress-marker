@@ -1,0 +1,17 @@
+Description: read "+" as a stress mark in Russian and Ukrainian text
+ The PPA's sd_rhvoice marks the stress of Russian words with "+" (through
+ liblinux-tts-text) when this is set; without it, only ё is added.
+Author: Grigory Tuboltsev
+Forwarded: not-needed
+
+--- a/config/RHVoice.conf	2026-11-23 16:53:07.910432628 +0100
++++ b/config/RHVoice.conf	2026-11-23 16:53:07.914138861 +0100
+@@ -9,3 +9,8 @@
+ ; Вы также можете скачать пример конфигурационного файла с комментариями по ссылке:
+ ; https://raw.githubusercontent.com/RHVoice/RHVoice/master/doc/ru/RHVoice.conf
+ ; и просто заменить им этот файл.
++
++; ppa:gtubolcev/linux-tts: "+" before a vowel marks the stress (Russian and
++; Ukrainian); speech-dispatcher's RHVoice module then gets the stress of
++; Russian words from the linux-tts stress dictionaries.
++stress_marker=+

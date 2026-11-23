@@ -50,8 +50,8 @@ audio.cpp find the stress themselves).
 The same stages are a private library, `liblinux-tts-text.so.0` (package
 `linux-tts-text`, `common/linux-tts-text.h`), for other engines' modules: the PPA's
 `sd_rhvoice` loads it (`packaging/rhvoice/patches/sd-module-text-stages`) and then reads
-normalized text with ё, and "+" stress marks when `languages.Russian.stress_marker=+` is
-set in RHVoice.conf.
+normalized text with ё and "+" stress marks (its RHVoice.conf sets `stress_marker=+`;
+without it, only ё).
 
 A settings dialog for Xfce: [xfce4-speech-settings](https://github.com/gtubolcev/xfce4-speech-settings).
 
