@@ -21,6 +21,17 @@
  *                                      end of sd_kokoro: Russian with stress
  *                                      marks, misaki's English) and passes
  *                                      them as the option "phonemes"
+ *   phonemizer=teratts                 TeraTTS's text front end (language
+ *                                      tags, numbers spelt out, Russian
+ *                                      stress marks from the dictionaries)
+ *                                      with config/unicode_indexer.json;
+ *                                      the model gets the text as is
+ *                                      (request option raw_text)
+ *   model-spec=model_spec.json         audio.cpp's model spec for a model
+ *                                      of a known family with other voices
+ *                                      or vocabulary (TeraTTS: supertonic)
+ *   speed-base=1.05                    the model's own speed: the request
+ *                                      option "speed" is this times the rate
  *
  *   [load-options]       key=value     audiocpp's --load-option
  *   [session-options]    key=value     --session-option
@@ -74,6 +85,11 @@
 #define KOKORO_MAX_PHONEMES 510
 #endif
 
+#ifdef AUDIOCPP_TERATTS
+#include "tera-text.h"
+#include "ru-stress.h"
+#endif
+
 #define DBG(...) TTS_DBG (__VA_ARGS__)
 #define ERR(...) TTS_ERR (__VA_ARGS__)
 
@@ -88,6 +104,12 @@ typedef struct
   gchar *warmup;
   gboolean speed;            /* takes the request option "speed" */
   gboolean kokoro;           /* phonemizer=kokoro */
+  gboolean tera;             /* phonemizer=teratts */
+  gchar *model_spec;         /* NULL: audio.cpp's */
+  double speed_base;
+#ifdef AUDIOCPP_TERATTS
+  struct TeraText *tera_text;
+#endif
   gchar **load_opts;         /* key, value, key, value, ..., NULL */
   gchar **session_opts;
   gchar **request_opts;
@@ -114,9 +136,15 @@ static gchar *cfg_models_dir = NULL;
 static gchar *cfg_backend = NULL;
 static int cfg_device = 0;
 static int cfg_threads = 0;
+#if defined AUDIOCPP_KOKORO || defined AUDIOCPP_TERATTS
+static gchar *cfg_dictionary = NULL;       /* the stress dictionaries */
+#endif
+#ifdef AUDIOCPP_TERATTS
+static RuStress *tera_stress = NULL;       /* "+" marks for TeraTTS */
+static int tera_stress_state = 0;          /* 1 ready, -1 failed */
+#endif
 #ifdef AUDIOCPP_KOKORO
 static gchar *cfg_kokoro_data = NULL;      /* espeak-ng-data, misaki */
-static gchar *cfg_dictionary = NULL;       /* the stress dictionaries */
 static int kokoro_state = 0;               /* 1 ready, -1 failed */
 static RuG2p *ru_g2p = NULL;
 #endif
@@ -133,6 +161,8 @@ audiocpp_setup (void)
   cfg_backend = g_strdup ("cpu");
 #ifdef AUDIOCPP_KOKORO
   cfg_kokoro_data = g_strdup ("/usr/share/speech-dispatcher-kokoro");
+#endif
+#if defined AUDIOCPP_KOKORO || defined AUDIOCPP_TERATTS
   cfg_dictionary = g_strdup (RU_STRESS_DEFAULT_DICTIONARIES);
 #endif
 }
@@ -153,6 +183,8 @@ audiocpp_config (const gchar *key, const gchar *value)
 #ifdef AUDIOCPP_KOKORO
   else if (g_ascii_strcasecmp (key, "AudiocppKokoroData") == 0)
     g_free (cfg_kokoro_data), cfg_kokoro_data = g_strdup (value);
+#endif
+#if defined AUDIOCPP_KOKORO || defined AUDIOCPP_TERATTS
   else if (g_ascii_strcasecmp (key, "AudiocppDictionary") == 0)
     g_free (cfg_dictionary), cfg_dictionary = g_strdup (value);
 #endif
@@ -421,6 +453,10 @@ add_model_dir (const gchar *dir)
   GKeyFile *kf = g_key_file_new ();
   GError *error = NULL;
   gchar *family = NULL, *file = NULL, *synth = NULL, *lang = NULL, *phonemizer = NULL;
+  gchar *spec = NULL, *base = NULL;
+#ifdef AUDIOCPP_TERATTS
+  struct TeraText *tera_text = NULL;
+#endif
   gchar **groups = NULL;
   Model *m;
   guint sections = 0;
@@ -450,6 +486,27 @@ add_model_dir (const gchar *dir)
       goto out;
     }
 
+  phonemizer = key_string (kf, "model", "phonemizer");
+  if (g_strcmp0 (phonemizer, "teratts") == 0)
+    {
+#ifdef AUDIOCPP_TERATTS
+      gchar *indexer = g_build_filename (dir, "config", "unicode_indexer.json", NULL);
+      tera_text = tera_text_new (indexer, &error);
+      g_free (indexer);
+      if (tera_text == NULL)
+        {
+          ERR ("%s: %s", ini, error->message);
+          g_error_free (error);
+          goto out;
+        }
+#else
+      ERR ("%s: built without TeraTTS's text front end", ini);
+      goto out;
+#endif
+    }
+  else if (phonemizer != NULL && strcmp (phonemizer, "kokoro") != 0)
+    ERR ("%s: unknown phonemizer %s, the model reads the text itself", ini, phonemizer);
+
   m = g_new0 (Model, 1);
   m->dir = g_strdup (dir);
   m->path = model_file (dir, file);
@@ -463,10 +520,20 @@ add_model_dir (const gchar *dir)
   m->load_opts = read_options (kf, "load-options");
   m->session_opts = read_options (kf, "session-options");
   m->request_opts = read_options (kf, "request-options");
-  phonemizer = key_string (kf, "model", "phonemizer");
-  if (phonemizer != NULL && strcmp (phonemizer, "kokoro") != 0)
-    ERR ("%s: unknown phonemizer %s, the model reads the text itself", ini, phonemizer);
   m->kokoro = g_strcmp0 (phonemizer, "kokoro") == 0;
+  m->tera = g_strcmp0 (phonemizer, "teratts") == 0;
+#ifdef AUDIOCPP_TERATTS
+  m->tera_text = g_steal_pointer (&tera_text);
+#endif
+  spec = key_string (kf, "model", "model-spec");
+  m->model_spec = spec != NULL ? model_file (dir, spec) : NULL;
+  base = key_string (kf, "model", "speed-base");
+  m->speed_base = base != NULL ? g_ascii_strtod (base, NULL) : 1.0;
+  if (!(m->speed_base >= 0.25 && m->speed_base <= 4.0))
+    {
+      ERR ("%s: speed-base %s out of 0.25..4", ini, base);
+      m->speed_base = 1.0;
+    }
 
   groups = g_key_file_get_groups (kf, NULL);
   for (gchar **g = groups; *g != NULL; g++)
@@ -503,6 +570,11 @@ out:
   g_free (synth);
   g_free (lang);
   g_free (phonemizer);
+  g_free (spec);
+  g_free (base);
+#ifdef AUDIOCPP_TERATTS
+  tera_text_free (tera_text);
+#endif
   g_key_file_free (kf);
   g_free (ini);
 }
@@ -614,7 +686,7 @@ static gboolean
 audiocpp_load (gpointer model, GError **error)
 {
   Model *m = model;
-  audiocpp_model_config mc = { m->family, NULL, NULL, NULL };
+  audiocpp_model_config mc = { m->family, NULL, NULL, m->model_spec };
   audiocpp_backend_config bc = { cfg_backend, cfg_device, wanted_threads () };
   audiocpp_options *lo = make_options (m->load_opts);
   audiocpp_options *so = make_options (m->session_opts);
@@ -623,6 +695,20 @@ audiocpp_load (gpointer model, GError **error)
   gint64 t0 = g_get_monotonic_time ();
   audiocpp_status st;
 
+#ifdef AUDIOCPP_TERATTS
+  if (m->tera && tera_stress_state == 0)
+    {
+      GError *e = NULL;
+      tera_stress = ru_stress_new (*cfg_dictionary != '\0' ? cfg_dictionary : NULL, &e);
+      tera_stress_state = tera_stress != NULL ? 1 : -1;
+      if (e != NULL)
+        {
+          /* without stress marks the model guesses them */
+          ERR ("stress dictionaries: %s", e->message);
+          g_error_free (e);
+        }
+    }
+#endif
   st = audiocpp_model_load (registry, m->path, &mc, lo, &m->am);
   audiocpp_options_free (lo);
   if (api_failed (st, m->path, error))
@@ -753,13 +839,54 @@ set_phonemes (audiocpp_request *rq, Voice *v, const gchar *text, GError **error)
 #endif
 }
 
+#ifdef AUDIOCPP_TERATTS
+static gchar *
+tera_stress_cb (const gchar *text, gpointer data)
+{
+  return ru_stress_apply (data, text, RU_STRESS_PLUS);
+}
+#endif
+
+/* the text for the model: TeraTTS's prepared text, or as it is; NULL
+ * without an error when nothing is left to say */
+static gchar *
+model_text (Model *m, TtsVoice *tv, const gchar *text, GError **error)
+{
+  if (!m->tera)
+    return g_strdup (text);
+#ifdef AUDIOCPP_TERATTS
+  {
+    gchar *t = tera_text_prepare (m->tera_text, text,
+                                  g_str_has_prefix (tv->language, "en") ? "en" : "ru",
+                                  tera_stress != NULL ? tera_stress_cb : NULL, tera_stress);
+    if (t != NULL && tts_debug)
+      DBG ("model text: %s", t);
+    return t;
+  }
+#else
+  (void) tv;
+  g_set_error (error, g_quark_from_static_string ("audiocpp"), 0, "built without TeraTTS's text front end");
+  return NULL;
+#endif
+}
+
 static audiocpp_request *
 make_request (Model *m, TtsVoice *tv, const gchar *text, double speed, GError **error)
 {
   audiocpp_request *rq = audiocpp_request_create ();
   Voice *v = tv->data;
+  gchar *mt = model_text (m, tv, text, error);
 
-  if (api_failed (audiocpp_request_set_text (rq, text, m->text_language), "text", error))
+  if (mt == NULL)
+    goto fail;
+  if (api_failed (audiocpp_request_set_text (rq, mt, m->text_language), "text", error))
+    goto fail;
+  /* the prepared text has its tags: no preprocessing, no cut inside a tag
+   * (the module's pieces are short already) */
+  if (m->tera
+      && (api_failed (audiocpp_request_set_option (rq, "raw_text", "true"), "raw_text", error)
+          || api_failed (audiocpp_request_set_option (rq, "text_chunk_size", "100000"),
+                         "text_chunk_size", error)))
     goto fail;
   if (v->phoneme_lang != NULL && !set_phonemes (rq, v, text, error))
     goto fail;
@@ -773,16 +900,18 @@ make_request (Model *m, TtsVoice *tv, const gchar *text, double speed, GError **
   for (gchar **kv = m->request_opts; kv != NULL && kv[0] != NULL && kv[1] != NULL; kv += 2)
     if (api_failed (audiocpp_request_set_option (rq, kv[0], kv[1]), kv[0], error))
       goto fail;
-  if (m->speed && (speed < 0.99 || speed > 1.01))
+  if (m->speed && (speed < 0.99 || speed > 1.01 || m->speed_base != 1.0))
     {
       gchar buf[G_ASCII_DTOSTR_BUF_SIZE];
-      g_ascii_formatd (buf, sizeof buf, "%.3f", speed);
+      g_ascii_formatd (buf, sizeof buf, "%.3f", speed * m->speed_base);
       if (api_failed (audiocpp_request_set_option (rq, "speed", buf), "speed", error))
         goto fail;
     }
+  g_free (mt);
   return rq;
 
 fail:
+  g_free (mt);
   audiocpp_request_free (rq);
   return NULL;
 }

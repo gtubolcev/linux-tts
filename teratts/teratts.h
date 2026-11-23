@@ -21,15 +21,12 @@
 #ifndef TERATTS_H
 #define TERATTS_H
 
-#include <glib.h>
+#include "tera-text.h"
 
 #define TERATTS_SAMPLE_RATE 44100
 
 typedef struct TeraTts TeraTts;
 typedef struct TeraVoice TeraVoice;
-
-/* Adds stress marks ("+" before the vowel) to Russian text. */
-typedef gchar *(*TeraStressFunc) (const gchar *text, gpointer data);
 
 /* dir: the model release (models/, styles/, unicode_indexer.json);
  * threads: onnxruntime threads per graph (the physical cores) */
@@ -42,11 +39,7 @@ gchar **teratts_list_voices (const gchar *dir);
 TeraVoice *teratts_voice_load (const gchar *dir, const gchar *name, GError **error);
 void teratts_voice_free (TeraVoice *v);
 
-/* Plain text -> the text the model reads.  Spaces after punctuation,
- * numbers spelt out, unsupported characters dropped, every run of
- * Cyrillic or Latin letters tagged <ru> or <en> (lang for text without
- * letters), stress marks by stress() in the <ru> runs, NFKD.  NULL when
- * nothing speakable is left. */
+/* tera_text_prepare () with the model's table */
 gchar *teratts_prepare (TeraTts *t, const gchar *text, const gchar *lang,
                         TeraStressFunc stress, gpointer stress_data);
 

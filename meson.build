@@ -179,7 +179,7 @@ endif
 
 # ------------------------------------------------------------- teratts
 if get_option('teratts').require(onnx_ok, error_message: 'sd_teratts needs json-glib and onnxruntime').allowed()
-  executable('sd_teratts', 'teratts/teratts.c', 'common/num-words.c', 'common/ru-stress.c', 'teratts/sd_teratts.c', module_src,
+  executable('sd_teratts', 'teratts/teratts.c', 'teratts/tera-text.c', 'common/num-words.c', 'common/ru-stress.c', 'teratts/sd_teratts.c', module_src,
     include_directories: [speechd_inc, shim_inc, common_inc],
     dependencies: module_deps + [json_glib, onnxruntime],
     install: true, install_dir: module_dir)
@@ -276,12 +276,21 @@ if get_option('audiocpp').require(audiocpp_ok,
   acpp_cargs = []
   if espeak.found()
     acpp_src += ['kokoro/espeak-g2p.c', 'kokoro/en-g2p.c', 'kokoro/en-tagger.c',
-                 'kokoro/ru-g2p.c', 'common/ru-stress.c']
+                 'kokoro/ru-g2p.c']
     acpp_deps += [espeak]
     acpp_cargs += ['-DAUDIOCPP_KOKORO']
   endif
+  # TeraTTS's text front end (phonemizer=teratts)
+  if json_glib.found()
+    acpp_src += ['teratts/tera-text.c', 'common/num-words.c']
+    acpp_deps += [json_glib]
+    acpp_cargs += ['-DAUDIOCPP_TERATTS']
+  endif
+  if espeak.found() or json_glib.found()
+    acpp_src += ['common/ru-stress.c']
+  endif
   executable('sd_audiocpp', acpp_src, module_src,
-    include_directories: [speechd_inc, shim_inc, common_inc, include_directories('kokoro')],
+    include_directories: [speechd_inc, shim_inc, common_inc, include_directories('kokoro', 'teratts')],
     c_args: acpp_cargs,
     dependencies: module_deps + acpp_deps,
     install_rpath: acpp_rpath,

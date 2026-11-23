@@ -1,0 +1,226 @@
+Description: Supertonic: run TeraTTS v2 (distilled, own vocabulary)
+ TeraTTS v2 has Supertonic's architecture with a 135-character vocabulary
+ and a distilled sampler (guidance baked in, no unconditional tokens).
+  - vocabulary size from the char_embedder weights instead of 8322;
+  - distilled models (no uncond_masker tensors): one pass per step,
+    x = (x + v / total) * mask;
+  - request option raw_text: the caller prepared the text (language tags,
+    stress marks), only NFKD and the indexer lookup;
+  - tts.json "text": {"duration_skip": "+"}: characters left out of the
+    duration predictor's input (Tera's stress marks).
+ Output matches the TeraTTS ONNX pipeline (correlation 1.0000 on CPU and
+ Vulkan with the same noise).
+Author: Grigory Tuboltsev <gtubolcev@gmail.com>
+Forwarded: no
+---
+--- a/include/engine/models/supertonic/assets.h
++++ b/include/engine/models/supertonic/assets.h
+@@ -7,6 +7,7 @@
+ #include <memory>
+ #include <string>
+ #include <unordered_map>
++#include <vector>
+ 
+ namespace engine::models::supertonic {
+ 
+@@ -22,6 +23,8 @@ struct SupertonicAssets {
+     SupertonicConfig config;
+     std::shared_ptr<const assets::TensorSource> weights;
+     std::unordered_map<uint32_t, int64_t> unicode_indexer;
++    // tokens left out of the duration predictor's input (tts.json text.duration_skip)
++    std::vector<int64_t> duration_skip_ids;
+ };
+ 
+ std::shared_ptr<const SupertonicAssets> load_supertonic_assets(const std::filesystem::path & model_path);
+--- a/include/engine/models/supertonic/session.h
++++ b/include/engine/models/supertonic/session.h
+@@ -21,6 +21,8 @@ struct SupertonicGenerationOptions {
+     uint32_t seed = 1234U;
+     std::string voice = "M1";
+     std::string language = "en";
++    // the text is prepared by the caller (language tags, stress marks)
++    bool raw_text = false;
+ };
+ 
+ class SupertonicSession final
+--- a/include/engine/models/supertonic/tokenizer_text.h
++++ b/include/engine/models/supertonic/tokenizer_text.h
+@@ -19,7 +19,7 @@ class SupertonicTextTokenizer {
+ public:
+     explicit SupertonicTextTokenizer(std::shared_ptr<const SupertonicAssets> assets);
+ 
+-    SupertonicTextInputs encode(const std::string & text, const std::string & language) const;
++    SupertonicTextInputs encode(const std::string & text, const std::string & language, bool raw = false) const;
+ 
+ private:
+     std::string preprocess(const std::string & text, const std::string & language) const;
+--- a/src/models/supertonic/assets.cpp
++++ b/src/models/supertonic/assets.cpp
+@@ -61,6 +61,31 @@ std::unordered_map<uint32_t, int64_t> parse_unicode_indexer(const assets::Resour
+     return out;
+ }
+ 
++std::vector<int64_t> parse_duration_skip(
++    const assets::ResourceBundle & resources,
++    const std::unordered_map<uint32_t, int64_t> & indexer) {
++    const auto root = resources.parse_json("tts_config");
++    std::vector<int64_t> out;
++    const auto * text = root.find("text");
++    if (text == nullptr) {
++        return out;
++    }
++    const auto chars = json::optional_string(*text, "duration_skip", "");
++    for (size_t i = 0; i < chars.size();) {
++        const auto c = static_cast<unsigned char>(chars[i]);
++        const int len = c < 0x80 ? 1 : c < 0xE0 ? 2 : c < 0xF0 ? 3 : 4;
++        uint32_t cp = len == 1 ? c : c & (0x3F >> (len - 1));
++        for (int k = 1; k < len && i + k < chars.size(); ++k) {
++            cp = (cp << 6) | (static_cast<unsigned char>(chars[i + k]) & 0x3F);
++        }
++        i += len;
++        if (const auto it = indexer.find(cp); it != indexer.end()) {
++            out.push_back(it->second);
++        }
++    }
++    return out;
++}
++
+ }  // namespace
+ 
+ std::shared_ptr<const SupertonicAssets> load_supertonic_assets(const std::filesystem::path & model_path) {
+@@ -71,6 +96,7 @@ std::shared_ptr<const SupertonicAssets> load_supertonic_assets(const std::filesy
+     assets->config = parse_config(assets->resources);
+     assets->weights = assets->resources.open_tensor_source("weights");
+     assets->unicode_indexer = parse_unicode_indexer(assets->resources);
++    assets->duration_skip_ids = parse_duration_skip(assets->resources, assets->unicode_indexer);
+     return assets;
+ }
+ 
+--- a/src/models/supertonic/runtime.cpp
++++ b/src/models/supertonic/runtime.cpp
+@@ -786,7 +786,7 @@ public:
+         const core::TensorValue & text_ids,
+         const core::TensorValue & text_mask,
+         const core::TensorValue & style_dp) {
+-        auto x_btc = modules::EmbeddingModule({8322, 64}).build(ctx_, text_ids, weight("duration_predictor.tts.dp.sentence_encoder.text_embedder.char_embedder.weight"));
++        auto x_btc = modules::EmbeddingModule({weight("duration_predictor.tts.dp.sentence_encoder.text_embedder.char_embedder.weight").shape.at(0), 64}).build(ctx_, text_ids, weight("duration_predictor.tts.dp.sentence_encoder.text_embedder.char_embedder.weight"));
+         const auto text_mask_btc = modules::TransposeModule({{0, 2, 1, 3}, 3}).build(ctx_, text_mask);
+         x_btc = mul(x_btc, text_mask_btc);
+         auto sentence_mask = modules::SliceModule({2, 0, 1}).build(ctx_, text_mask);
+@@ -840,7 +840,7 @@ public:
+         const core::TensorValue & text_ids,
+         const core::TensorValue & text_mask,
+         const core::TensorValue & style_ttl) {
+-        auto x = modules::EmbeddingModule({8322, 256}).build(ctx_, text_ids, weight("text_encoder.tts.ttl.text_encoder.text_embedder.char_embedder.weight"));
++        auto x = modules::EmbeddingModule({weight("text_encoder.tts.ttl.text_encoder.text_embedder.char_embedder.weight").shape.at(0), 256}).build(ctx_, text_ids, weight("text_encoder.tts.ttl.text_encoder.text_embedder.char_embedder.weight"));
+         x = modules::TransposeModule({{0, 2, 1, 3}, 3}).build(ctx_, x);
+         x = core::ensure_backend_addressable_layout(ctx_, x);
+         x = convnext(x, "text_encoder.tts.ttl.text_encoder.convnext", {1, 1, 2, 2, 4, 4});
+@@ -898,11 +898,29 @@ private:
+         core::TensorValue style_value_pair;
+     };
+ 
++    // A distilled model has the guidance baked in and no unconditional
++    // tokens: one pass per step, without the conditional/unconditional pair.
++    bool distilled() const {
++        return weights_.tensors.find("vector_estimator.vector_estimator.tts.ttl.uncond_masker.text_special_token") ==
++               weights_.tensors.end();
++    }
++
+     VectorConditioning vector_conditioning(
+         const core::TensorValue & text_embedding,
+         const core::TensorValue & text_mask,
+         const core::TensorValue & style_ttl,
+         const core::TensorValue & latent_mask) {
++        if (distilled()) {
++            VectorConditioning state;
++            state.latent_mask = latent_mask;
++            state.mask_pair = latent_mask;
++            state.text_pair = text_embedding;
++            state.text_mask_pair = text_mask;
++            auto style_key = broadcast_to(ctx_, weight("vector_estimator.vector_estimator.Expand_output_0"), style_ttl.shape);
++            state.style_key_pair = modules::TransposeModule({{0, 2, 1, 3}, 3}).build(ctx_, style_key);
++            state.style_value_pair = modules::TransposeModule({{0, 2, 1, 3}, 3}).build(ctx_, style_ttl);
++            return state;
++        }
+         auto uncond_text = broadcast_to(
+             ctx_,
+             weight("vector_estimator.vector_estimator.tts.ttl.uncond_masker.text_special_token"),
+@@ -934,7 +952,8 @@ private:
+         const core::TensorValue & current_step,
+         const core::TensorValue & total_step) {
+         auto time = time_embedding(current_step, total_step);
+-        auto latent_pair = modules::ConcatModule({0}).build(ctx_, noisy_latent, noisy_latent);
++        const bool single = distilled();
++        auto latent_pair = single ? noisy_latent : modules::ConcatModule({0}).build(ctx_, noisy_latent, noisy_latent);
+         const auto & proj_in_weight = weight("vector_estimator.vector_estimator.tts.ttl.vector_field.proj_in.net.weight");
+         auto latent_pair_btc = modules::TransposeModule({{0, 2, 1, 3}, 3}).build(ctx_, latent_pair);
+         latent_pair_btc = core::ensure_backend_addressable_layout(ctx_, latent_pair_btc);
+@@ -971,6 +990,9 @@ private:
+             {proj_out_weight_2d, std::nullopt});
+         x = modules::TransposeModule({{0, 2, 1, 3}, 3}).build(ctx_, x);
+         x = mul(x, state.mask_pair);
++        if (single) {
++            return mul(add(noisy_latent, div(x, total_step)), state.latent_mask);
++        }
+         auto conditional = modules::SliceModule({0, 0, 1}).build(ctx_, x);
+         auto unconditional = modules::SliceModule({0, 1, 1}).build(ctx_, x);
+         auto guided = core::wrap_tensor(
+@@ -2318,7 +2340,7 @@ SupertonicChunkOutput synthesize_supertonic_chunk(
+     NumpyMt19937Normal & rng) {
+     const auto chunk_start = std::chrono::steady_clock::now();
+     auto timing_start = std::chrono::steady_clock::now();
+-    const auto text_inputs = tokenizer.encode(text, options.language);
++    const auto text_inputs = tokenizer.encode(text, options.language, options.raw_text);
+     engine::debug::trace_log_scalar("supertonic.chunk.text_chars", static_cast<int64_t>(text.size()));
+     engine::debug::trace_log_scalar("supertonic.chunk.text_tokens", text_inputs.length);
+     engine::debug::timing_log_scalar("supertonic.chunk.encode_ms", engine::debug::elapsed_ms(timing_start));
+@@ -2329,8 +2351,22 @@ SupertonicChunkOutput synthesize_supertonic_chunk(
+         ids.push_back(static_cast<int32_t>(id));
+     }
+ 
++    // the duration predictor may not know some tokens (stress marks)
++    std::vector<int32_t> duration_ids;
++    for (const int32_t id : ids) {
++        if (std::find(assets->duration_skip_ids.begin(), assets->duration_skip_ids.end(), id) ==
++            assets->duration_skip_ids.end()) {
++            duration_ids.push_back(id);
++        }
++    }
++    if (duration_ids.empty()) {
++        throw std::runtime_error("Supertonic text has no tokens for the duration predictor");
++    }
++    const auto duration_length = static_cast<int64_t>(duration_ids.size());
++    const std::vector<float> duration_mask(duration_ids.size(), 1.0F);
++
+     timing_start = std::chrono::steady_clock::now();
+-    auto duration = duration_model.run(ids, text_inputs.mask, text_inputs.length, style_dp, style_dp_shape);
++    auto duration = duration_model.run(duration_ids, duration_mask, duration_length, style_dp, style_dp_shape);
+     engine::debug::timing_log_scalar("supertonic.chunk.duration_predictor_ms", engine::debug::elapsed_ms(timing_start));
+     if (duration.values.empty() || !(duration.values[0] > 0.0F)) {
+         throw std::runtime_error("Supertonic duration predictor returned invalid duration");
+--- a/src/models/supertonic/session.cpp
++++ b/src/models/supertonic/session.cpp
+@@ -232,6 +232,9 @@ SupertonicGenerationOptions SupertonicSession::generation_options_from_request(c
+     if (const auto value = runtime::parse_u32_option(request.options, {"seed"})) {
+         options.seed = *value;
+     }
++    if (const auto value = runtime::find_option(request_options, {"raw_text"})) {
++        options.raw_text = runtime::parse_bool_option(*value, "raw_text");
++    }
+     return options;
+ }
+ 
+--- a/src/models/supertonic/tokenizer_text.cpp
++++ b/src/models/supertonic/tokenizer_text.cpp
+@@ -83,8 +83,8 @@ bool ends_with_reference_punctuation(const std::string & text) {
+ SupertonicTextTokenizer::SupertonicTextTokenizer(std::shared_ptr<const SupertonicAssets> assets)
+     : assets_(require_assets(std::move(assets))) {}
+ 
+-SupertonicTextInputs SupertonicTextTokenizer::encode(const std::string & text, const std::string & language) const {
+-    const auto processed = preprocess(text, language);
++SupertonicTextInputs SupertonicTextTokenizer::encode(const std::string & text, const std::string & language, bool raw) const {
++    const auto processed = raw ? text : preprocess(text, language);
+     const auto codepoints = engine::text::normalize_nfkd_codepoints(utf8_to_codepoints(processed));
+     SupertonicTextInputs out;
+     out.length = static_cast<int64_t>(codepoints.size());
