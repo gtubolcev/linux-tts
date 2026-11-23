@@ -1,0 +1,201 @@
+Description: Speech Dispatcher module: text normalization and stress marks
+ When liblinux-tts-text (package linux-tts-text, from linux-tts) is
+ installed, the module passes the text through it before RHVoice reads it:
+ numbers, dates, units and abbreviations become words (rn for Russian,
+ zyphra-textnorm for other languages), and Russian gets ё from the stress
+ dictionaries, with "+" stress marks when languages.Russian.stress_marker=+
+ is set in RHVoice.conf. Only the text between the SSML tags changes. The
+ language is that of the first voice of the profile. Keys TextNormalization,
+ TextStress... in the module's configuration file; without the library the
+ text is read as before.
+Author: Grigory Tuboltsev
+Forwarded: no
+Last-Update: 2026-11-23
+
+--- a/src/sd_module/main.cpp
++++ b/src/sd_module/main.cpp
+@@ -15,12 +15,14 @@
+ 
+ #include "module.hpp"
+ #include "config_tts.hpp"
++#include "text_stages.hpp"
+ 
+ int main(int argc,const char* argv[])
+ {
+   // Speech Dispatcher passes the configuration file of the module
+   if(argc>1)
+     RHVoice::sd::cmd::read_module_config(argv[1]);
++  RHVoice::sd::text_stages_init(argc>1?argv[1]:nullptr);
+   RHVoice::sd::module mod;
+   return mod.run();
+ }
+--- a/src/sd_module/SConscript
++++ b/src/sd_module/SConscript
+@@ -44,7 +44,8 @@
+ 	 "pause.cpp",
+ 	 "quit.cpp",
+ 	 "speech_synthesizer.cpp",
+-	 "speech_player.cpp"]
++	 "speech_player.cpp",
++	 "text_stages.cpp"]
+ module=local_env.Program("sd_rhvoice",src)
+ local_env.Depends(module,libcore)
+ local_env.Depends(module,libaudio)
+--- a/src/sd_module/speech_synthesizer.cpp
++++ b/src/sd_module/speech_synthesizer.cpp
+@@ -18,6 +18,7 @@
+ #include "core/document.hpp"
+ #include "io.hpp"
+ #include "speech_synthesizer.hpp"
++#include "text_stages.hpp"
+ 
+ namespace RHVoice
+ {
+@@ -110,7 +111,12 @@
+           switch(msg.type)
+             {
+             case tts_message_text:
+-              doc=is_ssml(msg)?document::create_from_ssml(tts_engine,msg.content.begin(),msg.content.end(),msg.profile):document::create_from_plain_text(tts_engine,msg.content.begin(),msg.content.end(),content_text,msg.profile);
++              {
++                bool ssml=is_ssml(msg);
++                std::string text(msg.content);
++                text_stages_apply(text,ssml,msg.profile);
++                doc=ssml?document::create_from_ssml(tts_engine,text.begin(),text.end(),msg.profile):document::create_from_plain_text(tts_engine,text.begin(),text.end(),content_text,msg.profile);
++              }
+               break;
+             case tts_message_char:
+               doc=document::create_from_plain_text(tts_engine,msg.content.begin(),msg.content.end(),content_char,msg.profile);
+--- a/src/sd_module/text_stages.cpp
++++ b/src/sd_module/text_stages.cpp
+@@ -0,0 +1,99 @@
++/* Copyright (C) 2026  Grigory Tuboltsev */
++
++/* This program is free software: you can redistribute it and/or modify */
++/* it under the terms of the GNU General Public License as published by */
++/* the Free Software Foundation, either version 3 of the License, or */
++/* (at your option) any later version. */
++
++/* This program is distributed in the hope that it will be useful, */
++/* but WITHOUT ANY WARRANTY; without even the implied warranty of */
++/* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the */
++/* GNU General Public License for more details. */
++
++/* You should have received a copy of the GNU General Public License */
++/* along with this program.  If not, see <https://www.gnu.org/licenses/>. */
++
++#include <dlfcn.h>
++#include <cstdio>
++#include <cstring>
++#include <string>
++#include "core/language.hpp"
++#include "core/voice.hpp"
++#include "text_stages.hpp"
++
++namespace RHVoice
++{
++  namespace sd
++  {
++    namespace
++    {
++      // linux-tts-text.h
++      typedef void* (*new_fn)(const char*);
++      typedef char* (*prepare_fn)(void*,const char*,long,const char*,int,const char*);
++      typedef void (*string_free_fn)(char*);
++
++      void* handle=nullptr;
++      prepare_fn prepare=nullptr;
++      string_free_fn string_free=nullptr;
++
++      // <libdir>/linux-tts/liblinux-tts-text.so.0, <libdir> being where
++      // libc is (/usr/lib/<multiarch>)
++      std::string library_path()
++      {
++        const char* name="liblinux-tts-text.so.0";
++        Dl_info info;
++        if(dladdr(reinterpret_cast<void*>(&std::fopen),&info)&&info.dli_fname!=nullptr)
++          {
++            std::string dir(info.dli_fname);
++            std::string::size_type slash=dir.rfind('/');
++            if(slash!=std::string::npos)
++              return dir.substr(0,slash)+"/linux-tts/"+name;
++          }
++        return name;
++      }
++    }
++
++    void text_stages_init(const char* path)
++    {
++      std::string lib=library_path();
++      void* h=dlopen(lib.c_str(),RTLD_NOW|RTLD_LOCAL);
++      if(h==nullptr)
++        return;                 // not installed: the text stays as it is
++      new_fn create=reinterpret_cast<new_fn>(dlsym(h,"linux_tts_text_new"));
++      prepare_fn p=reinterpret_cast<prepare_fn>(dlsym(h,"linux_tts_text_prepare"));
++      string_free_fn f=reinterpret_cast<string_free_fn>(dlsym(h,"linux_tts_text_string_free"));
++      if(create==nullptr||p==nullptr||f==nullptr)
++        {
++          dlclose(h);
++          return;
++        }
++      handle=create(path);
++      if(handle==nullptr)
++        {
++          dlclose(h);
++          return;
++        }
++      prepare=p;
++      string_free=f;
++    }
++
++    void text_stages_apply(std::string& text,bool ssml,const voice_profile& profile)
++    {
++      if(handle==nullptr||profile.empty()||text.empty())
++        return;
++      const language_info& lang=*(profile.primary()->get_language());
++      // "+" before the stressed vowel only where the language reads it:
++      // languages.Russian.stress_marker=+ in RHVoice.conf; else only ё
++      const char* mark="none";
++      if(lang.supports_stress_marks()&&lang.text_settings.stress_marker.is_set(true)&&
++         static_cast<utf8::uint32_t>(lang.text_settings.stress_marker)=='+')
++        mark="+";
++      char* out=prepare(handle,text.data(),static_cast<long>(text.size()),
++                        lang.get_alpha2_code().c_str(),ssml?1:0,mark);
++      if(out==nullptr)
++        return;
++      text.assign(out);
++      string_free(out);
++    }
++  }
++}
+--- a/src/sd_module/text_stages.hpp
++++ b/src/sd_module/text_stages.hpp
+@@ -0,0 +1,29 @@
++/* Copyright (C) 2026  Grigory Tuboltsev */
++
++/* This program is free software: you can redistribute it and/or modify */
++/* it under the terms of the GNU General Public License as published by */
++/* the Free Software Foundation, either version 3 of the License, or */
++/* (at your option) any later version. */
++
++#ifndef RHVOICE_SD_TEXT_STAGES_HPP
++#define RHVOICE_SD_TEXT_STAGES_HPP
++
++#include <string>
++#include "core/voice_profile.hpp"
++
++namespace RHVoice
++{
++  namespace sd
++  {
++    // Loads liblinux-tts-text (package linux-tts-text) if it is installed;
++    // path: the configuration file of the module (TextNormalization...,
++    // TextStress... keys)
++    void text_stages_init(const char* path);
++
++    // Numbers, dates, units and abbreviations as words, ё and stress marks:
++    // replaces the text (SSML or plain) for the language of the profile's
++    // first voice.  Without the library the text stays as it is.
++    void text_stages_apply(std::string& text,bool ssml,const voice_profile& profile);
++  }
++}
++#endif

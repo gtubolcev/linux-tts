@@ -1,0 +1,4 @@
+LINUX_TTS_TEXT_0 {
+  global: linux_tts_text_*;
+  local: *;
+};
