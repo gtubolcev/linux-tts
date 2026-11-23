@@ -9,13 +9,20 @@ set -eu
 mode=${1:-full}
 SUDO=; [ "$(id -u)" = 0 ] || SUDO=sudo
 export DEBIAN_FRONTEND=noninteractive
+# the PPA's mirror answers 503 for minutes at a time after a publication
+echo 'Acquire::Retries "8"; Acquire::Retries::Delay::Maximum "60";' | $SUDO tee /etc/apt/apt.conf.d/80ci-retries >/dev/null
 $SUDO apt-get update -qq
 pkgs="build-essential meson pkgconf python3 espeak-ng libespeak-ng-dev
   libglib2.0-dev libjson-glib-dev libsonic-dev libspeechd-dev"
 if [ "$mode" = full ]; then
   $SUDO apt-get install -y -qq --no-install-recommends software-properties-common gpg-agent >/dev/null
   $SUDO add-apt-repository -y -n ppa:gtubolcev/linux-tts >/dev/null
-  $SUDO apt-get update -qq
+  # apt update only warns about a failed index and exits 100 at the end: retry it
+  for try in 1 2 3 4 5; do
+    $SUDO apt-get update -qq && break
+    [ "$try" = 5 ] && exit 1
+    sleep 60
+  done
   pkgs="$pkgs libsherpa-onnx-tts-dev libonnxruntime-tts-dev"
   opts="-Dvosk=enabled -Dkokoro=enabled -Dteratts=enabled -Dsherpa=enabled -Dsilero=enabled"
 else
