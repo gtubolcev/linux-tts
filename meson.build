@@ -317,4 +317,13 @@ if get_option('audiocpp').require(audiocpp_ok,
     input: 'audiocpp/audiocpp.conf', output: 'audiocpp-vulkan-rs.conf',
     command: [find_program('sh'), files('audiocpp/vulkan-conf.sh'), '@INPUT@', '@OUTPUT@'],
     install: true, install_dir: conf_dir)
+  # the installer of the models the packages may not ship (the settings app
+  # runs it): the catalogue, the converters and the model files
+  acpp_share = get_option('datadir') / 'speech-dispatcher-audiocpp'
+  install_data('audiocpp/audiocpp-models.py', 'audiocpp/kokoro-convert.py',
+    'audiocpp/tera-convert.py', install_dir: acpp_share, install_mode: 'rwxr-xr-x')
+  install_data('audiocpp/models/models.json', 'audiocpp/models/kokoro_tts.json',
+    'audiocpp/models/kokoro-ru.ini', 'audiocpp/models/supertonic3.ini',
+    'audiocpp/models/teratts.ini', 'audiocpp/models/teratts-model_spec.json',
+    install_dir: acpp_share / 'models')
 endif

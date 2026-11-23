@@ -1,0 +1,184 @@
+{
+  "family": "supertonic",
+  "display_name": "TeraTTS v2",
+  "description": "TeraTTS v2 (Supertonic architecture, distilled sampler), Russian and English, Open RAIL-M.",
+  "category": "tts",
+  "status": "supported",
+  "tasks": [
+    "tts"
+  ],
+  "modes": [
+    "offline",
+    "streaming"
+  ],
+  "languages": [
+    "ru",
+    "en"
+  ],
+  "capabilities": {
+    "tts": [
+      "built_in_voices"
+    ]
+  },
+  "runtime": {
+    "tags": [
+      "gguf",
+      "stream"
+    ]
+  },
+  "options": {
+    "request": [
+      {
+        "name": "voice_id",
+        "type": "enum",
+        "values": [
+          "eng_f3",
+          "eng_f4_whisper",
+          "eng_f5",
+          "eng_m2_whisper",
+          "eng_m3",
+          "eng_m4",
+          "ru_f1",
+          "ru_f2",
+          "ru_m1",
+          "ru_m5"
+        ],
+        "default": "ru_f1",
+        "description": "Built-in voice preset; --voice-id takes precedence.",
+        "required": false
+      },
+      {
+        "name": "num_inference_steps",
+        "type": "int",
+        "min": 1,
+        "default": 8,
+        "description": "Flow denoising steps.",
+        "required": false
+      },
+      {
+        "name": "speed",
+        "type": "float",
+        "min": 0,
+        "default": 1.05,
+        "description": "Positive speech speed multiplier; voice.style.speaking_rate takes precedence.",
+        "required": false
+      },
+      {
+        "name": "seed",
+        "type": "int",
+        "min": 0,
+        "max": 4294967295,
+        "default": 1234,
+        "description": "Noise seed.",
+        "required": false
+      },
+      {
+        "name": "text_chunk_size",
+        "type": "int",
+        "description": "Framework text chunk size; defaults to 120 for Korean/Japanese, otherwise 300.",
+        "required": false
+      },
+      {
+        "name": "text_chunk_mode",
+        "type": "enum",
+        "values": [
+          "default",
+          "tag_aware",
+          "japanese",
+          "endline"
+        ],
+        "default": "default",
+        "description": "Framework text chunking mode.",
+        "required": false
+      },
+      {
+        "name": "raw_text",
+        "type": "bool",
+        "default": false,
+        "required": false,
+        "description": "The text is prepared: language tags, stress marks; only NFKD."
+      }
+    ],
+    "session": [
+      {
+        "name": "weight_type",
+        "type": "enum",
+        "preset": "weight_type_full",
+        "default": "native",
+        "description": "Weight storage type.",
+        "required": false
+      },
+      {
+        "name": "style_cache_slots",
+        "type": "int",
+        "min": 0,
+        "default": 4,
+        "description": "Cached preset style slots; zero disables reuse.",
+        "required": false
+      }
+    ],
+    "load": []
+  },
+  "ui": {
+    "recommended_package": "teratts_v2_safetensors",
+    "tags": [
+      "TTS",
+      "GGUF",
+      "Stream"
+    ],
+    "docs": [
+      "docs/tts.md",
+      "docs/gguf.md"
+    ]
+  },
+  "packages": [
+    {
+      "id": "teratts_v2_safetensors",
+      "display_name": "TeraTTS v2 Safetensors",
+      "default": true,
+      "format": "safetensors",
+      "precision": "native",
+      "target_directory": "teratts-v2",
+      "files": [
+        "config/tts.json",
+        "config/unicode_indexer.json",
+        "ggml/supertonic.safetensors",
+        "voice_styles/eng_f3.json",
+        "voice_styles/eng_f4_whisper.json",
+        "voice_styles/eng_f5.json",
+        "voice_styles/eng_m2_whisper.json",
+        "voice_styles/eng_m3.json",
+        "voice_styles/eng_m4.json",
+        "voice_styles/ru_f1.json",
+        "voice_styles/ru_f2.json",
+        "voice_styles/ru_m1.json",
+        "voice_styles/ru_m5.json"
+      ]
+    }
+  ],
+  "sources": [
+    {
+      "format": "safetensors",
+      "roots": {
+        "model": "."
+      },
+      "files": {
+        "tts_config": "model:config/tts.json",
+        "unicode_indexer": "model:config/unicode_indexer.json",
+        "voice_style_eng_f3": "model:voice_styles/eng_f3.json",
+        "voice_style_eng_f4_whisper": "model:voice_styles/eng_f4_whisper.json",
+        "voice_style_eng_f5": "model:voice_styles/eng_f5.json",
+        "voice_style_eng_m2_whisper": "model:voice_styles/eng_m2_whisper.json",
+        "voice_style_eng_m3": "model:voice_styles/eng_m3.json",
+        "voice_style_eng_m4": "model:voice_styles/eng_m4.json",
+        "voice_style_ru_f1": "model:voice_styles/ru_f1.json",
+        "voice_style_ru_f2": "model:voice_styles/ru_f2.json",
+        "voice_style_ru_m1": "model:voice_styles/ru_m1.json",
+        "voice_style_ru_m5": "model:voice_styles/ru_m5.json"
+      },
+      "tensors": {
+        "weights": "model:ggml/supertonic.safetensors"
+      }
+    }
+  ]
+}

@@ -113,9 +113,12 @@ Package: speech-dispatcher-audiocpp
 Architecture: any
 # the C API of audio.cpp is young (0.x): exactly the version built against
 Depends: libaudiocpp-tts (= ${audiocpp:Version}), speech-dispatcher (>= 0.12~), ${misc:Depends}, ${shlibs:Depends}
-Recommends: speech-dispatcher-text-normalizer
-# the phonemes of Kokoro models: the espeak-ng data and misaki dictionaries there
-Suggests: speech-dispatcher-kokoro
+# python3: the model installer audiocpp-models.py (the settings app runs it)
+Recommends: speech-dispatcher-text-normalizer, python3
+# speech-dispatcher-kokoro: the phonemes of Kokoro models (its espeak-ng data
+# and misaki dictionaries); python3-numpy, python3-onnx: the installer
+# converts Kokoro and TeraTTS with them
+Suggests: speech-dispatcher-kokoro, python3-numpy, python3-onnx
 Description: Speech Dispatcher module for audio.cpp voices (ggml)
  Speaks with the speech models of audio.cpp on ggml: Piper, Kokoro,
  Supertonic, Pocket TTS and Kitten TTS voices in GGUF form. A model is a

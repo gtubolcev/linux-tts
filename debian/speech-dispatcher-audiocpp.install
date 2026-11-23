@@ -2,3 +2,4 @@ usr/lib/speech-dispatcher-modules/sd_audiocpp
 usr/lib/speech-dispatcher-modules/sd_audiocpp-vulkan-rs
 etc/speech-dispatcher/modules/audiocpp.conf
 etc/speech-dispatcher/modules/audiocpp-vulkan-rs.conf
+usr/share/speech-dispatcher-audiocpp
