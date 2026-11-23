@@ -300,9 +300,52 @@ static int left_prep_case(const uint32_t *s, size_t start)
 	return c;
 }
 
+/* R3: the date names the day, so it is nominative: right after сегодня/сейчас/завтра/…
+ * (no comma between; a dash may stand there) or after наступило/настало, and the clause ends
+ * with it ("Сегодня 23 ноября." / "…, и"). "Сегодня, 23 ноября, …" (set off by
+ * commas) and "Сегодня 23 ноября идёт дождь" (the clause goes on) are adverbials: genitive;
+ * so is "Это было 17 мая", which is why было/будет are not in the list. */
+static int names_the_day(const rn_match *m)
+{
+	static const char32_t *const W[] = {
+		U"сегодня", U"сейчас", U"завтра", U"вчера", U"послезавтра", U"позавчера",
+		U"наступило", U"наступает", U"наступит", U"настало", U"настаёт", U"настанет",
+	};
+	const uint32_t *s = m->s;
+	size_t b = m->start[0];
+	while (b && rn_py_isspace(s[b - 1]))
+		b--;
+	if (b && (s[b - 1] == 0x2014 || s[b - 1] == 0x2013 || s[b - 1] == '-')) {
+		b--;
+		while (b && rn_py_isspace(s[b - 1]))
+			b--;
+	}
+	size_t a = b;
+	while (a && rn_py_isalpha(s[a - 1]))
+		a--;
+	if (a == b || b - a > 12 || (a && (rn_py_isalnum(s[a - 1]) || s[a - 1] == '_')))
+		return 0;
+	rn_str t = {0};
+	lower(s + a, b - a, &t);
+	int hit = 0;
+	for (size_t i = 0; i < sizeof W / sizeof *W && !hit; i++)
+		hit = eq(t.s, t.n, W[i]);
+	rn_str_free(&t);
+	if (!hit)
+		return 0;
+	/* the clause ends: end of text, punctuation or a new sentence; a lower-case word or a
+	 * number goes on with it */
+	size_t e = m->end[0];
+	while (e < m->n && rn_py_isspace(s[e]))
+		e++;
+	return e == m->n || !(rn_py_islower(s[e]) || rn_py_isdigit(s[e]));
+}
+
 /* R10: a date without its own preposition takes the case of the one before it */
 static enum n2w_case outer_case(const rn_match *m, enum n2w_case dflt)
 {
+	if ((rn_fixes & RN_FIX_DATE_NOMN) && names_the_day(m))
+		return N2W_NOMN;
 	if (!(rn_fixes & RN_FIX_DATE_PREP_CASE))
 		return dflt;
 	int c = left_prep_case(m->s, m->start[0]);
