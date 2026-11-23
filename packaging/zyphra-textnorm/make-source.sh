@@ -20,9 +20,9 @@ CACHE=${CACHE:-$WORK/cache}
 mkdir -p "$CACHE"
 G=$CACHE/git
 [ -d "$G" ] || git clone -q --bare "$REPO" "$G"
-HASH=$(cat "$HERE/commit")   # the full hash of v$VER this packaging was tested with
-git -C "$G" cat-file -e "$HASH^{commit}" 2>/dev/null || git -C "$G" fetch -q "$REPO" "refs/tags/v$VER:refs/tags/v$VER"
-[ "$(git -C "$G" rev-parse "v$VER^{commit}")" = "$HASH" ]
+HASH=$(cat "$HERE/commit")   # the "Release $VER" commit this packaging was tested with (no tag upstream)
+git -C "$G" cat-file -e "$HASH^{commit}" 2>/dev/null || git -C "$G" fetch -q "$REPO"
+git -C "$G" show "$HASH:Cargo.toml" | grep -qx "version = \"$VER\""
 
 ORIG=zyphra-textnorm_$VER.orig.tar.xz
 S=zyphra-textnorm-$VER

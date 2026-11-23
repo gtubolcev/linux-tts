@@ -1,7 +1,7 @@
 Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
 Upstream-Name: zyphra-textnorm
 Source: https://github.com/Zyphra/zyphra-textnorm
-Comment: The orig tarball is tag v0.3.2 (8a73d05) with the crates of
+Comment: The orig tarball is the release commit of 0.3.2 (8a73d05, untagged) with the crates of
  Cargo.lock in vendor/ (cargo vendor); the crates are linked in
  statically. NOTICE lists the third-party parts; their licence texts are
  in licenses/, each crate's own in vendor/<crate>/.
