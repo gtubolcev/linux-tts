@@ -45,7 +45,8 @@ replaced by the Piper voices of `sherpa-onnx`.
 | Module | Models | Front end | Runtime | Graphics card |
 |---|---|---|---|---|
 | `sd_sherpa-onnx` (synthesizers `sherpa-onnx`, `sherpa-onnx-vulkan-rs`) | Supertonic 3, Piper voices (`vits-piper-*`: piper-voice-* packages, the downloader), MMS, Pocket TTS | sherpa-onnx; for Piper espeak-ng in `sd_sherpa.c`, as piper-phonemize | ONNX Runtime | Piper, MMS, Supertonic: `-vulkan-rs`; Pocket: no |
-| `sd_kokoro` | Kokoro (Russian) | `kokoro/ru-g2p.c`, espeak-ng | ONNX Runtime | not yet; the same plugin would work |
+| `sd_kokoro` | Kokoro (Russian) | `kokoro/ru-g2p.c`, espeak-ng | ONNX Runtime | `kokoro-vulkan-rs` (ONNX Runtime Vulkan EP) |
+| `sd_audiocpp` (synthesizers `audiocpp`, `audiocpp-vulkan-rs`) | GGUF models of audio.cpp: Piper, Supertonic, Pocket TTS, Kitten TTS; Kokoro | the model's own; for Kokoro (`phonemizer=kokoro`) sd_kokoro's front end, passed as the option `phonemes` | audio.cpp (ggml) | Vulkan: `-vulkan-rs` |
 | `sd_teratts` | TeraTTS | `teratts/`, stress dictionary | ONNX Runtime | not yet, as above |
 | `sd_vosk` | Vosk TTS | `vosk/vosk.c` | ONNX Runtime | not yet, as above |
 | `sd_zonos3` (`extra/`, not packaged) | ZONOS3-Mini | zonos3.cpp | ggml | Vulkan (`Zonos3Gpu`) |
