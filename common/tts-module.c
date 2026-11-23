@@ -1689,7 +1689,7 @@ speak_text (Msg *m)
   const gchar *lang = E->text_language != NULL ? E->text_language (&m->s, m->voice)
                                               : m->voice->language;
   gboolean first = TRUE;
-  TtsTextProfile prof = { FALSE, RU_STRESS_NONE, FALSE };
+  TtsTextProfile prof = { TRUE, FALSE, RU_STRESS_NONE, FALSE };
 
   /* the helper starts while the model loads */
   tts_norm_start (get_norm ());
@@ -1704,7 +1704,8 @@ speak_text (Msg *m)
     {
       TtsSegment *seg = &g_array_index (segs, TtsSegment, i);
       gchar *text = g_strdup (seg->text);
-      gboolean whole = *text == '\0' || tts_norm_message (norm, &text, lang);
+      gboolean whole = *text == '\0' || !prof.normalize
+                       || tts_norm_message (norm, &text, lang);
       GPtrArray *pieces = tts_split_sentences (text, first ? first_chunk () : 0);
 
       for (guint j = 0; j < pieces->len && !tts_stopped (); j++)

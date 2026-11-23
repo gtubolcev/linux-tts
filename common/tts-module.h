@@ -74,6 +74,9 @@ typedef struct
  * defaults (no stress stage, mixed case) and asks the engine per message. */
 typedef struct
 {
+  gboolean normalize;    /* numbers, dates, units ... become words
+                          * (TextNormalization); FALSE: the engine's own
+                          * frontend reads the text as it is */
   gboolean stress;       /* ё and stress marks from the stress dictionaries
                           * (TextStress, on by default); FALSE: the engine
                           * finds the stress itself */

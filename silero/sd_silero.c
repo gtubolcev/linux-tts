@@ -50,6 +50,7 @@ static gchar *cfg_dir = NULL;
 static gchar *cfg_version = NULL;
 static int cfg_threads = 0;
 static int cfg_load_timeout = 60;
+static gboolean cfg_own_frontend = FALSE;   /* SileroTextFrontend silero */
 
 /* the speakers of the model versions */
 static const struct { const char *version, *language, *speaker, *gender; } speakers[] = {
@@ -568,6 +569,8 @@ silero_config (const gchar *key, const gchar *value)
     cfg_threads = atoi (value);
   else if (g_ascii_strcasecmp (key, "SileroLoadTimeout") == 0)
     cfg_load_timeout = MAX (atoi (value), 1);
+  else if (g_ascii_strcasecmp (key, "SileroTextFrontend") == 0)
+    cfg_own_frontend = g_ascii_strcasecmp (value, "silero") == 0;
   else
     return FALSE;
   return TRUE;
@@ -910,7 +913,10 @@ silero_speak (const TtsPiece *p, GError **error)
 static void
 silero_text_profile (const TtsVoice *voice, TtsTextProfile *p)
 {
-  p->stress = TRUE;
+  /* "silero": its own frontend (numbers, abbreviations, stress with its
+   * homograph model, ё) gets the text as it is */
+  p->normalize = !cfg_own_frontend;
+  p->stress = !cfg_own_frontend;
   p->mark = RU_STRESS_PLUS;
 }
 
