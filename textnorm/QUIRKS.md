@@ -52,6 +52,9 @@ Examples marked "core" are from the oracle output `tests/golden/core.jsonl.zst`.
 | R28 | speech-dispatcher's NFKC turns "№" into "No"; "No 5" without a dot is read as the English word | "дом No 7" → "дом ноу семь" → "дом номер семь" (rn-tech.c, only in text with Cyrillic letters) | fixed, `RN_FIX_NO_SIGN` |
 | R29 | "/" between spaced numbers is left as a symbol, the second number in the genitive | "10 / 2" → "десять / двух" → "десять делить на два" ("10/2" stays a fraction) | fixed, `RN_FIX_DIV_SLASH` |
 | R30 | Latin names with an established Russian reading come out of the IPA table or letter spelling wrong | "Linux" → "линэкс", "Firefox" → "фээфокс", "GitHub" → "джисзюб", "Ubuntu" → "убуту", "Python" → "пайсан", "GNOME" → "джи эн оу эм ии", "JSON" → "джей эс оу эн", "https" → "хтпс", "www" → "вуу", ".com" → "кам". Own table in rn-tech.c (`rn_tech_word`), also used by latinization inside URLs | fixed, `RN_FIX_LAT_WORDS` |
+| R31 | Some Russian acronyms are read in syllables instead of as a word or by letters | "ООН" → "оо он", "ГИБДД" → "ги бэ дэ дэ", "НИИ" → "ни ии", "РЖД" → "эр же дэ", "ЦСКА" → "цэ эс ка аа"; now "оон", "гэ ии бэ дэ дэ", "нии", "эр жэ дэ", "цэ эс ка" (table in rn-tech.c) | fixed, `RN_FIX_ACRONYMS` |
+| R32 | A page number is read as an ordinal | "см. стр. 5" → "смотри страницу пятую", "на с. 108–113" → "на страницах со сто восьмой по сто тринадцатую"; the user wants the cardinal: "страницу пять", "на страницах сто восемь — сто тринадцать" (rn-refs.c) | fixed, `RN_FIX_PAGE_CARD` |
+| R33 | The scheme of an address is read out | "https://github.com/x" → "хтпс двоеточие слэш слэш …"; the user wants it skipped: "гитхаб точка ком слэш икс" (`rn_run_noscheme` right after the URL stage; a spelled-out "https двоеточие слэш слэш" from speech-dispatcher's punctuation "all" stays) | fixed, `RN_FIX_NO_SCHEME` |
 
 ## pymorphy3 (`cmorphy3/`)
 

@@ -13,6 +13,13 @@
  *     "линукс", "GitHub" → "гитхаб", "GNOME" → "гном") from our table, outside URLs, paths
  *     and e-mail addresses; rn_tech_word() serves the same table to the latinization
  *     stage for the words inside URLs.
+ * R31 RN_FIX_ACRONYMS: Russian acronyms the abbreviation stage reads wrong: it splits some
+ *     into syllables ("ООН" → "оо он", "ГИБДД" → "ги бэ дэ дэ", "НИИ" → "ни ии"); our table
+ *     gives the usual reading ("оон", "гэ ии бэ дэ дэ", "нии"; vowel letter names doubled as
+ *     the stage does it).
+ * R33 RN_FIX_NO_SCHEME: "https://" / "http://" before an address is not read (the user's
+ *     choice): rn_run_noscheme, right after the URL stage (which needs the scheme to find
+ *     the address), drops its reading: "https://github.com/x" → "гитхаб точка ком слэш икс".
  */
 #include <string.h>
 
@@ -57,6 +64,26 @@ static const struct {
 	{"www", RN_U("вэ вэ вэ")},
 	{"youtube", RN_U("ютуб")},
 };
+
+/* upper-case acronym → reading (R31) */
+static const struct {
+	const uint32_t *key, *reading;
+} ACRONYMS[] = {
+	{U"ГИБДД", U"гэ ии бэ дэ дэ"},
+	{U"ГУМ", U"гум"},
+	{U"НИИ", U"нии"},
+	{U"ООН", U"оон"},
+	{U"РЖД", U"эр жэ дэ"},
+	{U"ЦСКА", U"цэ эс ка"},
+};
+
+static const uint32_t *acronym(const uint32_t *w, size_t n)
+{
+	for (size_t i = 0; i < sizeof ACRONYMS / sizeof *ACRONYMS; i++)
+		if (rn_u32len(ACRONYMS[i].key) == n && !memcmp(ACRONYMS[i].key, w, n * sizeof *w))
+			return ACRONYMS[i].reading;
+	return NULL;
+}
 
 /* the reading of a lower-case ASCII word from WORDS, or NULL */
 const uint32_t *rn_tech_word(const uint32_t *w, size_t n)
@@ -241,6 +268,21 @@ int rn_run_tech(const rn_str *in, rn_str *out)
 		i = b;
 		if (a && word_char(s[a - 1]))
 			continue;
+		/* R31 */
+		const uint32_t *acr = (rn_fixes & RN_FIX_ACRONYMS) ? acronym(s + a, b - a) : NULL;
+		if (acr && (b == n || !(word_char(s[b]) || s[b] == '-'))) {
+			size_t k = a;
+			while (k && rn_is_space(s[k - 1]))
+				k--;
+			/* a sentence start keeps its capital, as the abbreviation stage does */
+			int cap = !k || s[k - 1] == '.' || s[k - 1] == '!' || s[k - 1] == '?' || s[k - 1] == 0x2026;
+			if (rn_str_put(out, s + done, a - done) < 0 ||
+			    (cap ? rn_str_putc(out, acr[0] - 0x20) < 0 || rn_puts(out, acr + 1) < 0
+			         : rn_puts(out, acr) < 0))
+				return -1;
+			done = b;
+			continue;
+		}
 		/* R28: "No 5" */
 		if ((rn_fixes & RN_FIX_NO_SIGN) && cyr && b - a == 2 && s[a] == 'N' && s[a + 1] == 'o' &&
 		    (!a || !link_char(s[a - 1])) && b + 1 < n && s[b] == ' ' &&
@@ -272,6 +314,35 @@ int rn_run_tech(const rn_str *in, rn_str *out)
 			if (rn_str_putc(out, ' ') < 0 || put_version(out, s, b + 1, e) < 0)
 				return -1;
 			done = i = e;
+		}
+	}
+	return rn_str_put(out, s + done, n - done);
+}
+
+/* R33: drop "https двоеточие слэш слэш " that the URL stage made of "https://" before an
+ * address (the words in it are read by latinization later) */
+int rn_run_noscheme(const rn_str *in, rn_str *out)
+{
+	static const uint32_t TAIL[] = U" двоеточие слэш слэш ";
+	const size_t tl = sizeof TAIL / sizeof *TAIL - 1;
+	const uint32_t *s = in->s;
+	size_t n = in->n, done = 0;
+	for (size_t i = 0; i + 4 < n; i++) {
+		if ((s[i] | 0x20) != 'h' || (i && (word_char(s[i - 1]) || link_char(s[i - 1]))))
+			continue;
+		size_t j = i + 1;
+		static const char tt[] = "ttp";
+		for (int k = 0; k < 3 && j < n && (s[j] | 0x20) == (uint32_t)tt[k]; k++)
+			j++;
+		if (j != i + 4)
+			continue;
+		if (j < n && (s[j] | 0x20) == 's')
+			j++;
+		if (j + tl < n && !memcmp(s + j, TAIL, tl * sizeof *s) && !rn_is_space(s[j + tl])) {
+			if (rn_str_put(out, s + done, i - done) < 0)
+				return -1;
+			done = j + tl;
+			i = done - 1;
 		}
 	}
 	return rn_str_put(out, s + done, n - done);

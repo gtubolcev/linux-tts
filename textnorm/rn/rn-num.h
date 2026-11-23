@@ -35,6 +35,9 @@ extern unsigned rn_fixes;
 #define RN_FIX_NO_SIGN 0x800000u       /* R28, "No 5" → "№ 5" */
 #define RN_FIX_DIV_SLASH 0x1000000u    /* R29, "10 / 2" → "10 делить на 2" */
 #define RN_FIX_LAT_WORDS 0x2000000u    /* R30, "Linux" → "линукс" (rn_tech_word) */
+#define RN_FIX_ACRONYMS 0x4000000u     /* R31, "ООН" → "оон", "ГИБДД" → "гэ ии бэ дэ дэ" */
+#define RN_FIX_PAGE_CARD 0x8000000u    /* R32, "см. стр. 5" → "смотри страницу пять" */
+#define RN_FIX_NO_SCHEME 0x10000000u   /* R33, "https://a.ru" → "a.ru" */
 
 #define RN_NO_GENDER (-1)
 

@@ -222,7 +222,7 @@ out:
 }
 
 /* _reference_label into out: 0, 1 for None */
-static int reference_label(rn_str *out, const rn_match *m, int gnum, int gidx)
+static int reference_label(rn_str *out, const rn_match *m, int gnum, int gidx, int page_card)
 {
 	size_t nn, in;
 	const uint32_t *num = rn_group(m, gnum, &nn);
@@ -230,7 +230,7 @@ static int reference_label(rn_str *out, const rn_match *m, int gnum, int gidx)
 	int dot = 0;
 	for (size_t i = 0; i < nn; i++)
 		dot |= num[i] == '.';
-	if (!idx && !dot)
+	if (!idx && !dot && !page_card)
 		return rn_str_put(out, num, nn);
 	int r = dot ? dotted(out, num, nn) : put_card(out, num, nn);
 	if (r)
@@ -293,7 +293,10 @@ int rn_pre_normalize_numbered_references(const rn_str *in, rn_str *out)
 		}
 		if (rn_str_putc(&piece, ' ') < 0)
 			goto fail;
-		int r = reference_label(&piece, &m, gn, gi);
+		/* R32: a page number is a cardinal ("страницу пять"), not left to the numerals stage
+		 * that makes it an ordinal */
+		int r = reference_label(&piece, &m, gn, gi,
+		                        (rn_fixes & RN_FIX_PAGE_CARD) && !strcmp(lemma, "страница"));
 		if (r < 0)
 			goto fail;
 		if (r == 1)
@@ -411,7 +414,20 @@ static int page_repl(const rn_match *m, rn_str *out, void *ctx)
 	while (wn && w[wn - 1] == '.')   /* casefold().rstrip("."): the words are ASCII-free */
 		wn--;
 	int see = casefold_eq(w, wn, RN_U("см")) || casefold_eq(w, wn, RN_U("смотри"));
-	if (left) {
+	if (left && (rn_fixes & RN_FIX_PAGE_CARD)) {   /* R32: "страницы сто восемь — сто тринадцать" */
+		if (page_group(m, re, "left", lb) || page_group(m, re, "right", rb)) {
+			r = put_whole(m, out);
+			goto done;
+		}
+		int e = rn_puts(&t, see ? RN_U("страницы ") : RN_U("страницах ")) < 0 ? -1
+		                                                                   : rn_put_cardinal_a(&t, lb);
+		if (!e)
+			e = rn_puts(&t, RN_U(" — ")) < 0 ? -1 : rn_put_cardinal_a(&t, rb);
+		if (e < 0)
+			goto done;
+		r = e ? put_whole(m, out) : rn_str_put(out, t.s, t.n);
+		goto done;
+	} else if (left) {
 		if (page_group(m, re, "left", lb) || page_group(m, re, "right", rb)) {
 			r = put_whole(m, out);
 			goto done;
@@ -425,8 +441,16 @@ static int page_repl(const rn_match *m, rn_str *out, void *ctx)
 			r = put_whole(m, out);
 			goto done;
 		}
-		if (rn_puts(&t, see ? RN_U("страницу ") : RN_U("странице ")) < 0 ||
-		    rn_put_ordinal(&t, lb, see ? N2W_ACCS : N2W_LOCT, N2W_FEMN, 0, 1) < 0)
+		if (rn_puts(&t, see ? RN_U("страницу ") : RN_U("странице ")) < 0)
+			goto done;
+		if (rn_fixes & RN_FIX_PAGE_CARD) {   /* R32 */
+			int e = rn_put_cardinal_a(&t, lb);
+			if (e) {
+				if (e > 0)
+					r = put_whole(m, out);
+				goto done;
+			}
+		} else if (rn_put_ordinal(&t, lb, see ? N2W_ACCS : N2W_LOCT, N2W_FEMN, 0, 1) < 0)
 			goto done;
 	}
 	r = rn_str_put(out, t.s, t.n);
