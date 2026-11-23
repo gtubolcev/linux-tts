@@ -38,6 +38,7 @@ extern unsigned rn_fixes;
 #define RN_FIX_ACRONYMS 0x4000000u     /* R31, "ООН" → "оон", "ГИБДД" → "гэ ии бэ дэ дэ" */
 #define RN_FIX_PAGE_CARD 0x8000000u    /* R32, "см. стр. 5" → "смотри страницу пять" */
 #define RN_FIX_NO_SCHEME 0x10000000u   /* R33, "https://a.ru" → "a.ru" */
+#define RN_FIX_PAUCAL_NOUN 0x20000000u /* R34, "цена 2 доллара" → "два доллара" */
 
 #define RN_NO_GENDER (-1)
 

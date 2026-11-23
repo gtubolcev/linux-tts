@@ -6,6 +6,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "rn-num.h"
 #include "rn-pat.h"
 #include "rn-ph.h"
 #include "rn-pystr.h"
@@ -768,6 +769,30 @@ static int r_genitive_quantity_governor(X *x)
 	if (!p)
 		return NONE;
 	int c = rn_case(p->tag);
+	/* R34: "цена 2 доллара", "цена 2.50 доллара": the written noun has the form a
+	 * nominative number takes (the genitive one would be "долларов"), so the number is
+	 * the price itself, not governed by "цена" */
+	if ((rn_fixes & RN_FIX_PAUCAL_NOUN) && c == rn_g.nomn &&
+	    rn_number(p->tag) == rn_g.sing) {   /* not "от потери 100 долларов" */
+		const rn_tok *tk = &x->c->t[x->idx];
+		const cmorphy3_form *r = raw_isalpha(x, 1) ? parse(x, 1) : NULL;
+		rn_int v;
+		if (r && rn_pos(r->tag) == rn_g.NOUN) {
+			int rc = rn_case(r->tag), rnum = rn_number(r->tag), f = 0;
+			if (rn_parse_int_token(tk->s, tk->n, &v))
+				f = number_form(&v);
+			else if (decimal_token(tk->s, tk->n))
+				f = 2;
+			if ((f == 1 && rc == rn_g.nomn && rnum == rn_g.sing) ||
+			    (f == 2 && rc == rn_g.gent && rnum == rn_g.sing))
+				return NONE;
+			/* "цена 5 долларов": the genitive plural is the same in both readings;
+			 * a unit right after the number reads as the price itself */
+			if (f == 3 && rc == rn_g.gent && rnum == rn_g.plur &&
+			    rn_unit_by_lemma(r->normal_form))
+				return NONE;
+		}
+	}
 	return rn_reliable(p) && nf_in(p, RN_T_GENITIVE_QUANTITY_GOVERNORS) &&
 	               (c == rn_g.nomn || c == rn_g.gent)
 	           ? rn_g.gent
