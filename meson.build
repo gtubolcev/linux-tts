@@ -22,6 +22,12 @@ add_project_arguments('-DTTS_NORM_HELPER="@0@"'.format(norm_helper), language: '
 # the data of the C normalizer rn (cmorphy3-ru.bin, en-ipa.tsv)
 norm_data = get_option('prefix') / get_option('datadir') / 'speech-dispatcher-modules' / 'textnorm'
 add_project_arguments('-DTTS_NORM_DATA="@0@"'.format(norm_data), language: 'c')
+# zyphra-textnorm for the other languages, loaded with dlopen when present
+zt_lib = get_option('zt_lib')
+if zt_lib == ''
+  zt_lib = get_option('prefix') / get_option('libdir') / 'linux-tts' / 'libzyphra_textnorm.so.0'
+endif
+add_project_arguments('-DTTS_NORM_ZT_LIB="@0@"'.format(zt_lib), language: 'c')
 # the user's module file is read on top of the system one (common/tts-config.c)
 add_project_arguments('-DTTS_SYS_CONF_DIR="@0@"'.format(get_option('prefix') / conf_dir), language: 'c')
 
@@ -51,7 +57,7 @@ sonic = cc.find_library('sonic', required: get_option('sonic'), has_headers: ['s
 if sonic.found()
   sonic = declare_dependency(dependencies: sonic, compile_args: '-DHAVE_SONIC')
 endif
-module_deps = [speechd_module, glib, math, threads, sonic]
+module_deps = [speechd_module, glib, math, threads, sonic, cc.find_library('dl', required: false)]
 
 # text normalization: rn, the C port of ru-normalizr (textnorm/), in the
 # modules; else ru-normalizr through a resident Python helper; the modules pass
@@ -93,7 +99,7 @@ test('tts-config', executable('tts-config-test', 'common/tts-config-test.c', 'co
 test('user-stress', executable('user-stress-test', 'common/user-stress-test.c',
   'common/user-stress.c', include_directories: common_inc, dependencies: glib))
 tts_norm_test = executable('tts-norm-test', 'common/tts-norm-test.c', norm_src, stress_src,
-  include_directories: common_inc, dependencies: [glib, rn_dep])
+  include_directories: common_inc, dependencies: [glib, rn_dep, cc.find_library('dl', required: false)])
 test('norm-helper', find_program('tests/norm-helper.py'),
   args: [tts_norm_test, files('common/tts-normalize.py')], timeout: 120)
 if rn_dep.found()

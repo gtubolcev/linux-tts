@@ -11,3 +11,4 @@ option('textnorm', type: 'feature', value: 'auto', description: 'rn, the C text 
 option('audiocpp', type: 'feature', value: 'auto', description: 'sd_audiocpp, the TTS models of audio.cpp (ggml)')
 option('audiocpp_dir', type: 'string', value: '', description: 'where libaudiocpp is: <dir>/include/audiocpp.h, <dir>/lib or <dir>/bin/libaudiocpp.so')
 option('audiocpp_rpath', type: 'string', value: '', description: 'RUNPATH of sd_audiocpp, for a private libaudiocpp')
+option('zt_lib', type: 'string', value: '', description: 'zyphra-textnorm, loaded at run time for the languages other than Russian (default: <libdir>/linux-tts/libzyphra_textnorm.so.0)')

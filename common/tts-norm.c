@@ -14,6 +14,9 @@
  * spaces.  An answer with another id is the late answer to a request that
  * timed out, and is skipped.
  *
+ * Other languages go to zyphra-textnorm, dlopened in the module (no helper
+ * either); its absence only leaves them unnormalized.
+ *
  * The c engine (rn) needs none of this: it runs in the module, and a text
  * it cannot handle comes back NULL and passes through unnormalized.
  *
@@ -24,6 +27,7 @@
 #include "tts-norm.h"
 #include "user-stress.h"
 
+#include <dlfcn.h>
 #include <errno.h>
 #include <poll.h>
 #include <signal.h>
@@ -39,6 +43,9 @@
 
 #ifndef TTS_NORM_HELPER
 #define TTS_NORM_HELPER "/usr/libexec/speech-dispatcher-modules/tts-normalize"
+#endif
+#ifndef TTS_NORM_ZT_LIB
+#define TTS_NORM_ZT_LIB "libzyphra_textnorm.so.0"
 #endif
 #ifndef TTS_NORM_DATA
 #define TTS_NORM_DATA "/usr/share/speech-dispatcher-modules/textnorm"
@@ -87,6 +94,7 @@ tts_norm_config_init (TtsNormConfig *c)
   c->data = g_strdup (TTS_NORM_DATA);
   c->python = g_strdup ("python3");
   c->helper = g_strdup (TTS_NORM_HELPER);
+  c->zt_lib = g_strdup (TTS_NORM_ZT_LIB);
   c->timeout_ms = 1500;
   c->start_ms = 8000;
   c->idle_s = 60;
@@ -98,6 +106,7 @@ tts_norm_config_clear (TtsNormConfig *c)
   g_clear_pointer (&c->python, g_free);
   g_clear_pointer (&c->helper, g_free);
   g_clear_pointer (&c->data, g_free);
+  g_clear_pointer (&c->zt_lib, g_free);
 }
 
 static gboolean
@@ -120,6 +129,8 @@ tts_norm_config_parse (TtsNormConfig *c, const gchar *key, const gchar *value)
     g_free (c->python), c->python = g_strdup (value);
   else if (g_ascii_strcasecmp (key, "TextNormalizationHelper") == 0 && *value != '\0')
     g_free (c->helper), c->helper = g_strdup (value);
+  else if (g_ascii_strcasecmp (key, "TextNormalizationLibrary") == 0)
+    g_free (c->zt_lib), c->zt_lib = g_strdup (value);
   else if (g_ascii_strcasecmp (key, "TextNormalizationTimeout") == 0)
     c->timeout_ms = CLAMP (atoi (value), 50, 60000);
   else if (g_ascii_strcasecmp (key, "TextNormalizationStartTimeout") == 0)
@@ -143,6 +154,7 @@ tts_norm_new (const TtsNormConfig *c)
   n->cfg.python = g_strdup (c->python);
   n->cfg.helper = g_strdup (c->helper);
   n->cfg.data = g_strdup (c->data);
+  n->cfg.zt_lib = g_strdup (c->zt_lib);
   n->fd = -1;
   n->in = g_string_new (NULL);
   {
@@ -480,11 +492,140 @@ wait_ready (TtsNorm *n)
   return WAIT_OK;
 }
 
+static gchar *clean_text (const gchar *text);
+
 static gboolean
 is_russian (const gchar *lang)
 {
   return lang != NULL && g_ascii_strncasecmp (lang, "ru", 2) == 0
          && (lang[2] == '\0' || lang[2] == '-' || lang[2] == '_');
+}
+
+
+
+/* zyphra-textnorm, for the languages other than Russian: one normalizer
+ * per process, loaded on first use.  The library is thread-safe and its
+ * memo is bounded (1024 texts). */
+typedef struct zyphra_textnorm ZtNorm;
+static struct
+{
+  GMutex lock;
+  int state;                    /* 0 not tried, 1 loaded, -1 failed */
+  gchar *path;                  /* the library it was tried with */
+  ZtNorm *tn;
+  char *(*normalize) (const ZtNorm *, const char *, size_t, const char *, size_t);
+  int (*supported) (const char *, size_t);
+  void (*free) (char *);
+} zt;
+
+static gboolean
+zt_load (const gchar *path)
+{
+  gboolean ok;
+
+  if (path == NULL || *path == '\0' || g_ascii_strcasecmp (path, "none") == 0
+      || g_ascii_strcasecmp (path, "no") == 0)
+    return FALSE;
+  g_mutex_lock (&zt.lock);
+  if (zt.state == 0 || (zt.state < 0 && g_strcmp0 (zt.path, path) != 0))
+    {
+      /* the first library stays: a module has one normalizer */
+      void *h = dlopen (path, RTLD_NOW | RTLD_LOCAL);
+      ZtNorm *(*new_) (const char *, size_t) = NULL;
+
+      zt.state = -1;
+      g_free (zt.path);
+      zt.path = g_strdup (path);
+      if (h == NULL)
+        g_printerr ("tts-norm: %s; other languages than Russian go unnormalized\n", dlerror ());
+      else
+        {
+          new_ = (ZtNorm *(*) (const char *, size_t)) dlsym (h, "zyphra_textnorm_new");
+          zt.normalize = (char *(*) (const ZtNorm *, const char *, size_t, const char *, size_t))
+                         dlsym (h, "zyphra_textnorm_normalize");
+          zt.supported = (int (*) (const char *, size_t)) dlsym (h, "zyphra_textnorm_supported");
+          zt.free = (void (*) (char *)) dlsym (h, "zyphra_textnorm_free");
+          if (new_ != NULL && zt.normalize != NULL && zt.supported != NULL && zt.free != NULL)
+            zt.tn = new_ (NULL, 0);
+          if (zt.tn != NULL)
+            zt.state = 1;
+          else
+            {
+              g_printerr ("tts-norm: %s is not zyphra-textnorm; other languages than Russian"
+                          " go unnormalized\n", path);
+              dlclose (h);
+            }
+        }
+    }
+  ok = zt.state > 0;
+  g_mutex_unlock (&zt.lock);
+  return ok;
+}
+
+/* the voice's language as zyphra-textnorm names it ("de-AT" -> "de"), or
+ * FALSE when it has no grammar for it */
+static gboolean
+zt_language (const gchar *lang, gchar out[8])
+{
+  static const struct { const char *from, *to; } alias[] = {
+    { "no", "nb" }, { "nn", "nb" }, { "nob", "nb" }, { "fil", "tl" },
+    { "cmn", "zh" }, { "iw", "he" }, { "in", "id" },
+  };
+  gsize len;
+
+  if (lang == NULL)
+    return FALSE;
+  len = strcspn (lang, "-_.@");
+  if (len < 2 || len > 3)
+    return FALSE;
+  for (gsize i = 0; i < len; i++)
+    out[i] = g_ascii_tolower (lang[i]);
+  out[len] = '\0';
+  for (gsize i = 0; i < G_N_ELEMENTS (alias); i++)
+    if (strcmp (out, alias[i].from) == 0)
+      g_strlcpy (out, alias[i].to, 8);
+  return zt.supported (out, strlen (out)) != 0;
+}
+
+typedef enum { BACKEND_NONE, BACKEND_RU, BACKEND_ZT } Backend;
+
+static Backend
+backend_for (TtsNorm *n, const gchar *lang, gchar zt_lang[8])
+{
+  if (is_russian (lang))
+    return BACKEND_RU;
+  if (lang == NULL || !zt_load (n->cfg.zt_lib))
+    return BACKEND_NONE;
+  return zt_language (lang, zt_lang) ? BACKEND_ZT : BACKEND_NONE;
+}
+
+static gchar *
+zt_normalize (TtsNorm *n, const gchar *text, const gchar *zt_lang)
+{
+  gchar *clean = clean_text (text);
+  char *out;
+  gchar *res;
+
+  n->requests++;
+  out = zt.normalize (zt.tn, clean, strlen (clean), zt_lang, strlen (zt_lang));
+  if (out == NULL || !g_utf8_validate (out, -1, NULL)
+      || (*out == '\0' && *g_strstrip (clean) != '\0'))
+    {
+      /* lost text is worse than unnormalized text */
+      n->timeouts++;
+      g_printerr ("tts-norm: zyphra-textnorm could not normalize a text; it goes unnormalized"
+                  " (failure %u; %u requests so far)\n", n->timeouts, n->requests);
+      zt.free (out);
+      g_free (clean);
+      return g_strdup (text);
+    }
+  g_free (clean);
+  for (char *p = out; *p != '\0'; p++)
+    if (*p == '\t' || *p == '\r' || *p == '\n')
+      *p = ' ';
+  res = g_strdup (out);
+  zt.free (out);
+  return res;
 }
 
 /* the text as one request line: valid UTF-8, no control characters */
@@ -562,11 +703,11 @@ ask (TtsNorm *n, const gchar *text, const gchar *lang, gboolean *gone_out)
 }
 
 static gchar *
-norm_plain (TtsNorm *n, const gchar *text, const gchar *lang)
+norm_plain (TtsNorm *n, const gchar *text, Backend b, const gchar *zt_lang)
 {
   gchar *out = NULL;
 
-  if (n == NULL || text == NULL || !is_russian (lang) || strlen (text) > MAX_TEXT)
+  if (n == NULL || text == NULL || b == BACKEND_NONE || strlen (text) > MAX_TEXT)
     return g_strdup (text);
   for (const gchar *p = text; ; p++)
     {
@@ -575,6 +716,8 @@ norm_plain (TtsNorm *n, const gchar *text, const gchar *lang)
       if (!g_ascii_isspace (*p))
         break;
     }
+  if (b == BACKEND_ZT)
+    return zt_normalize (n, text, zt_lang);
 #ifdef HAVE_RN
   if (c_start (n))
     {
@@ -638,15 +781,20 @@ gchar *
 tts_norm_text (TtsNorm *n, const gchar *text, const gchar *lang)
 {
   gchar *plain, *norm, *out;
+  gchar zt_lang[8] = "";
   UserStress *u;
+  Backend b;
 
-  if (n == NULL || text == NULL || !is_russian (lang) || strlen (text) > MAX_TEXT)
+  if (n == NULL || text == NULL || strlen (text) > MAX_TEXT)
+    return g_strdup (text);
+  b = backend_for (n, lang, zt_lang);
+  if (b == BACKEND_NONE)
     return g_strdup (text);
   /* the user's stress marks break the normalizer's words: out and back */
   u = user_stress_take (text, &plain);
   if (u == NULL)
-    return norm_plain (n, text, lang);
-  norm = norm_plain (n, plain, lang);
+    return norm_plain (n, text, b, zt_lang);
+  norm = norm_plain (n, plain, b, zt_lang);
   out = user_stress_put (u, norm);
   g_free (norm);
   g_free (plain);
@@ -658,8 +806,9 @@ gboolean
 tts_norm_message (TtsNorm *n, gchar **text, const gchar *lang)
 {
   gchar *norm;
+  gchar zt_lang[8];
 
-  if (n == NULL || !is_russian (lang))
+  if (n == NULL || backend_for (n, lang, zt_lang) == BACKEND_NONE)
     return TRUE;                /* nothing to do per sentence either */
   if (strlen (*text) > TTS_NORM_WHOLE_MAX)
     return FALSE;

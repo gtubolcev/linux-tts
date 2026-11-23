@@ -188,7 +188,7 @@ Description: Speech Dispatcher module for Silero TTS (Russian)
 Package: speech-dispatcher-text-normalizer
 Architecture: all
 Depends: python3, ${misc:Depends}
-Recommends: speech-dispatcher-ru-normalizr-data
+Recommends: speech-dispatcher-ru-normalizr-data, libzyphra-textnorm-tts
 Suggests: speech-dispatcher-ru-normalizr
 Description: text normalization for the speech-dispatcher-modules voices
  The Vosk, Kokoro, TeraTTS, sherpa-onnx and Silero modules read numbers,

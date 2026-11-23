@@ -35,7 +35,13 @@ Without it, or with `TextNormalizationEngine python`, they share one resident Py
 helper per user (`common/tts-normalize.py`, package `speech-dispatcher-text-normalizer`,
 ~50 MB; on a socket in `$XDG_RUNTIME_DIR`, started with the first message, gone a minute
 after the last module let go of it). They read the text as it is when normalization is
-missing, fails or is slow; `TextNormalization no` in a module's .conf turns it off. After it,
+missing, fails or is slow; `TextNormalization no` in a module's .conf turns it off.
+Other languages (the voice's language decides) go to
+[zyphra-textnorm](https://github.com/Zyphra/zyphra-textnorm) (43 languages, MIT/Apache-2.0),
+a private shared library the modules load with dlopen
+(`TextNormalizationLibrary`, default `<libdir>/linux-tts/libzyphra_textnorm.so.0`,
+package `libzyphra-textnorm-tts` from `packaging/zyphra-textnorm`); without it they pass
+through unchanged. After it,
 `common/tts-stress.c` can mark the stress from the Vosk dictionary (`TextStress yes`,
 sd_sherpa-onnx and sd_silero; off by default, homographs not resolved yet).
 

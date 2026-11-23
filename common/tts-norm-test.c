@@ -1,7 +1,7 @@
 /*
  * tts-norm-test - normalizes stdin line by line through the helper
  *
- *   tts-norm-test [--engine c|python] [--data DIR] [--helper PATH] [--python PATH]
+ *   tts-norm-test [--engine c|python] [--data DIR] [--helper PATH] [--python PATH] [--zt LIB]
  *                 [--timeout MS] [--idle S] [--lang ru]
  *                 [--stress DICT] [--mark plus|acute] [--cancel-after MS]
  *
@@ -47,6 +47,8 @@ main (int argc, char **argv)
         tts_norm_config_parse (&cfg, "TextNormalizationData", argv[i + 1]);
       else if (strcmp (argv[i], "--helper") == 0)
         tts_norm_config_parse (&cfg, "TextNormalizationHelper", argv[i + 1]);
+      else if (strcmp (argv[i], "--zt") == 0)
+        tts_norm_config_parse (&cfg, "TextNormalizationLibrary", argv[i + 1]);
       else if (strcmp (argv[i], "--python") == 0)
         tts_norm_config_parse (&cfg, "TextNormalizationPython", argv[i + 1]);
       else if (strcmp (argv[i], "--timeout") == 0)

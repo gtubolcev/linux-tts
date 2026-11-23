@@ -1,0 +1,24 @@
+Source: zyphra-textnorm
+Section: libs
+Priority: optional
+Maintainer: Grigory Tuboltsev <gtubolcev@gmail.com>
+Build-Depends: debhelper-compat (= 13),
+               rustc-1.97,
+               cargo-1.97
+Standards-Version: 4.7.2
+Homepage: https://github.com/Zyphra/zyphra-textnorm
+Rules-Requires-Root: no
+
+Package: libzyphra-textnorm-tts
+Architecture: amd64
+Multi-Arch: same
+Depends: ${shlibs:Depends}, ${misc:Depends}
+Description: text normalization for TTS in 43 languages (private library)
+ zyphra-textnorm turns written text into its spoken form ("$5.32" ->
+ "five dollars thirty two cents", "am 3. Oktober" -> "am dritten
+ Oktober") for 43 languages: Rust ports of the NeMo text processing
+ grammars and Zyphra's locale grammars, with all tables built in.
+ .
+ This package has its C library in /usr/lib/<triplet>/linux-tts for the
+ speech-dispatcher modules of the linux-tts PPA, which load it for the
+ voices of languages other than Russian.

@@ -1,0 +1,6 @@
+zyphra-textnorm (0.3.2-1) noble; urgency=medium
+
+  * Initial package: the C ABI as a private shared library for the
+    speech-dispatcher modules of linux-tts.
+
+ -- Grigory Tuboltsev <gtubolcev@gmail.com>  Mon, 23 Nov 2026 12:00:00 +0100

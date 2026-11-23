@@ -1,0 +1,43 @@
+#!/usr/bin/make -f
+# Rust from the versioned toolchain packages; the crates are in vendor/ of
+# the orig tarball (see packaging/zyphra-textnorm/make-source.sh)
+export DEB_BUILD_MAINT_OPTIONS = hardening=+all
+PRIV = usr/lib/$(DEB_HOST_MULTIARCH)/linux-tts
+export PATH := /usr/lib/rust-1.97/bin:$(PATH)
+export CARGO_HOME = $(CURDIR)/debian/cargo-home
+export CARGO_TARGET_DIR = $(CURDIR)/target
+JOBS = $(patsubst parallel=%,%,$(filter parallel=%,$(DEB_BUILD_OPTIONS)))
+SONAME = libzyphra_textnorm.so.0
+
+%:
+	dh $@
+
+override_dh_auto_configure:
+	mkdir -p $(CARGO_HOME)
+	printf '[source.crates-io]\nreplace-with = "vendored"\n[source.vendored]\ndirectory = "$(CURDIR)/vendor"\n[net]\noffline = true\n' > $(CARGO_HOME)/config.toml
+
+# the C ABI (feature capi) as a shared library; upstream documents a
+# static one, which would put ~60 MB into every module
+override_dh_auto_build:
+	cargo rustc --release --frozen --lib --features capi --crate-type cdylib \
+	  $(if $(JOBS),-j$(JOBS)) -- -C link-arg=-Wl,-soname,$(SONAME) \
+	  -C link-arg=-Wl,-z,relro,-z,now
+
+# a smoke test of the C ABI: the 179k-row parity corpora need Python
+override_dh_auto_test:
+ifeq (,$(filter nocheck,$(DEB_BUILD_OPTIONS)))
+	$(CC) -o target/ctest debian/ctest.c -Iinclude -Ltarget/release -lzyphra_textnorm
+	LD_LIBRARY_PATH=target/release target/ctest
+endif
+
+override_dh_auto_install:
+	install -D -m644 target/release/libzyphra_textnorm.so \
+	  debian/libzyphra-textnorm-tts/$(PRIV)/$(SONAME)
+
+override_dh_auto_clean:
+	rm -rf target debian/cargo-home
+
+# dh_clean deletes *.orig, but vendor/*/Cargo.toml.orig are in the checksums
+# that cargo checks
+override_dh_clean:
+	dh_clean -XCargo.toml.orig

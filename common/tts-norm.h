@@ -20,7 +20,10 @@
  * timeout.  A helper that failed is not started again for a minute, so a
  * broken installation costs one timeout per minute, not one per message.
  *
- * Only Russian text is normalized now; other languages pass through.
+ * Other languages: zyphra-textnorm (MIT/Apache-2.0, Rust), a private
+ * library loaded with dlopen on the first non-Russian message, for the
+ * languages it has a grammar for (en, de, es, fr, cs, uk, ...); without it,
+ * or for other languages, the text passes through.
  *
  * Copyright (C) 2026 Grigory Tuboltsev
  * SPDX-License-Identifier: GPL-3.0-or-later
@@ -42,6 +45,8 @@ typedef struct
   gchar *data;          /* TextNormalizationData: the rn data directory */
   gchar *python;        /* TextNormalizationPython (python3) */
   gchar *helper;        /* TextNormalizationHelper (the installed script) */
+  gchar *zt_lib;        /* TextNormalizationLibrary: zyphra-textnorm for the
+                         * other languages ("" or "none": they pass through) */
   int timeout_ms;       /* TextNormalizationTimeout: per request (1500) */
   int start_ms;         /* TextNormalizationStartTimeout: helper load (8000) */
   int idle_s;           /* TextNormalizationIdleTimeout: helper exits unused (60) */
