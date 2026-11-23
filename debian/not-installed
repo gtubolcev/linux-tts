@@ -1,0 +1,2 @@
+# the development link of the private library: nothing links against it
+usr/lib/*/linux-tts/liblinux-tts-text.so

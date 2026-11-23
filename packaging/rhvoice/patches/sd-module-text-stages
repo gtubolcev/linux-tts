@@ -156,7 +156,7 @@ Last-Update: 2026-11-23
 +      // languages.Russian.stress_marker=+ in RHVoice.conf; else only ё
 +      const char* mark="none";
 +      if(lang.supports_stress_marks()&&lang.text_settings.stress_marker.is_set(true)&&
-+         static_cast<utf8::uint32_t>(lang.text_settings.stress_marker)=='+')
++         static_cast<unsigned int>(lang.text_settings.stress_marker)=='+')
 +        mark="+";
 +      char* out=prepare(handle,text.data(),static_cast<long>(text.size()),
 +                        lang.get_alpha2_code().c_str(),ssml?1:0,mark);
