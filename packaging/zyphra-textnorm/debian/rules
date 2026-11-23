@@ -26,6 +26,7 @@ override_dh_auto_build:
 # a smoke test of the C ABI: the 179k-row parity corpora need Python
 override_dh_auto_test:
 ifeq (,$(filter nocheck,$(DEB_BUILD_OPTIONS)))
+	ln -sf libzyphra_textnorm.so target/release/$(SONAME)
 	$(CC) -o target/ctest debian/ctest.c -Iinclude -Ltarget/release -lzyphra_textnorm
 	LD_LIBRARY_PATH=target/release target/ctest
 endif
