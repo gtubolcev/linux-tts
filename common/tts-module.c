@@ -418,8 +418,11 @@ norm_signature (const TtsNormConfig *c)
 static gchar *
 stress_signature (const TtsStressConfig *c)
 {
-  return g_strdup_printf ("%d\x1f%s\x1f%d\x1f%d", c->enabled, c->dictionary ? c->dictionary : "",
-                          c->mark, c->mark_set);
+  return g_strdup_printf ("%d\x1f%s\x1f%d\x1f%d\x1f%s\x1f%s\x1f%d\x1f%d", c->enabled,
+                          c->dictionary ? c->dictionary : "", c->mark, c->mark_set,
+                          c->homographs ? c->homographs : "",
+                          c->homographs_dir ? c->homographs_dir : "", c->homographs_threads,
+                          c->homographs_idle);
 }
 
 static gchar *

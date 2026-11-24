@@ -64,6 +64,10 @@ main (int argc, char **argv)
         }
       else if (strcmp (argv[i], "--mark") == 0)
         tts_stress_config_parse (&scfg, "TextStressMark", argv[i + 1]);
+      else if (strcmp (argv[i], "--homographs") == 0)
+        tts_stress_config_parse (&scfg, "TextStressHomographs", argv[i + 1]);
+      else if (strcmp (argv[i], "--homographs-dir") == 0)
+        tts_stress_config_parse (&scfg, "TextStressHomographsDir", argv[i + 1]);
       else if (strcmp (argv[i], "--cancel-after") == 0)
         cancel_after_us = g_ascii_strtoll (argv[i + 1], NULL, 10) * 1000;
       else if (strcmp (argv[i], "--lang") == 0)

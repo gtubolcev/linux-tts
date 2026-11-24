@@ -28,6 +28,12 @@ if zt_lib == ''
   zt_lib = get_option('prefix') / get_option('libdir') / 'linux-tts' / 'libzyphra_textnorm.so.0'
 endif
 add_project_arguments('-DTTS_NORM_ZT_LIB="@0@"'.format(zt_lib), language: 'c')
+# onnxruntime for the homograph models of the stress stage, loaded with dlopen
+ort_lib = get_option('ort_lib')
+if ort_lib == ''
+  ort_lib = get_option('prefix') / get_option('libdir') / 'linux-tts' / 'libonnxruntime.so.1'
+endif
+add_project_arguments('-DTTS_ORT_LIB="@0@"'.format(ort_lib), language: 'c')
 # the user's module file is read on top of the system one (common/tts-config.c)
 add_project_arguments('-DTTS_SYS_CONF_DIR="@0@"'.format(get_option('prefix') / conf_dir), language: 'c')
 
@@ -90,8 +96,17 @@ if pcre2.found()
 endif
 module_deps += rn_dep
 norm_src = files('common/tts-norm.c', 'common/user-stress.c', 'common/tts-copy.c', 'common/tts-config.c')
-# the stress stage after it (Vosk dictionary; homographs later)
-stress_src = files('common/tts-stress.c', 'common/ru-stress.c')
+# the stress stage after it (Vosk dictionary; RUAccent homograph models
+# through a dlopen'ed onnxruntime: only its headers at build time, and zlib)
+stress_src = files('common/tts-stress.c', 'common/ru-stress.c', 'common/ru-homograph.c',
+  'common/hf-tok.c')
+zlib = dependency('zlib', required: false)
+stress_deps = [cc.find_library('dl', required: false), math]
+if onnxruntime.found() and zlib.found()
+  stress_deps += [declare_dependency(compile_args: '-DHAVE_ORT_HEADERS',
+    dependencies: [onnxruntime.partial_dependency(compile_args: true), zlib])]
+endif
+module_deps += stress_deps
 install_data('common/tts-normalize.py', rename: 'tts-normalize',
   install_dir: module_dir, install_mode: 'rwxr-xr-x')
 test('tts-config', executable('tts-config-test', 'common/tts-config-test.c', 'common/tts-config.c',
@@ -99,7 +114,7 @@ test('tts-config', executable('tts-config-test', 'common/tts-config-test.c', 'co
 test('user-stress', executable('user-stress-test', 'common/user-stress-test.c',
   'common/user-stress.c', include_directories: common_inc, dependencies: glib))
 tts_norm_test = executable('tts-norm-test', 'common/tts-norm-test.c', norm_src, stress_src,
-  include_directories: common_inc, dependencies: [glib, rn_dep, cc.find_library('dl', required: false)])
+  include_directories: common_inc, dependencies: [glib, rn_dep] + stress_deps)
 test('norm-helper', find_program('tests/norm-helper.py'),
   args: [tts_norm_test, files('common/tts-normalize.py')], timeout: 120)
 if rn_dep.found()
@@ -111,7 +126,7 @@ endif
 # (the PPA's sd_rhvoice loads it with dlopen)
 linux_tts_text = shared_library('linux-tts-text', 'common/linux-tts-text.c', norm_src, stress_src,
   include_directories: common_inc,
-  dependencies: [glib, rn_dep, cc.find_library('dl', required: false)],
+  dependencies: [glib, rn_dep] + stress_deps,
   gnu_symbol_visibility: 'hidden', soversion: '0',
   link_args: '-Wl,--version-script=' + meson.current_source_dir() / 'common/linux-tts-text.map',
   link_depends: 'common/linux-tts-text.map',
@@ -122,6 +137,12 @@ test('linux-tts-text', executable('linux-tts-text-test', 'common/linux-tts-text-
 # the common module frame (threads, protocol, text) and its tests with a
 # fake engine
 module_src = files('common/tts-module.c', 'common/tts-keys.c') + norm_src + stress_src
+if json_glib.found()
+  # against the reference dump of RUAccent (tests/ruaccent-dump.py, run in docker with ruaccent); manual
+  executable('ru-homograph-test', 'common/ru-homograph-test.c', 'common/ru-homograph.c',
+    'common/hf-tok.c', 'common/ru-stress.c', include_directories: common_inc,
+    dependencies: [glib, json_glib] + stress_deps)
+endif
 sd_dummy = executable('sd_dummy', 'tests/sd_dummy.c', module_src,
   include_directories: [speechd_inc, shim_inc, common_inc],
   dependencies: module_deps)

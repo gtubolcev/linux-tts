@@ -7,10 +7,11 @@
  *
  * Now: the stress dictionary of the project, then the Vosk TTS dictionary
  * (common/ru-stress.c); case and the default reading pick among
- * homographs.  Later, in this order (xfce4-speech-settings PLAN.md, "Russian stress
- * library in C"): a user dictionary from the GUI, a model for unknown
- * words, and homographs (замок/замок, все/всё) chosen from the context
- * by a resolver plugged in with tts_stress_set_resolver().
+ * homographs.  With TextStressHomographs tiny|turbo the homographs
+ * (замок/замок, руки/руки) are then chosen from the context by the RUAccent
+ * models (common/ru-homograph.c), a temporary solution.  Later
+ * (xfce4-speech-settings PLAN.md, "Russian stress library in C"): a user
+ * dictionary from the GUI and a model for unknown words.
  *
  * Copyright (C) 2026 Grigory Tuboltsev
  * SPDX-License-Identifier: GPL-3.0-or-later
@@ -29,14 +30,21 @@ typedef struct
   gchar *dictionary;    /* TextStressDictionary: files separated by ":" */
   RuStressMark mark;    /* TextStressMark plus|acute|none (module default) */
   gboolean mark_set;    /* TextStressMark was given: it overrides a voice's */
+  gchar *homographs;    /* TextStressHomographs none|tiny|turbo: NULL = none */
+  gchar *homographs_dir; /* TextStressHomographsDir: the RUAccent files */
+  int homographs_threads; /* TextStressHomographsThreads (2) */
+  int homographs_idle;  /* TextStressHomographsIdle: seconds before the model
+                         * is unloaded (300), 0 = never */
 } TtsStressConfig;
 
 typedef struct TtsStress TtsStress;
 
-/* Homograph resolver: gets the sentence with the dictionary marks and
- * returns a new string with the marks of homographs corrected, or NULL to
- * keep it.  None exists yet; the hook fixes where it will sit. */
-typedef gchar *(*TtsStressResolver) (const gchar *marked, RuStressMark mark, gpointer data);
+/* Homograph resolver: gets the text before the dictionary (to see the
+ * user's own marks) and after it, and returns a new string with the marks
+ * of homographs corrected, or NULL to keep marked.  TextStressHomographs
+ * plugs in ru-homograph; tts_stress_set_resolver() replaces it. */
+typedef gchar *(*TtsStressResolver) (const gchar *orig, const gchar *marked, RuStressMark mark,
+                                     gpointer data);
 
 void tts_stress_config_init (TtsStressConfig *c, gboolean enabled, RuStressMark mark);
 void tts_stress_config_clear (TtsStressConfig *c);

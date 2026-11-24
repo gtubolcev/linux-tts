@@ -12,3 +12,4 @@ option('audiocpp', type: 'feature', value: 'auto', description: 'sd_audiocpp, th
 option('audiocpp_dir', type: 'string', value: '', description: 'where libaudiocpp is: <dir>/include/audiocpp.h, <dir>/lib or <dir>/bin/libaudiocpp.so')
 option('audiocpp_rpath', type: 'string', value: '', description: 'RUNPATH of sd_audiocpp, for a private libaudiocpp')
 option('zt_lib', type: 'string', value: '', description: 'zyphra-textnorm, loaded at run time for the languages other than Russian (default: <libdir>/linux-tts/libzyphra_textnorm.so.0)')
+option('ort_lib', type: 'string', value: '', description: 'onnxruntime for the homograph models of the stress stage, loaded at run time (default: <libdir>/linux-tts/libonnxruntime.so.1)')

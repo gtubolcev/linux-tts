@@ -7,6 +7,8 @@
 
 #include "tts-stress.h"
 
+#include "ru-homograph.h"
+
 #include <stdio.h>
 #include <string.h>
 
@@ -19,6 +21,7 @@ struct TtsStress
   gboolean dict_tried;          /* opened, or failed once and logged */
   TtsStressResolver resolver;
   gpointer resolver_data;
+  RuHomograph *homograph;
 };
 
 void
@@ -28,12 +31,31 @@ tts_stress_config_init (TtsStressConfig *c, gboolean enabled, RuStressMark mark)
   c->dictionary = g_strdup (RU_STRESS_DEFAULT_DICTIONARIES);
   c->mark = mark;
   c->mark_set = FALSE;
+  c->homographs = NULL;
+  c->homographs_dir = g_build_filename (g_get_user_data_dir (), "linux-tts", "ruaccent", NULL);
+  c->homographs_threads = 2;
+  c->homographs_idle = 300;
 }
 
 void
 tts_stress_config_clear (TtsStressConfig *c)
 {
   g_clear_pointer (&c->dictionary, g_free);
+  g_clear_pointer (&c->homographs, g_free);
+  g_clear_pointer (&c->homographs_dir, g_free);
+}
+
+static gboolean
+parse_int (const gchar *value, int lo, int hi, int *out)
+{
+  gint64 v;
+  gchar *end;
+
+  v = g_ascii_strtoll (value, &end, 10);
+  if (end == value || *end != '\0' || v < lo || v > hi)
+    return FALSE;
+  *out = (int) v;
+  return TRUE;
 }
 
 gboolean
@@ -54,6 +76,22 @@ tts_stress_config_parse (TtsStressConfig *c, const gchar *key, const gchar *valu
         c->mark = RU_STRESS_NONE, c->mark_set = TRUE;
       /* anything else keeps the module's default */
     }
+  else if (g_ascii_strcasecmp (key, "TextStressHomographs") == 0)
+    {
+      g_clear_pointer (&c->homographs, g_free);
+      if (g_ascii_strcasecmp (value, "tiny") == 0 || g_ascii_strcasecmp (value, "turbo") == 0)
+        c->homographs = g_ascii_strdown (value, -1);
+      /* none and anything else: off */
+    }
+  else if (g_ascii_strcasecmp (key, "TextStressHomographsDir") == 0)
+    {
+      if (g_path_is_absolute (value))
+        g_free (c->homographs_dir), c->homographs_dir = g_strdup (value);
+    }
+  else if (g_ascii_strcasecmp (key, "TextStressHomographsThreads") == 0)
+    parse_int (value, 1, 16, &c->homographs_threads);
+  else if (g_ascii_strcasecmp (key, "TextStressHomographsIdle") == 0)
+    parse_int (value, 0, 86400, &c->homographs_idle);
   else
     return FALSE;
   return TRUE;
@@ -69,6 +107,11 @@ tts_stress_new (const TtsStressConfig *c)
   s = g_new0 (TtsStress, 1);
   s->cfg = *c;
   s->cfg.dictionary = g_strdup (c->dictionary);
+  s->cfg.homographs = g_strdup (c->homographs);
+  s->cfg.homographs_dir = g_strdup (c->homographs_dir);
+  if (c->homographs != NULL && c->homographs_dir != NULL)
+    s->homograph = ru_homograph_new (c->homographs_dir, c->homographs, c->homographs_threads,
+                                     c->homographs_idle);
   return s;
 }
 
@@ -78,6 +121,7 @@ tts_stress_free (TtsStress *s)
   if (s == NULL)
     return;
   ru_stress_free (s->dict);
+  ru_homograph_free (s->homograph);
   tts_stress_config_clear (&s->cfg);
   g_free (s);
 }
@@ -133,9 +177,12 @@ tts_stress_apply_mark (TtsStress *s, const gchar *text, const gchar *lang,
   if (mark != RU_STRESS_PLUS && mark != RU_STRESS_ACUTE)
     mark = RU_STRESS_NONE;
   marked = ru_stress_apply (s->dict, text, mark);
-  if (s->resolver == NULL)
+  if (s->resolver != NULL)
+    resolved = s->resolver (text, marked, mark, s->resolver_data);
+  else if (s->homograph != NULL)
+    resolved = ru_homograph_resolve (s->homograph, text, marked, mark);
+  else
     return marked;
-  resolved = s->resolver (marked, mark, s->resolver_data);
   if (resolved == NULL || !g_utf8_validate (resolved, -1, NULL))
     {
       g_free (resolved);
