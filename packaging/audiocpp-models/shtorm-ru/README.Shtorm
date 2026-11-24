@@ -1,0 +1,11 @@
+Shtorm Pocket TTS for audio.cpp
+===============================
+
+Model:  ArtShtorm/Shtorm-PocketTTS-RU, "fast" variant, revision 33f6c32
+        (CC BY 4.0). Converted to GGUF, 8-bit quantised (q8_0).
+Voices: 206 reference clips of davnozdu/supertonic-android, release
+        shtorm-designed-voices-v1 (GPL-3.0 repository). voices-index.json
+        lists the original labels, age groups and roles.
+
+The model reads a reference clip and speaks in that voice; the clips live in
+/usr/share/audiocpp-tts/shtorm-ru/voices and audiocpp.ini names each one.
