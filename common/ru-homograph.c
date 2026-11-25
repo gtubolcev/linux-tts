@@ -38,7 +38,7 @@
 struct RuHomograph
 {
   gchar *dir, *size;
-  gchar *idir;      /* dir/tiny or dir/turbo: what ruaccent-models.py installs */
+  gchar *idir;      /* dir/tiny or dir/turbo: the layout of the packages */
   int threads, idle;
   gboolean use_model, use_rules;
   RuHomoRules *rules;
