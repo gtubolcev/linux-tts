@@ -176,6 +176,18 @@ is_russian (const gchar *lang)
 }
 
 gchar *
+tts_stress_marks (const gchar *text, const gchar *lang, RuStressMark mark)
+{
+  if (text == NULL || !is_russian (lang) || strlen (text) > MAX_TEXT
+      || (strchr (text, '+') == NULL && strstr (text, "\xcc\x81") == NULL)
+      || !g_utf8_validate (text, -1, NULL))
+    return g_strdup (text);
+  if (mark != RU_STRESS_PLUS && mark != RU_STRESS_ACUTE)
+    mark = RU_STRESS_NONE;
+  return ru_stress_marks (text, mark);
+}
+
+gchar *
 tts_stress_apply (TtsStress *s, const gchar *text, const gchar *lang)
 {
   return tts_stress_apply_mark (s, text, lang, s != NULL ? s->cfg.mark : RU_STRESS_NONE);
@@ -188,7 +200,9 @@ tts_stress_apply_mark (TtsStress *s, const gchar *text, const gchar *lang,
   gchar *marked, *resolved;
   RuStressMark mark;
 
-  if (s == NULL || text == NULL || !is_russian (lang) || strlen (text) > MAX_TEXT
+  if (s == NULL)
+    return tts_stress_marks (text, lang, voice_mark);
+  if (text == NULL || !is_russian (lang) || strlen (text) > MAX_TEXT
       || !g_utf8_validate (text, -1, NULL))
     return g_strdup (text);
   if (!s->dict_tried)
@@ -205,7 +219,7 @@ tts_stress_apply_mark (TtsStress *s, const gchar *text, const gchar *lang,
         }
     }
   if (s->dict == NULL)
-    return g_strdup (text);
+    return tts_stress_marks (text, lang, s->cfg.mark_set ? s->cfg.mark : voice_mark);
   ru_homograph_set_stress (s->homograph, s->dict);
   mark = s->cfg.mark_set ? s->cfg.mark : voice_mark;
   if (mark != RU_STRESS_PLUS && mark != RU_STRESS_ACUTE)

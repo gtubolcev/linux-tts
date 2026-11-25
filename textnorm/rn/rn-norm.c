@@ -51,7 +51,7 @@ int rn_run_pipeline(const rn_str *in, rn_str *out)
 	int r = -1;
 	if (rn_str_put(&t, in->s, in->n) < 0 || (!t.s && rn_str_put(&t, NULL, 0) < 0) ||
 	    ((rn_fixes & (RN_FIX_TECH_NUM | RN_FIX_NO_SIGN | RN_FIX_DIV_SLASH | RN_FIX_LAT_WORDS |
-	                  RN_FIX_ACRONYMS)) &&
+	                  RN_FIX_ACRONYMS | RN_FIX_ABBR_READ)) &&
 	     step(rn_run_tech, &t) < 0) ||
 	    step(rn_run_urls, &t) < 0 ||
 	    ((rn_fixes & RN_FIX_NO_SCHEME) && step(rn_run_noscheme, &t) < 0))

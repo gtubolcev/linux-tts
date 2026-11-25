@@ -108,7 +108,11 @@ prepare_plain (LinuxTtsText *t, const gchar *text, const gchar *lang, RuStressMa
   if (t->stress == NULL && t->stress_cfg.enabled)
     t->stress = tts_stress_new (&t->stress_cfg);
   if (t->stress == NULL)
-    return normed;
+    {
+      stressed = tts_stress_marks (normed, lang, mark);
+      g_free (normed);
+      return stressed;
+    }
   stressed = tts_stress_apply_mark (t->stress, normed, lang, mark);
   g_free (normed);
   return stressed;

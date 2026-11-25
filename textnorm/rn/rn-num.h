@@ -40,6 +40,7 @@ extern unsigned rn_fixes;
 #define RN_FIX_NO_SCHEME 0x10000000u   /* R33, "https://a.ru" → "a.ru" */
 #define RN_FIX_PAUCAL_NOUN 0x20000000u /* R34, "цена 2 доллара" → "два доллара" */
 #define RN_FIX_DATE_NOMN 0x40000000u   /* R3, "Сегодня 23 ноября." → "двадцать третье" */
+#define RN_FIX_ABBR_READ 0x80000000u   /* R35, "ГИБДД" → "гибэдэд+э", "Гашек Я." → "Гашек, йа" */
 
 #define RN_NO_GENDER (-1)
 

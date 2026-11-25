@@ -64,5 +64,9 @@ gchar *tts_stress_apply (TtsStress *s, const gchar *text, const gchar *lang);
 /* the same with the mark a voice reads; TextStressMark, when given, wins */
 gchar *tts_stress_apply_mark (TtsStress *s, const gchar *text, const gchar *lang,
                               RuStressMark voice_mark);
+/* without the stage (or its dictionary): only the marks already in Russian
+ * text (the user's, the normalizer's in acronyms) in the form the voice reads,
+ * none for RU_STRESS_NONE; a new string */
+gchar *tts_stress_marks (const gchar *text, const gchar *lang, RuStressMark mark);
 
 #endif

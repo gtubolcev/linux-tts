@@ -62,4 +62,9 @@ gchar *ru_stress_apply (RuStress *s, const gchar *text, RuStressMark mark);
  * stress of the е-form when the context says it is not ё (бере́т, not берёт) */
 gchar *ru_stress_apply_e (RuStress *s, const gchar *text, RuStressMark mark);
 
+/* only the marks already in the text ("+" before or U+0301 after a vowel: the
+ * user's, or the normalizer's in acronyms) in the voice's form, dropped for
+ * RU_STRESS_NONE; no dictionary */
+gchar *ru_stress_marks (const gchar *text, RuStressMark mark);
+
 #endif

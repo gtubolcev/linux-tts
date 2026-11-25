@@ -17,6 +17,10 @@
  *     into syllables ("ООН" → "оо он", "ГИБДД" → "ги бэ дэ дэ", "НИИ" → "ни ии"); our table
  *     gives the usual reading ("оон", "гэ ии бэ дэ дэ", "нии"; vowel letter names doubled as
  *     the stage does it).
+ * R35 RN_FIX_ABBR_READ: the user's reading of acronyms (2026-11-25): one word, stress on the
+ *     last syllable, a leading consonant + vowel as one syllable ("ГИБДД" → "гибэдэд+э");
+ *     this table holds the exceptions and the ones the stage reads as a word ("РИА" →
+ *     "р+иа", "ТиНАО" → "тина+о"); the rule itself is in rn-abbrx.c.
  * R33 RN_FIX_NO_SCHEME: "https://" / "http://" before an address is not read (the user's
  *     choice): rn_run_noscheme, right after the URL stage (which needs the scheme to find
  *     the address), drops its reading: "https://github.com/x" → "гитхаб точка ком слэш икс".
@@ -65,23 +69,33 @@ static const struct {
 	{"youtube", RN_U("ютуб")},
 };
 
-/* upper-case acronym → reading (R31) */
+/* acronym as written → reading: R31, and R35 (NULL: the entry is R35's only, or R35
+ * leaves the word to the abbreviation stage). R35 readings are one word with "+" before
+ * the stressed vowel, the user's choice (QUIRKS.md R35). */
 static const struct {
-	const uint32_t *key, *reading;
+	const uint32_t *key, *reading, *r35;
 } ACRONYMS[] = {
-	{U"ГИБДД", U"гэ ии бэ дэ дэ"},
-	{U"ГУМ", U"гум"},
-	{U"НИИ", U"нии"},
-	{U"ООН", U"оон"},
-	{U"РЖД", U"эр жэ дэ"},
-	{U"ЦСКА", U"цэ эс ка"},
+	{U"ГАИ", NULL, U"га+и"},
+	{U"ГИБДД", U"гэ ии бэ дэ дэ", U"гибэдэд+э"},
+	{U"ГУМ", U"гум", U"гум"},
+	{U"НИИ", U"нии", U"ни+и"},
+	{U"ООН", U"оон", U"о+он"},
+	{U"РИА", NULL, U"р+иа"},
+	{U"РЖД", U"эр жэ дэ", U"эржэд+э"},
+	{U"СПб", NULL, U"эспэб+э"},
+	{U"США", NULL, U"сэшэ+а"},
+	{U"ТиНАО", NULL, U"тина+о"},
+	{U"ЦСКА", U"цэ эс ка", U"цээск+а"},
 };
 
 static const uint32_t *acronym(const uint32_t *w, size_t n)
 {
+	int r35 = (rn_fixes & RN_FIX_ABBR_READ) != 0;
+	if (!r35 && !(rn_fixes & RN_FIX_ACRONYMS))
+		return NULL;
 	for (size_t i = 0; i < sizeof ACRONYMS / sizeof *ACRONYMS; i++)
 		if (rn_u32len(ACRONYMS[i].key) == n && !memcmp(ACRONYMS[i].key, w, n * sizeof *w))
-			return ACRONYMS[i].reading;
+			return r35 ? ACRONYMS[i].r35 : ACRONYMS[i].reading;
 	return NULL;
 }
 
@@ -269,7 +283,7 @@ int rn_run_tech(const rn_str *in, rn_str *out)
 		if (a && word_char(s[a - 1]))
 			continue;
 		/* R31 */
-		const uint32_t *acr = (rn_fixes & RN_FIX_ACRONYMS) ? acronym(s + a, b - a) : NULL;
+		const uint32_t *acr = acronym(s + a, b - a);
 		if (acr && (b == n || !(word_char(s[b]) || s[b] == '-'))) {
 			size_t k = a;
 			while (k && rn_is_space(s[k - 1]))

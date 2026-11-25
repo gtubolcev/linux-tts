@@ -89,6 +89,8 @@ main (int argc, char **argv)
 
       line[strcspn (line, "\n")] = '\0';
       out = tts_norm_text (n, line, lang);
+      /* without --stress the normalizer's output as it is, "+" marks too */
+      if (st != NULL)
       {
         gchar *marked = tts_stress_apply (st, out, lang);
         g_free (out);

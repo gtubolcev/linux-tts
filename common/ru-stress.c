@@ -438,7 +438,7 @@ apply (RuStress *s, const gchar *text, RuStressMark mark, gboolean no_yo)
           j++;
         }
       /* a word of one vowel gets no mark, only its ё (шел -> шёл) */
-      if (!marked && nv >= 1)
+      if (!marked && nv >= 1 && s != NULL)
         {
           gchar *word = g_ucs4_to_utf8 (t + i, j - i, NULL, NULL, NULL);
           gchar *lower = g_utf8_strdown (word, -1);
@@ -533,4 +533,10 @@ gchar *
 ru_stress_apply_e (RuStress *s, const gchar *text, RuStressMark mark)
 {
   return apply (s, text, mark, TRUE);
+}
+
+gchar *
+ru_stress_marks (const gchar *text, RuStressMark mark)
+{
+  return apply (NULL, text, mark, FALSE);
 }

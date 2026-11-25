@@ -3,6 +3,7 @@
  * letter abbreviations and "&" */
 #include <pthread.h>
 #include <stdio.h>
+#include <string.h>
 
 #include "rn-num.h"
 #include "rn-nx.h"
@@ -954,7 +955,13 @@ static void literal_rules(rn_str *t)
 
 static void put_initial(rn_str *o, uint32_t c)
 {
-	const char *name = rn_letter_name(c, 1);
+	int r35 = (rn_fixes & RN_FIX_ABBR_READ) != 0;
+	/* R35: short vowels, "Я." → "йа" (the user's choice: "я" alone sounds as "е") */
+	if (r35 && (c == 0x42F || c == 0x44F)) {
+		nx_lit(o, U"йа");
+		return;
+	}
+	const char *name = rn_letter_name(c, !r35);
 	if (name && *name)
 		nx_put8(o, name);
 	else if (rn_py_lower(&c, 1, o) < 0)
@@ -1054,7 +1061,41 @@ static int initials_repl(const rn_match *m, rn_str *o, void *ctx)
 		return nx_whole(m, o);
 	int final, clause;
 	choose_tail(T, n, en, &final, &clause);
-	if (surname_first) {
+	if (rn_fixes & RN_FIX_ABBR_READ) {
+		/* R35, the user's choice: a pause before a single initial after the surname
+		 * ("Гашек, йа"), the two initials set off by dashes ("Петров и - и -"), an initial
+		 * before the surname followed by a dash ("ю - Гагарин", "а - эс - Пушкин") */
+		if (surname_first) {
+			/* the comma only at the end of the sentence: "На Б. Шпице", "Инженер Т.
+			 * Петров" are an initial of the next word as often */
+			size_t e = rn_first_non_ws(T, n, en, NULL);
+			while (e < n && nx_inset(T[e], U"\"'»”’›)]}"))
+				e = rn_first_non_ws(T, n, e + 1, NULL);
+			int at_end = e >= n || nx_inset(T[e], U".!?…");
+			nx_put(o, sur, sn);
+			nx_lit(o, i2 || !at_end ? U" " : U", ");
+			put_initial(o, i1[0]);
+			if (i2) {
+				nx_lit(o, U" - ");
+				put_initial(o, i2[0]);
+			}
+			size_t w = rn_first_non_ws(T, n, en, NULL);
+			if (final)
+				put_terminal(o, T, n, en);
+			else if (!clause)
+				nx_lit(o, i2 && w < n && rn_py_isalnum(T[w]) ? U" -" : U",");
+		} else {
+			put_initial(o, i1[0]);
+			nx_lit(o, U" - ");
+			if (i2) {
+				put_initial(o, i2[0]);
+				nx_lit(o, U" - ");
+			}
+			nx_put(o, sur, sn);
+			if (final)
+				put_terminal(o, T, n, en);
+		}
+	} else if (surname_first) {
 		const char32_t *sep = final ? U" " : U", ";
 		nx_put(o, sur, sn);
 		nx_lit(o, sep);
@@ -1141,6 +1182,58 @@ static int vowel_repl(const rn_match *m, rn_str *o, void *ctx)
 	return nx_whole(m, o);
 }
 
+/* R35: a letter acronym read as one word, the user's rule (2026-11-25): a leading consonant
+ * + vowel make one syllable ("ГИ"), the other consonants are their names, the vowels
+ * themselves (short, not doubled); "+" before the last vowel: "ГИБДД" → "гибэдэд+э",
+ * "МГУ" → "эмгэ+у", "ЕС" → "е+эс" */
+static int ru_vowel(uint32_t c)
+{
+	return nx_inset(c, U"АЕЁИОУЫЭЮЯ");
+}
+
+static void put_acronym_word(rn_str *o, const uint32_t *k, size_t n)
+{
+	rn_str r = {0};
+	size_t i = 0;
+	/* not in two letters: "ЗО" is "зэ+о", not the word "зо" */
+	if (n >= 3 && !ru_vowel(k[0]) && !nx_inset(k[0], U"ЙЪЬ") && ru_vowel(k[1])) {
+		if (rn_py_lower(k, 2, &r) < 0)
+			nx_fail();
+		i = 2;
+	}
+	for (; i < n; i++) {
+		const char *name = ru_vowel(k[i]) ? NULL : rn_letter_name(k[i], 0);
+		if (name && *name)
+			nx_put8(&r, name);
+		else if (rn_py_lower(k + i, 1, &r) < 0)
+			nx_fail();
+	}
+	size_t last = r.n;
+	for (size_t j = 0; j < r.n; j++)
+		if (nx_inset(r.s[j], U"аеёиоуыэюя"))
+			last = j;
+	nx_put(o, r.s, last < r.n ? last : r.n);
+	if (last < r.n) {
+		nx_putc(o, '+');
+		nx_put(o, r.s + last, r.n - last);
+	}
+	rn_str_free(&r);
+}
+
+/* a spelled reading of the abbreviation table ("эм вэ дэ"), not a word ("гост") */
+static int spelled(const char *v)
+{
+	return strchr(v, ' ') != NULL;
+}
+
+static int ru_letters(const rn_str *key)
+{
+	for (size_t i = 0; i < key->n; i++)
+		if (!rn_in32(RU_LETTER_NAMES, key->s + i, 1))
+			return 0;
+	return key->n > 0;
+}
+
 typedef struct {
 	int dotted;
 } tokctx;
@@ -1198,6 +1291,9 @@ static int token_repl(const rn_match *m, rn_str *o, void *ctx)
 	const char *custom;
 	if (nl < 2) {
 		whole = 1;
+	} else if (known_abbr(&key, &custom) && (rn_fixes & RN_FIX_ABBR_READ) && !dotted &&
+	           spelled(custom) && ru_letters(&key)) {
+		put_acronym_word(&reading, key.s, key.n);
 	} else if (known_abbr(&key, &custom)) {
 		nx_put8(&reading, custom);
 		if (!nx_eq(key.s, key.n, U"UTC") && !nx_eq(key.s, key.n, U"ISO")) {
@@ -1230,7 +1326,11 @@ static int token_repl(const rn_match *m, rn_str *o, void *ctx)
 		} else {
 			whole = 1;
 		}
-		for (size_t i = 0; i < key.n && !whole; i++) {
+		if (!whole && ru && !dotted && (rn_fixes & RN_FIX_ABBR_READ)) {
+			put_acronym_word(&reading, key.s, key.n);
+			whole = -1;
+		}
+		for (size_t i = 0; i < key.n && whole == 0; i++) {
 			if (i)
 				nx_putc(&reading, ' ');
 			const char *name = rn_letter_name(key.s[i], 1);
@@ -1240,7 +1340,7 @@ static int token_repl(const rn_match *m, rn_str *o, void *ctx)
 				nx_putc(&reading, key.s[i]);
 		}
 	}
-	if (whole) {
+	if (whole > 0) {
 		nx_put(o, tok, tn);
 	} else {
 		put_sentence_case(o, T, n, st, tn, &reading);

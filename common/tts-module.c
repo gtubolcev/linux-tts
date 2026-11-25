@@ -1676,6 +1676,9 @@ profile_text (const TtsTextProfile *prof, const gchar *text, const gchar *lang)
         stress = tts_stress_new (&stress_cfg);
       s = tts_stress_apply_mark (stress, text, lang, prof->mark);
     }
+  else if (prof->stress)
+    /* the stage is off: the marks already in the text in the voice's form */
+    s = tts_stress_marks (text, lang, prof->mark);
   else
     s = g_strdup (text);
   if (!prof->lowercase)
