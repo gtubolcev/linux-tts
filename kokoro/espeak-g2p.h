@@ -2,7 +2,9 @@
  * espeak-g2p - text to IPA with espeak-ng, as Kokoro's front ends do
  *
  * espeak-ng is one global engine: the calls take a lock and switch its voice
- * when needed.
+ * when needed.  A program that also loads audio.cpp must run every call into
+ * libaudiocpp between espeak_g2p_foreign_begin/end: the library drives the same
+ * engine with its own voice, data and lock.
  *
  * Copyright (C) 2026 Grigory Tuboltsev
  * SPDX-License-Identifier: GPL-3.0-or-later
@@ -16,6 +18,10 @@
 /* starts espeak-ng with the espeak-ng-data in @path; later calls keep the
  * first path */
 gboolean espeak_g2p_init (const gchar *path, GError **error);
+/* around a call into code that uses espeak-ng by itself (libaudiocpp): keeps
+ * our own calls out meanwhile and forgets the voice we had set */
+void espeak_g2p_foreign_begin (void);
+void espeak_g2p_foreign_end (void);
 /* whether espeak-ng has the voice @voice ("ru", "en-us") */
 gboolean espeak_g2p_check_voice (const gchar *voice, GError **error);
 /* phonemizer's phonemize([text], preserve_punctuation=True, with_stress=True,

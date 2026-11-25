@@ -104,6 +104,20 @@ use_voice (const gchar *voice)
   return TRUE;
 }
 
+void
+espeak_g2p_foreign_begin (void)
+{
+  G_LOCK (espeak);
+}
+
+void
+espeak_g2p_foreign_end (void)
+{
+  /* the other code has set its own voice (and may have restarted espeak-ng) */
+  g_clear_pointer (&espeak_voice, g_free);
+  G_UNLOCK (espeak);
+}
+
 gboolean
 espeak_g2p_check_voice (const gchar *voice, GError **error)
 {

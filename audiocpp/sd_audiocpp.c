@@ -82,6 +82,18 @@
 
 #include "tts-module.h"
 
+/* libaudiocpp phonemizes with espeak-ng, which is one global engine in the
+ * process (voice, data, output buffer); our own Kokoro front end uses it too.
+ * Every call into the library that can phonemize runs under our lock, or the
+ * two collide (SIGSEGV in espeak_TextToPhonemes, 2026-11-24 and -25). */
+#ifdef AUDIOCPP_KOKORO
+#define ESPEAK_BEGIN() espeak_g2p_foreign_begin ()
+#define ESPEAK_END() espeak_g2p_foreign_end ()
+#else
+#define ESPEAK_BEGIN() ((void) 0)
+#define ESPEAK_END() ((void) 0)
+#endif
+
 #ifdef AUDIOCPP_KOKORO
 #include "espeak-g2p.h"
 #include "ru-g2p.h"
@@ -729,7 +741,9 @@ audiocpp_load (gpointer model, GError **error)
         }
     }
 #endif
+  ESPEAK_BEGIN ();
   st = audiocpp_model_load (registry, m->path, &mc, lo, &m->am);
+  ESPEAK_END ();
   audiocpp_options_free (lo);
   if (api_failed (st, m->path, error))
     {
@@ -738,8 +752,10 @@ audiocpp_load (gpointer model, GError **error)
       return FALSE;
     }
   m->streaming = audiocpp_model_supports (m->am, "tts", "streaming");
+  ESPEAK_BEGIN ();
   st = audiocpp_session_create (m->am, "tts", m->streaming ? "streaming" : "offline",
                                 &bc, so, &m->ses);
+  ESPEAK_END ();
   audiocpp_options_free (so);
   if (api_failed (st, m->path, error))
     goto fail;
@@ -986,6 +1002,7 @@ synthesize (Model *m, TtsVoice *tv, const gchar *text, double speed, gboolean re
   int rate = 0;
   gboolean ok = TRUE;
   gint64 t0 = g_get_monotonic_time (), first = 0;
+  audiocpp_status stream_st;
 
   if (rq == NULL)
     {
@@ -999,7 +1016,12 @@ synthesize (Model *m, TtsVoice *tv, const gchar *text, double speed, gboolean re
   if (!m->streaming)
     {
       audiocpp_result *res = NULL;
-      ok = !api_failed (audiocpp_session_run (m->ses, rq, &res), "synthesis", error);
+      audiocpp_status st;
+
+      ESPEAK_BEGIN ();
+      st = audiocpp_session_run (m->ses, rq, &res);
+      ESPEAK_END ();
+      ok = !api_failed (st, "synthesis", error);
       if (ok && result_audio (res, &s, &n, &rate))
         {
           first = g_get_monotonic_time ();
@@ -1011,7 +1033,10 @@ synthesize (Model *m, TtsVoice *tv, const gchar *text, double speed, gboolean re
       goto done;
     }
 
-  if (api_failed (audiocpp_stream_start (m->ses, rq), "stream", error))
+  ESPEAK_BEGIN ();
+  stream_st = audiocpp_stream_start (m->ses, rq);
+  ESPEAK_END ();
+  if (api_failed (stream_st, "stream", error))
     {
       ok = FALSE;
       goto done;
@@ -1023,7 +1048,10 @@ synthesize (Model *m, TtsVoice *tv, const gchar *text, double speed, gboolean re
 
       if (really && tts_stopped ())
         break;
-      if (api_failed (audiocpp_stream_next_event (m->ses, &ev), "synthesis", error))
+      ESPEAK_BEGIN ();
+      stream_st = audiocpp_stream_next_event (m->ses, &ev);
+      ESPEAK_END ();
+      if (api_failed (stream_st, "synthesis", error))
         {
           ok = FALSE;
           break;
@@ -1049,7 +1077,9 @@ synthesize (Model *m, TtsVoice *tv, const gchar *text, double speed, gboolean re
   if (ok && total > 0 && !(really && tts_stopped ()))
     {
       audiocpp_result *res = NULL;
+      ESPEAK_BEGIN ();
       audiocpp_stream_finish (m->ses, &res);
+      ESPEAK_END ();
       if (res != NULL)
         audiocpp_result_free (res);
     }
@@ -1057,7 +1087,10 @@ synthesize (Model *m, TtsVoice *tv, const gchar *text, double speed, gboolean re
     {
       /* a family that streams only its final result */
       audiocpp_result *res = NULL;
-      ok = !api_failed (audiocpp_stream_finish (m->ses, &res), "synthesis", error);
+      ESPEAK_BEGIN ();
+      stream_st = audiocpp_stream_finish (m->ses, &res);
+      ESPEAK_END ();
+      ok = !api_failed (stream_st, "synthesis", error);
       if (ok && result_audio (res, &s, &n, &rate))
         {
           first = g_get_monotonic_time ();
@@ -1068,7 +1101,9 @@ synthesize (Model *m, TtsVoice *tv, const gchar *text, double speed, gboolean re
         audiocpp_result_free (res);
     }
   /* stopped or failed in the middle: drop the rest */
+  ESPEAK_BEGIN ();
   audiocpp_stream_reset (m->ses);
+  ESPEAK_END ();
 
 done:
   audiocpp_request_free (rq);
