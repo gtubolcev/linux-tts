@@ -98,6 +98,33 @@ tts_stress_config_parse (TtsStressConfig *c, const gchar *key, const gchar *valu
   return TRUE;
 }
 
+/* The models of the packages ruaccent-model-tiny/-turbo; the user's
+ * (~/.local/share/linux-tts/ruaccent, from xfce4-speech-settings) win */
+#define HOMOGRAPHS_SYSTEM_DIR "/usr/share/linux-tts/ruaccent"
+
+static gboolean
+has_model (const gchar *dir, const gchar *size)
+{
+  gchar   *path = g_build_filename (dir, size, "model.onnx", NULL);
+  gboolean found = g_file_test (path, G_FILE_TEST_IS_REGULAR);
+
+  g_free (path);
+  return found;
+}
+
+/* @dir, or the system one when @dir is the default and has no model of
+ * @size but the system has */
+static gchar *
+homographs_dir (const gchar *dir, const gchar *size)
+{
+  gchar   *user = g_build_filename (g_get_user_data_dir (), "linux-tts", "ruaccent", NULL);
+  gboolean system = strcmp (dir, user) == 0 && strcmp (size, "rules") != 0
+                    && !has_model (dir, size) && has_model (HOMOGRAPHS_SYSTEM_DIR, size);
+
+  g_free (user);
+  return g_strdup (system ? HOMOGRAPHS_SYSTEM_DIR : dir);
+}
+
 TtsStress *
 tts_stress_new (const TtsStressConfig *c)
 {
@@ -111,8 +138,13 @@ tts_stress_new (const TtsStressConfig *c)
   s->cfg.homographs = g_strdup (c->homographs);
   s->cfg.homographs_dir = g_strdup (c->homographs_dir);
   if (c->homographs != NULL && c->homographs_dir != NULL)
-    s->homograph = ru_homograph_new (c->homographs_dir, c->homographs, c->homographs_threads,
-                                     c->homographs_idle);
+    {
+      gchar *dir = homographs_dir (c->homographs_dir, c->homographs);
+
+      s->homograph = ru_homograph_new (dir, c->homographs, c->homographs_threads,
+                                       c->homographs_idle);
+      g_free (dir);
+    }
   return s;
 }
 

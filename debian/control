@@ -191,8 +191,8 @@ Description: Speech Dispatcher module for Silero TTS (Russian)
 Package: speech-dispatcher-text-normalizer
 Architecture: all
 Depends: python3, ${misc:Depends}
-Recommends: speech-dispatcher-ru-normalizr-data, libzyphra-textnorm-tts
-Suggests: speech-dispatcher-ru-normalizr
+Recommends: speech-dispatcher-ru-normalizr-data, libzyphra-textnorm-tts, ruaccent-model-tiny
+Suggests: speech-dispatcher-ru-normalizr, ruaccent-model-turbo
 Description: text normalization for the speech-dispatcher-modules voices
  The Vosk, Kokoro, TeraTTS, sherpa-onnx and Silero modules read numbers,
  dates, units and abbreviations in Russian text as words ("5 кг" -> "пять
@@ -208,8 +208,8 @@ Description: text normalization for the speech-dispatcher-modules voices
 Package: linux-tts-text
 Architecture: any
 Depends: ${misc:Depends}, ${shlibs:Depends}
-Recommends: speech-dispatcher-ru-normalizr-data, libzyphra-textnorm-tts
-Suggests: vosk-tts-model-ru-0.9-multi
+Recommends: speech-dispatcher-ru-normalizr-data, libzyphra-textnorm-tts, ruaccent-model-tiny
+Suggests: speech-dispatcher-ru-normalizr, ruaccent-model-turbo, vosk-tts-model-ru-0.9-multi
 Description: text normalization and stress marks for other speech-dispatcher modules
  A private library (liblinux-tts-text.so.0 in /usr/lib/<arch>/linux-tts) with
  the text stages of the speech-dispatcher-modules voices, for modules of
