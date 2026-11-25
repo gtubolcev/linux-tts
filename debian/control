@@ -201,6 +201,9 @@ Description: text normalization for the speech-dispatcher-modules voices
  holds the older Python helper they use when that data is missing or with
  "TextNormalizationEngine python" (it needs speech-dispatcher-ru-normalizr);
  with "TextNormalization no" in a module's .conf the text is spoken as it is.
+ .
+ It also has ruaccent-models.py, which the speech settings run to download
+ the RUAccent homograph models (MIT) for "TextStressHomographs tiny|turbo".
 
 Package: linux-tts-text
 Architecture: any

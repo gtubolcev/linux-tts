@@ -28,6 +28,8 @@
  *   dir/<size>/model.onnx + the tokenizer files (or nn/nn_omograph/<size>/)
  *   dir/yo_homographs.json.gz (or dictionary/), dir/yo/model.onnx + config.json
  *   + vocab.txt (or nn/nn_yo_homograph_resolver/)
+ * The dictionaries and yo/ may also be in dir/<size>/, as the installer of
+ * xfce4-speech-settings (ruaccent-models.py) makes each size complete.
  * size: "rules" (no model), "tiny2.1" (DistilBERT, 42 MB, ~5 ms a sentence) or "turbo3.1"
  * (DeBERTa, 360 MB, ~60-200 ms, +530 MB of memory).
  *

@@ -109,6 +109,13 @@ endif
 module_deps += stress_deps
 install_data('common/tts-normalize.py', rename: 'tts-normalize',
   install_dir: module_dir, install_mode: 'rwxr-xr-x')
+# the installer of the RUAccent homograph models (TextStressHomographs tiny,
+# turbo; the settings app runs it): the audio.cpp model installer with its
+# own catalogue
+ruaccent_share = get_option('datadir') / 'linux-tts' / 'ruaccent'
+install_data('audiocpp/audiocpp-models.py', rename: 'ruaccent-models.py',
+  install_dir: ruaccent_share, install_mode: 'rwxr-xr-x')
+install_data('data/ruaccent/models.json', install_dir: ruaccent_share / 'models')
 test('tts-config', executable('tts-config-test', 'common/tts-config-test.c', 'common/tts-config.c',
   include_directories: common_inc, dependencies: glib))
 test('user-stress', executable('user-stress-test', 'common/user-stress-test.c',

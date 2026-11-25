@@ -160,6 +160,13 @@ yo_main (const gchar *dump, const gchar *dir)
   gchar *text, **lines, *mdir = g_build_filename (dir, "nn", "nn_yo_homograph_resolver", NULL);
   HfTok *tok;
   GError *error = NULL;
+
+  /* the installed layout: dir/tiny/yo */
+  if (!g_file_test (mdir, G_FILE_TEST_IS_DIR))
+    {
+      g_free (mdir);
+      mdir = g_build_filename (dir, "tiny", "yo", NULL);
+    }
   int sent = 0, n_ref = 0, n_ok = 0, missing = 0, differ = 0, extra = 0, tok_n = 0, tok_bad = 0;
 
   ru_homograph_set_rules (h, FALSE);

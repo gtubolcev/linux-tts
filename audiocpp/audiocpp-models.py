@@ -1,6 +1,10 @@
 #!/usr/bin/python3 -I
 """Installs audio.cpp models that the PPA may not ship (their licences are
 not free) into the user's model directory, ~/.local/share/audiocpp-tts.
+The same script, installed next to another catalogue, installs other models:
+the catalogue's "dir" (under ~/.local/share) and "marker" (the file that
+makes a directory a model) say where; linux-tts-text has it as
+ruaccent-models.py for the RUAccent homograph models.
 
 usage: audiocpp-models.py list
        audiocpp-models.py install ID [--force]
@@ -46,11 +50,16 @@ def emit(**kw):
     sys.stdout.flush()
 
 
+SUBDIR = "audiocpp-tts"     # set from the catalogue
+MARKER = "audiocpp.ini"
+MODULE = "audiocpp"
+
+
 def models_dir():
     base = os.environ.get("XDG_DATA_HOME") or ""
     if not os.path.isabs(base):
         base = os.path.join(os.path.expanduser("~"), ".local", "share")
-    return Path(base) / "audiocpp-tts"
+    return Path(base) / SUBDIR
 
 
 def load_catalogue():
@@ -58,6 +67,10 @@ def load_catalogue():
         cat = json.load(f)
     if cat.get("version") != 1:
         raise Failure("catalogue", "unknown catalogue version")
+    global SUBDIR, MARKER, MODULE
+    SUBDIR = str(safe_rel(cat.get("dir", SUBDIR)))
+    MARKER = str(safe_rel(cat.get("marker", MARKER)))
+    MODULE = cat.get("module", MODULE)
     ids = set()
     for m in cat["models"]:
         if not re.fullmatch(r"[a-z0-9][a-z0-9._-]*", m["id"]) or m["id"] in ids:
@@ -104,7 +117,7 @@ def installed_state(m, base):
     """"ours": installed by this tool; "other": a model directory of the same
     name put there by hand; None: not installed"""
     d = base / m["id"]
-    if not (d / "audiocpp.ini").is_file():
+    if not (d / MARKER).is_file():
         return None
     src = read_source(d)
     return "ours" if src and src.get("id") == m["id"] else "other"
@@ -115,8 +128,8 @@ def cmd_list(models):
     res = []
     for m in models:
         res.append({
-            "id": m["id"], "label": m["label"], "model": m["model"],
-            "module": "audiocpp", "languages": m["languages"],
+            "id": m["id"], "label": m["label"], "model": m.get("model", m["id"]),
+            "module": MODULE, "languages": m["languages"],
             "download": sum(d["size"] for d in m["downloads"]),
             "disk": m["disk"], "licence": m["licence"],
             "homepage": m["homepage"], "note": m.get("note", ""),
@@ -249,9 +262,13 @@ def cmd_install(models, mid, force):
 
         for d in m["downloads"]:
             if d.get("keep"):
+                # "keep": true at the top of the model directory, a path
+                # string: there (a subdirectory)
                 rel = safe_rel(d["to"])
-                (out / rel.name).unlink(missing_ok=True)
-                shutil.move(str(src / rel), str(out / rel.name))
+                dst = out / (safe_rel(d["keep"]) if isinstance(d["keep"], str) else rel.name)
+                dst.parent.mkdir(parents=True, exist_ok=True)
+                dst.unlink(missing_ok=True)
+                shutil.move(str(src / rel), str(dst))
         for name, to in m.get("copy", {}).items():
             shutil.copyfile(DATA / safe_rel(name), out / safe_rel(to))
 

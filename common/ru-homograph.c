@@ -13,6 +13,7 @@
 #include "ru-homograph.h"
 
 #include <math.h>
+#include <stdarg.h>
 #include <string.h>
 
 #include "hf-tok.h"
@@ -37,6 +38,7 @@
 struct RuHomograph
 {
   gchar *dir, *size;
+  gchar *idir;      /* dir/tiny or dir/turbo: what ruaccent-models.py installs */
   int threads, idle;
   gboolean use_model, use_rules;
   RuHomoRules *rules;
@@ -435,20 +437,41 @@ put_omograph (const gchar *key, gint64 num, gchar **strs, gpointer data)
 
 /* ------------------------------------------------------------------ files */
 
+/* the first of the paths that exists, else the last */
 static gchar *
-first_existing (const gchar *a, const gchar *b)
+first_existing (const gchar *a, ...)
 {
-  if (g_file_test (a, G_FILE_TEST_EXISTS))
-    return g_strdup (a);
-  return g_strdup (b);
+  va_list ap;
+  const gchar *p = a, *next;
+
+  va_start (ap, a);
+  while ((next = va_arg (ap, const gchar *)) != NULL && !g_file_test (p, G_FILE_TEST_EXISTS))
+    p = next;
+  va_end (ap);
+  return g_strdup (p);
+}
+
+/* a file of the dictionaries: dir/NAME, the RUAccent layout
+ * dir/dictionary/NAME, or dir/<size>/NAME as the installer of the GUI
+ * puts every size with its own copy */
+static gchar *
+dict_path (RuHomograph *h, const gchar *name)
+{
+  gchar *pa = g_build_filename (h->dir, name, NULL);
+  gchar *pb = g_build_filename (h->dir, "dictionary", name, NULL);
+  gchar *pc = g_build_filename (h->idir, name, NULL);
+  gchar *path = first_existing (pa, pb, pc, NULL);
+
+  g_free (pa);
+  g_free (pb);
+  g_free (pc);
+  return path;
 }
 
 static gboolean
 load_dict (RuHomograph *h, GError **error)
 {
-  gchar *pa = g_build_filename (h->dir, "omographs.json.gz", NULL);
-  gchar *pb = g_build_filename (h->dir, "dictionary", "omographs.json.gz", NULL);
-  gchar *path = first_existing (pa, pb), *text;
+  gchar *path = dict_path (h, "omographs.json.gz"), *text;
   gsize len;
   gboolean ok = FALSE;
 
@@ -469,8 +492,6 @@ load_dict (RuHomograph *h, GError **error)
         }
       g_free (text);
     }
-  g_free (pa);
-  g_free (pb);
   g_free (path);
   return ok;
 }
@@ -504,9 +525,7 @@ put_yo (const gchar *key, gint64 num, gchar **strs, gpointer data)
 static gboolean
 load_yo_dict (RuHomograph *h, GError **error)
 {
-  gchar *pa = g_build_filename (h->dir, "yo_homographs.json.gz", NULL);
-  gchar *pb = g_build_filename (h->dir, "dictionary", "yo_homographs.json.gz", NULL);
-  gchar *path = first_existing (pa, pb), *text;
+  gchar *path = dict_path (h, "yo_homographs.json.gz"), *text;
   gsize len;
   gboolean ok = FALSE;
 
@@ -521,8 +540,6 @@ load_yo_dict (RuHomograph *h, GError **error)
         }
       g_free (text);
     }
-  g_free (pa);
-  g_free (pb);
   g_free (path);
   return ok;
 }
@@ -535,7 +552,8 @@ load_yo_model (RuHomograph *h, GError **error)
 {
   gchar *pa = g_build_filename (h->dir, "yo", NULL);
   gchar *pb = g_build_filename (h->dir, "nn", "nn_yo_homograph_resolver", NULL);
-  gchar *mdir = first_existing (pa, pb);
+  gchar *pc = g_build_filename (h->idir, "yo", NULL);
+  gchar *mdir = first_existing (pa, pb, pc, NULL);
   gchar *onnx = g_build_filename (mdir, "model.onnx", NULL);
   gchar *cfg = g_build_filename (mdir, "config.json", NULL), *text = NULL;
   gboolean ok;
@@ -559,6 +577,7 @@ load_yo_model (RuHomograph *h, GError **error)
   g_free (cfg);
   g_free (pa);
   g_free (pb);
+  g_free (pc);
   g_free (mdir);
   g_free (onnx);
   return ok;
@@ -570,7 +589,7 @@ load_model (RuHomograph *h, GError **error)
 {
   gchar *pa = g_build_filename (h->dir, h->size, NULL);
   gchar *pb = g_build_filename (h->dir, "nn", "nn_omograph", h->size, NULL);
-  gchar *mdir = first_existing (pa, pb);
+  gchar *mdir = first_existing (pa, pb, h->idir, NULL);
   gchar *onnx = g_build_filename (mdir, "model.onnx", NULL);
   gboolean ok;
 
@@ -641,6 +660,7 @@ ru_homograph_new (const gchar *dir, const gchar *size, int threads, int idle)
   h = g_new0 (RuHomograph, 1);
   h->dir = g_strdup (dir);
   h->size = g_strdup (size);
+  h->idir = g_build_filename (dir, g_str_has_prefix (size, "turbo") ? "turbo" : "tiny", NULL);
   h->threads = CLAMP (threads, 1, 16);
   h->idle = idle;
   h->use_model = strcmp (size, "rules") != 0;
@@ -673,6 +693,7 @@ ru_homograph_free (RuHomograph *h)
   g_cond_clear (&h->cond);
   g_free (h->dir);
   g_free (h->size);
+  g_free (h->idir);
   g_free (h);
 }
 
@@ -1506,7 +1527,7 @@ ready (RuHomograph *h)
     {
       g_printerr ("ru-homograph: %s; homographs stay as the dictionary %s\n", error->message,
                   h->use_rules ? "and the rules mark them" : "marks them");
-      g_error_free (error);
+      g_clear_error (&error);
       h->dict_failed = TRUE;
     }
   if (h->use_yo && h->yo == NULL && !h->yo_dict_failed && !load_yo_dict (h, &error))
