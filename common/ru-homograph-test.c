@@ -4,6 +4,10 @@
  * texts, variants, token ids and choices; then raw tokenizer pairs)
  *
  *   ru-homograph-test DUMP.jsonl tiny|turbo RUACCENT_DIR [-v]
+ *   ru-homograph-test --check-rules RUACCENT_DIR
+ *
+ * The rules (ru-homograph-rules) are off here: the model alone is compared;
+ * --check-rules checks each rule gives a variant of omographs.json.gz.
  *
  * Words RUAccent scores but we keep on purpose (a capital inside the
  * sentence) are counted apart, not as errors.
@@ -95,14 +99,26 @@ main (int argc, char **argv)
       extra = 0, tok_n = 0, tok_bad = 0;
   gint64 t_us = 0;
 
+  if (argc == 3 && strcmp (argv[1], "--check-rules") == 0)
+    {
+      int bad;
+
+      h = ru_homograph_new (argv[2], "tiny", 1, 0);
+      bad = ru_homograph_check_rules (h);
+      g_print ("rules: %d bad\n", bad);
+      ru_homograph_free (h);
+      return bad != 0;
+    }
   if (argc < 4)
     {
-      g_printerr ("usage: %s DUMP.jsonl tiny|turbo RUACCENT_DIR [-v]\n", argv[0]);
+      g_printerr ("usage: %s DUMP.jsonl tiny|turbo RUACCENT_DIR [-v]\n"
+                  "       %s --check-rules RUACCENT_DIR\n", argv[0], argv[0]);
       return 2;
     }
   verbose = argc > 4 && strcmp (argv[4], "-v") == 0;
   size = strcmp (argv[2], "turbo") == 0 ? "turbo" : "tiny";
   h = ru_homograph_new (argv[3], size, 2, 0);
+  ru_homograph_set_rules (h, FALSE);
   ru_homograph_set_trace (h, trace, NULL);
   mdir = g_build_filename (argv[3], "nn", "nn_omograph", strcmp (size, "turbo") == 0 ? "turbo3.1" : "tiny2.1", NULL);
   if ((tok = hf_tok_load (mdir, &error)) == NULL)

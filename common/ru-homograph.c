@@ -16,6 +16,7 @@
 #include <string.h>
 
 #include "hf-tok.h"
+#include "ru-homograph-rules.h"
 
 #ifdef HAVE_ORT_HEADERS
 #include <dlfcn.h>
@@ -37,6 +38,8 @@ struct RuHomograph
 {
   gchar *dir, *size;
   int threads, idle;
+  gboolean use_model, use_rules;
+  RuHomoRules *rules;
   GMutex lock;
   GCond cond;
   GHashTable *omographs;        /* lower-case form -> variants (strv) */
@@ -428,7 +431,9 @@ ru_homograph_new (const gchar *dir, const gchar *size, int threads, int idle)
 
   if (dir == NULL || size == NULL)
     return NULL;
-  if (g_ascii_strcasecmp (size, "tiny") == 0)
+  if (g_ascii_strcasecmp (size, "rules") == 0)
+    size = "rules";
+  else if (g_ascii_strcasecmp (size, "tiny") == 0)
     size = "tiny2.1";
   else if (g_ascii_strcasecmp (size, "turbo") == 0)
     size = "turbo3.1";
@@ -442,6 +447,9 @@ ru_homograph_new (const gchar *dir, const gchar *size, int threads, int idle)
   h->size = g_strdup (size);
   h->threads = CLAMP (threads, 1, 16);
   h->idle = idle;
+  h->use_model = strcmp (size, "rules") != 0;
+  h->use_rules = TRUE;
+  h->rules = ru_homo_rules_builtin ();
   g_mutex_init (&h->lock);
   g_cond_init (&h->cond);
   return h;
@@ -466,6 +474,60 @@ ru_homograph_free (RuHomograph *h)
   g_free (h->dir);
   g_free (h->size);
   g_free (h);
+}
+
+void
+ru_homograph_set_rules (RuHomograph *h, gboolean on)
+{
+  if (h == NULL)
+    return;
+  g_mutex_lock (&h->lock);
+  h->use_rules = on;
+  g_mutex_unlock (&h->lock);
+}
+
+typedef struct
+{
+  GHashTable *omographs;
+  int bad;
+} Check;
+
+static void
+check_rule (const gchar *form, const gchar *stressed, gpointer data)
+{
+  Check *c = data;
+  gchar **vars = g_hash_table_lookup (c->omographs, form);
+
+  if (stressed == NULL || vars == NULL || !g_strv_contains ((const gchar *const *) vars, stressed))
+    {
+      gchar *all = vars != NULL ? g_strjoinv (" ", vars) : g_strdup ("not a homograph");
+
+      g_print ("rule %s -> %s: %s\n", form, stressed ? stressed : "?", all);
+      g_free (all);
+      c->bad++;
+    }
+}
+
+int
+ru_homograph_check_rules (RuHomograph *h)
+{
+  Check c = { 0 };
+  GError *error = NULL;
+
+  if (h == NULL)
+    return -1;
+  g_mutex_lock (&h->lock);
+  if (h->omographs == NULL && !load_dict (h, &error))
+    {
+      g_printerr ("ru-homograph: %s\n", error->message);
+      g_error_free (error);
+      g_mutex_unlock (&h->lock);
+      return -1;
+    }
+  c.omographs = h->omographs;
+  ru_homo_rules_foreach (h->rules, check_rule, &c);
+  g_mutex_unlock (&h->lock);
+  return c.bad;
 }
 
 void
@@ -562,6 +624,7 @@ typedef struct
 {
   gchar *text;
   int unit;                     /* the unit it is all of, or -1 */
+  glong a, b;                   /* [a, b) in the plain text */
   gboolean clean, is_word;
 } Tok;
 
@@ -696,6 +759,8 @@ typedef struct
   int first, n;                 /* their pairs */
 } Homo;
 
+static gboolean model_ready (RuHomograph *h);
+
 /* one sentence: plain[s0..s1) with unit_of; updates units */
 static void
 resolve_sentence (RuHomograph *h, const gunichar *plain, const int *unit_of, glong s0, glong s1,
@@ -706,6 +771,11 @@ resolve_sentence (RuHomograph *h, const gunichar *plain, const int *unit_of, glo
   GArray *homos = g_array_new (FALSE, TRUE, sizeof (Homo));
   GPtrArray *texts = g_ptr_array_new_with_free_func (g_free);
   GPtrArray *pairs = g_ptr_array_new_with_free_func ((GDestroyNotify) g_array_unref);
+  GPtrArray *words = g_ptr_array_new_with_free_func (g_free);
+  GArray *punct = g_array_new (FALSE, FALSE, sizeof (gboolean));
+  GArray *merged = g_array_new (FALSE, FALSE, sizeof (gboolean));
+  int *word_of = NULL;
+  guint last = 0;
   gunichar *mt;
   glong n = 0, first_word = -1;
   float *probs = NULL;
@@ -746,6 +816,8 @@ resolve_sentence (RuHomograph *h, const gunichar *plain, const int *unit_of, glo
         g_string_append_unichar (s, mt[k]);
       t.text = g_string_free (s, FALSE);
       t.is_word = py_word (mt[i]);
+      t.a = g_array_index (keep, glong, i);
+      t.b = g_array_index (keep, glong, j - 1) + 1;
       /* clean: nothing dropped inside, no "~" */
       t.clean = g_array_index (keep, glong, j - 1) - g_array_index (keep, glong, i) == j - 1 - i
                 && strchr (t.text, '~') == NULL;
@@ -767,11 +839,53 @@ resolve_sentence (RuHomograph *h, const gunichar *plain, const int *unit_of, glo
     }
   g_free (mt);
 
-  /* the homographs */
+  /* the words for the rules: lower case, е for ё, "из-за" one word;
+   * punct[k]: anything but spaces between words k - 1 and k */
+  word_of = g_new (int, toks->len + 1);
+  for (guint i = 0; i < toks->len; i++)
+    {
+      Tok *t = &g_array_index (toks, Tok, i);
+      gboolean p = FALSE, hyphen = FALSE;
+
+      word_of[i] = -1;
+      if (!t->is_word)
+        continue;
+      if (words->len > 0)
+        {
+          glong a = g_array_index (toks, Tok, last).b;
+
+          hyphen = t->a - a == 1 && plain[a] == '-';
+          for (glong k = a; k < t->a && !hyphen && !p; k++)
+            p = !py_space (plain[k]);
+        }
+      if (hyphen)
+        {
+          gchar *f = fold_word (t->text, -1), *w = g_ptr_array_steal_index (words, words->len - 1);
+
+          g_ptr_array_add (words, g_strconcat (w, "-", f, NULL));
+          g_array_index (merged, gboolean, merged->len - 1) = TRUE;
+          word_of[last] = -1;
+          g_free (w);
+          g_free (f);
+        }
+      else
+        {
+          gboolean no = FALSE;
+
+          word_of[i] = words->len;
+          g_ptr_array_add (words, fold_word (t->text, -1));
+          g_array_append_val (punct, p);
+          g_array_append_val (merged, no);
+        }
+      last = i;
+    }
+
+  /* the homographs: the rules first, the rest to the model */
   for (guint i = 0; i < toks->len; i++)
     {
       Tok *t = &g_array_index (toks, Tok, i);
       gchar *key, **vars;
+      gboolean rule;
       gunichar c0 = g_utf8_get_char (t->text);
       Homo ho = { 0 };
 
@@ -782,15 +896,36 @@ resolve_sentence (RuHomograph *h, const gunichar *plain, const int *unit_of, glo
       if (g_unichar_isupper (c0) && (int) i != first_word && !caps_word (t->text))
         continue;
       key = fold_word (t->text, -1);
-      vars = g_hash_table_lookup (h->omographs, key);
+      vars = h->omographs != NULL ? g_hash_table_lookup (h->omographs, key) : NULL;
+      rule = h->use_rules && word_of[i] >= 0 && !g_array_index (merged, gboolean, word_of[i])
+             && ru_homo_rules_has (h->rules, key);
       g_free (key);
-      if (vars == NULL)
+      if (rule)
+        {
+          gchar *v = ru_homo_rules_decide (h->rules, (gchar **) words->pdata,
+                                           (gboolean *) punct->data, words->len, word_of[i], NULL);
+          gchar *re = NULL;
+
+          if (v != NULL && (vars == NULL || g_strv_contains ((const gchar *const *) vars, v)))
+            re = apply_variant (t->text, v, mark);
+          g_free (v);
+          if (re != NULL)
+            {
+              Unit *u = &g_array_index (units, Unit, t->unit);
+
+              g_free (u->repl);
+              u->repl = re;
+              u->changed = TRUE;
+              continue;
+            }
+        }
+      if (vars == NULL || !h->use_model)
         continue;
       ho.tok = i;
       ho.variants = vars;
       g_array_append_val (homos, ho);
     }
-  if (homos->len == 0)
+  if (homos->len == 0 || !model_ready (h))
     goto out;
 
   /* the model input */
@@ -850,6 +985,10 @@ resolve_sentence (RuHomograph *h, const gunichar *plain, const int *unit_of, glo
         }
     }
 out:
+  g_free (word_of);
+  g_ptr_array_free (words, TRUE);
+  g_array_free (punct, TRUE);
+  g_array_free (merged, TRUE);
   g_free (probs);
   g_ptr_array_free (pairs, TRUE);
   g_ptr_array_free (texts, TRUE);
@@ -902,26 +1041,21 @@ sentence_end (const gunichar *p, glong s0, glong i, glong n)
   return j >= n || !g_unichar_islower (p[j]);
 }
 
-/* with the lock held: dictionary and model ready? */
+/* with the lock held: anything to resolve with?  The rules need no files;
+ * the model needs the dictionary of homographs */
 static gboolean
 ready (RuHomograph *h)
 {
   GError *error = NULL;
 
-  if (h->omographs == NULL)
+  if (h->use_model && h->omographs == NULL && !h->dict_failed && !load_dict (h, &error))
     {
-      if (h->dict_failed)
-        return FALSE;
-      if (!load_dict (h, &error))
-        {
-          g_printerr ("ru-homograph: %s; homographs stay as the dictionary marks them\n",
-                      error->message);
-          g_error_free (error);
-          h->dict_failed = TRUE;
-          return FALSE;
-        }
+      g_printerr ("ru-homograph: %s; homographs stay as the dictionary %s\n", error->message,
+                  h->use_rules ? "and the rules mark them" : "marks them");
+      g_error_free (error);
+      h->dict_failed = TRUE;
     }
-  return TRUE;
+  return h->omographs != NULL || (h->use_rules && h->rules != NULL);
 }
 
 static gboolean
@@ -962,7 +1096,8 @@ has_homograph (RuHomograph *h, const gchar *plain_text)
           while (*q != '\0' && g_unichar_isalpha (g_utf8_get_char (q)))
             q = g_utf8_next_char (q);
           k = fold_word (p, q - p);
-          hit = g_hash_table_contains (h->omographs, k);
+          hit = (h->omographs != NULL && g_hash_table_contains (h->omographs, k))
+                || (h->use_rules && ru_homo_rules_has (h->rules, k));
           g_free (k);
           if (hit)
             return TRUE;
@@ -1022,7 +1157,7 @@ ru_homograph_resolve (RuHomograph *h, const gchar *orig, const gchar *marked, Ru
         n++;
       }
   }
-  if (has_homograph (h, ptext->str) && model_ready (h))
+  if (has_homograph (h, ptext->str))
     {
       h->last_use = g_get_monotonic_time ();
       for (glong i = 0; i < n; i++)

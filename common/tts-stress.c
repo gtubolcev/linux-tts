@@ -79,7 +79,8 @@ tts_stress_config_parse (TtsStressConfig *c, const gchar *key, const gchar *valu
   else if (g_ascii_strcasecmp (key, "TextStressHomographs") == 0)
     {
       g_clear_pointer (&c->homographs, g_free);
-      if (g_ascii_strcasecmp (value, "tiny") == 0 || g_ascii_strcasecmp (value, "turbo") == 0)
+      if (g_ascii_strcasecmp (value, "rules") == 0 || g_ascii_strcasecmp (value, "tiny") == 0
+          || g_ascii_strcasecmp (value, "turbo") == 0)
         c->homographs = g_ascii_strdown (value, -1);
       /* none and anything else: off */
     }

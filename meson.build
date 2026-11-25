@@ -99,7 +99,7 @@ norm_src = files('common/tts-norm.c', 'common/user-stress.c', 'common/tts-copy.c
 # the stress stage after it (Vosk dictionary; RUAccent homograph models
 # through a dlopen'ed onnxruntime: only its headers at build time, and zlib)
 stress_src = files('common/tts-stress.c', 'common/ru-stress.c', 'common/ru-homograph.c',
-  'common/hf-tok.c')
+  'common/ru-homograph-rules.c', 'common/hf-tok.c')
 zlib = dependency('zlib', required: false)
 stress_deps = [cc.find_library('dl', required: false), math]
 if onnxruntime.found() and zlib.found()
@@ -140,9 +140,12 @@ module_src = files('common/tts-module.c', 'common/tts-keys.c') + norm_src + stre
 if json_glib.found()
   # against the reference dump of RUAccent (tests/ruaccent-dump.py, run in docker with ruaccent); manual
   executable('ru-homograph-test', 'common/ru-homograph-test.c', 'common/ru-homograph.c',
-    'common/hf-tok.c', 'common/ru-stress.c', include_directories: common_inc,
+    'common/ru-homograph-rules.c', 'common/hf-tok.c', 'common/ru-stress.c', include_directories: common_inc,
     dependencies: [glib, json_glib] + stress_deps)
 endif
+# the homograph rules alone: no model files needed
+test('ru-homograph-rules', executable('ru-homograph-rules-test', 'tests/ru-homograph-rules-test.c',
+  stress_src, include_directories: common_inc, dependencies: [glib] + stress_deps))
 sd_dummy = executable('sd_dummy', 'tests/sd_dummy.c', module_src,
   include_directories: [speechd_inc, shim_inc, common_inc],
   dependencies: module_deps)

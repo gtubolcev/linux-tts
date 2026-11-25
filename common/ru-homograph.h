@@ -9,6 +9,10 @@
  * cross-encoder, as RUAccent runs it: the sentence with the word wrapped in
  * <w></w>, paired with each stressed variant ("з+амок"); softmax, class 1.
  *
+ * Before the model, the rules of ru-homograph-rules decide the words they
+ * can (у реки́, эти ре́ки, висячий замо́к); size "rules" uses them alone,
+ * with no files.
+ *
  * Kept as the dictionary marked them: words the user marked (a mark in the
  * text before the dictionary), words with ё, and words with a capital
  * letter inside a sentence (proper names: the dictionary decides).
@@ -16,7 +20,7 @@
  * Files in dir (the layout of the RUAccent download):
  *   dir/omographs.json.gz (or dictionary/omographs.json.gz)
  *   dir/<size>/model.onnx + the tokenizer files (or nn/nn_omograph/<size>/)
- * size: "tiny2.1" (DistilBERT, 42 MB, ~5 ms a sentence) or "turbo3.1"
+ * size: "rules" (no model), "tiny2.1" (DistilBERT, 42 MB, ~5 ms a sentence) or "turbo3.1"
  * (DeBERTa, 360 MB, ~60-200 ms, +530 MB of memory).
  *
  * onnxruntime is loaded with dlopen on first use, so modules without it
@@ -45,6 +49,13 @@ void ru_homograph_free (RuHomograph *h);
  * the model is missing: logged once) */
 gchar *ru_homograph_resolve (RuHomograph *h, const gchar *orig, const gchar *marked,
                              RuStressMark mark);
+
+/* for tests: rules on (the default) or off, to compare with RUAccent */
+void ru_homograph_set_rules (RuHomograph *h, gboolean on);
+
+/* for tests: checks every rule gives a variant of omographs.json.gz;
+ * prints the bad ones, returns their number (-1: no dictionary) */
+int ru_homograph_check_rules (RuHomograph *h);
 
 /* for tests: called for every homograph scored */
 typedef void (*RuHomographTrace) (const gchar *text, gchar **variants, GArray **ids,

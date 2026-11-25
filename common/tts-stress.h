@@ -7,9 +7,11 @@
  *
  * Now: the stress dictionary of the project, then the Vosk TTS dictionary
  * (common/ru-stress.c); case and the default reading pick among
- * homographs.  With TextStressHomographs tiny|turbo the homographs
- * (замок/замок, руки/руки) are then chosen from the context by the RUAccent
- * models (common/ru-homograph.c), a temporary solution.  Later
+ * homographs.  With TextStressHomographs rules the homographs (замок/замок,
+ * руки/руки) are then chosen from the context by rules where they can
+ * (common/ru-homograph-rules.c: у реки, эти реки, висячий замок); with
+ * tiny|turbo the rest by the RUAccent models (common/ru-homograph.c), a
+ * temporary solution.  Later
  * (xfce4-speech-settings PLAN.md, "Russian stress library in C"): a user
  * dictionary from the GUI and a model for unknown words.
  *
@@ -30,7 +32,8 @@ typedef struct
   gchar *dictionary;    /* TextStressDictionary: files separated by ":" */
   RuStressMark mark;    /* TextStressMark plus|acute|none (module default) */
   gboolean mark_set;    /* TextStressMark was given: it overrides a voice's */
-  gchar *homographs;    /* TextStressHomographs none|tiny|turbo: NULL = none */
+  gchar *homographs;    /* TextStressHomographs none|rules|tiny|turbo:
+                         * NULL = none; tiny|turbo = rules + model */
   gchar *homographs_dir; /* TextStressHomographsDir: the RUAccent files */
   int homographs_threads; /* TextStressHomographsThreads (2) */
   int homographs_idle;  /* TextStressHomographsIdle: seconds before the model
