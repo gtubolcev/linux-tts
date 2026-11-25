@@ -1097,8 +1097,8 @@ resolve_yo (RuHomograph *h, const gunichar *plain, const gunichar *oplain, GArra
 
       if (!t->is_word || !t->clean || t->unit < 0 || g_array_index (units, Unit, t->unit).user)
         continue;
-      if (g_unichar_isupper (oplain[t->a]) && (glong) i != first_word && !caps_word (t->text))
-        continue;
+      /* a capital inside the sentence too, like RUAccent: names have ё
+       * (Семёна Парфеновича, Пётр) */
       o = g_string_new (NULL);
       for (glong k = t->a; k < t->b; k++)
         g_string_append_unichar (o, oplain[k]);
@@ -1472,6 +1472,34 @@ out:
   g_array_free (keep, TRUE);
 }
 
+/* abbreviations of four letters and more that a name or a number follows
+ * ("просп. Мира", "проф. Иванов"); shorter ones are taken by their length */
+static gboolean
+long_abbreviation (const gunichar *w, glong len)
+{
+  static const char *const list[] =
+  {
+    "просп", "проф", "акад", "доц", "напр", "табл", "англ", "франц", "долл", "млрд",
+    "корп", "капит", "лейт", "серж", "пров", "пгт", "иллюстр", "сокр", "мкр", "микр",
+  };
+  gchar buf[64];
+  gint  n = 0;
+
+  for (glong i = 0; i < len; i++)
+    {
+      gunichar c = g_unichar_tolower (w[i]);
+
+      if (n + 6 >= (gint) sizeof buf)
+        return FALSE;
+      n += g_unichar_to_utf8 (c, buf + n);
+    }
+  buf[n] = '\0';
+  for (guint i = 0; i < G_N_ELEMENTS (list); i++)
+    if (strcmp (buf, list[i]) == 0)
+      return TRUE;
+  return FALSE;
+}
+
 /* the end of a sentence at p[i], close to razdel: a newline, or the last
  * of [.!?…] and closing quotes followed by a space, unless the text goes on
  * in lower case after spaces, quotes and dashes ("правда! — сказал он",
@@ -1499,13 +1527,14 @@ sentence_end (const gunichar *p, glong s0, glong i, glong n)
     ;
   if (k == j)
     return FALSE;
-  /* an abbreviation (ул., д., стр.) or an initial (А. С.) */
+  /* an abbreviation (ул., д., стр., просп.) or an initial (А. С.) */
   if (p[j] == '.' && (j == s0 || p[j - 1] != '.'))
     {
       for (k = j; k > s0 && g_unichar_isalpha (p[k - 1]); k--)
         ;
       if (j - k >= 1 && (k == s0 || !g_unichar_isalnum (p[k - 1]))
-          && ((j - k <= 3 && g_unichar_islower (p[k])) || (j - k == 1 && g_unichar_isupper (p[k]))))
+          && ((j - k <= 3 && g_unichar_islower (p[k])) || (j - k == 1 && g_unichar_isupper (p[k]))
+              || long_abbreviation (p + k, j - k)))
         return FALSE;
     }
   for (j = i + 1; j < n && (py_space (p[j]) || p[j] == 0x2014 || p[j] == 0x2013 || p[j] == '-'
