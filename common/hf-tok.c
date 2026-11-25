@@ -185,6 +185,15 @@ hf_json_flat_parse (const gchar *text, gsize len, HfJsonPair cb, gpointer data, 
           cb (key, -1, (gchar **) a->pdata, data);
           g_ptr_array_free (a, TRUE);
         }
+      else if (p < end && *p == '"')
+        {
+          gchar *v = json_string (&p, end), *strs[2] = { v, NULL };
+
+          if (v == NULL)
+            goto bad_key;
+          cb (key, -1, strs, data);
+          g_free (v);
+        }
       else
         {
           gint64 v = 0;
@@ -525,10 +534,12 @@ bert_normalize (const gchar *s, gssize len)
   return g_string_free (o, FALSE);
 }
 
+/* the pieces of one word; lens (may be NULL) gets the characters of each */
 static void
-wordpiece (HfTok *t, const gchar *word, gsize len, GArray *ids)
+wordpiece (HfTok *t, const gchar *word, gsize len, GArray *ids, GArray *lens)
 {
   GArray *w = g_array_new (FALSE, FALSE, sizeof (gint64));
+  GArray *wl = g_array_new (FALSE, FALSE, sizeof (guint));
   const gchar *start = word, *wend = word + len;
   gboolean bad = g_utf8_strlen (word, len) > WP_MAX_CHARS;
   GString *piece = g_string_new (NULL);
@@ -550,16 +561,30 @@ wordpiece (HfTok *t, const gchar *word, gsize len, GArray *ids)
         bad = TRUE;
       else
         {
+          guint n = g_utf8_strlen (start, end - start);
+
           g_array_append_val (w, id);
+          g_array_append_val (wl, n);
           start = end;
         }
     }
   if (bad)
-    g_array_append_val (ids, t->unk);
+    {
+      guint n = g_utf8_strlen (word, len);
+
+      g_array_append_val (ids, t->unk);
+      if (lens != NULL)
+        g_array_append_val (lens, n);
+    }
   else
-    g_array_append_vals (ids, w->data, w->len);
+    {
+      g_array_append_vals (ids, w->data, w->len);
+      if (lens != NULL)
+        g_array_append_vals (lens, wl->data, wl->len);
+    }
   g_string_free (piece, TRUE);
   g_array_free (w, TRUE);
+  g_array_free (wl, TRUE);
 }
 
 /* BertPreTokenizer + WordPiece on a normalized segment */
@@ -575,15 +600,15 @@ wp_segment (HfTok *t, const gchar *s, gsize len, GArray *ids)
       if (c == ' ' || bert_punct (c))
         {
           if (w != NULL)
-            wordpiece (t, w, p - w, ids), w = NULL;
+            wordpiece (t, w, p - w, ids, NULL), w = NULL;
           if (c != ' ')
-            wordpiece (t, p, g_utf8_next_char (p) - p, ids);
+            wordpiece (t, p, g_utf8_next_char (p) - p, ids, NULL);
         }
       else if (w == NULL)
         w = p;
     }
   if (w != NULL)
-    wordpiece (t, w, end - w, ids);
+    wordpiece (t, w, end - w, ids, NULL);
 }
 
 /* ------------------------------------------------------- byte-level BPE */
@@ -826,4 +851,97 @@ hf_tok_encode_pair (HfTok *t, const gchar *a, const gchar *b, guint max_len)
   g_array_free (ia, TRUE);
   g_array_free (ib, TRUE);
   return out;
+}
+
+/* WordPiece with offsets, as the tokenizers library gives them for a
+ * token classifier: BertNormalizer keeps the place of each character */
+GArray *
+hf_tok_encode_spans (HfTok *t, const gchar *text, guint max_len, GArray **spans)
+{
+  GArray *ids, *sp, *lens;
+  glong n = 0, m = 0;
+  gunichar *u, *nc;
+  glong *ni;
+  HfSpan special = { 0, 0, FALSE, TRUE };
+  GString *word;
+
+  *spans = NULL;
+  if (t->bpe || max_len < 2 || (u = g_utf8_to_ucs4 (text, -1, NULL, &n, NULL)) == NULL)
+    return NULL;
+  nc = g_new (gunichar, 3 * n + 1);
+  ni = g_new (glong, 3 * n + 1);
+  for (glong i = 0; i < n; i++)
+    {
+      gunichar c = u[i];
+
+      if (c == 0 || c == 0xFFFD || bert_control (c))
+        continue;
+      if (bert_space (c))
+        nc[m] = ' ', ni[m++] = i;
+      else if (is_cjk (c))
+        {
+          nc[m] = ' ', ni[m++] = i;
+          nc[m] = c, ni[m++] = i;
+          nc[m] = ' ', ni[m++] = i;
+        }
+      else
+        nc[m] = c, ni[m++] = i;
+    }
+  ids = g_array_new (FALSE, FALSE, sizeof (gint64));
+  sp = g_array_new (FALSE, FALSE, sizeof (HfSpan));
+  lens = g_array_new (FALSE, FALSE, sizeof (guint));
+  word = g_string_new (NULL);
+  g_array_append_val (ids, t->cls);
+  g_array_append_val (sp, special);
+  for (glong i = 0; i < m;)
+    {
+      glong j = i, p;
+      guint first = ids->len;
+
+      if (nc[i] == ' ')
+        {
+          i++;
+          continue;
+        }
+      if (bert_punct (nc[i]))
+        j = i + 1;
+      else
+        while (j < m && nc[j] != ' ' && !bert_punct (nc[j]))
+          j++;
+      g_string_truncate (word, 0);
+      for (glong k = i; k < j; k++)
+        g_string_append_unichar (word, nc[k]);
+      g_array_set_size (lens, 0);
+      wordpiece (t, word->str, word->len, ids, lens);
+      p = i;
+      for (guint k = 0; k < lens->len && first + k < ids->len; k++)
+        {
+          guint l = g_array_index (lens, guint, k);
+          HfSpan s = { 0 };
+
+          if (l == 0 || p + l > j)
+            break;
+          s.start = ni[p];
+          s.end = ni[p + l - 1] + 1;
+          s.subword = k > 0 && g_array_index (ids, gint64, first + k) != t->unk;
+          g_array_append_val (sp, s);
+          p += l;
+        }
+      g_array_set_size (ids, sp->len);  /* never out of step */
+      i = j;
+    }
+  if (ids->len > max_len - 1)
+    {
+      g_array_set_size (ids, max_len - 1);
+      g_array_set_size (sp, max_len - 1);
+    }
+  g_array_append_val (ids, t->sep);
+  g_array_append_val (sp, special);
+  g_string_free (word, TRUE);
+  g_array_free (lens, TRUE);
+  g_free (nc);
+  g_free (ni);
+  g_free (u);
+  *spans = sp;
+  return ids;
 }

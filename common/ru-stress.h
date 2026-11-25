@@ -58,4 +58,8 @@ void ru_stress_free (RuStress *s);
 /* text with the marks added; letter case is kept */
 gchar *ru_stress_apply (RuStress *s, const gchar *text, RuStressMark mark);
 
+/* the same, but the readings with ё are not used and no ё is written: the
+ * stress of the е-form when the context says it is not ё (бере́т, not берёт) */
+gchar *ru_stress_apply_e (RuStress *s, const gchar *text, RuStressMark mark);
+
 #endif

@@ -37,10 +37,20 @@ void hf_tok_free (HfTok *t);
 GArray *hf_tok_encode_pair (HfTok *t, const gchar *a, const gchar *b, guint max_len);
 gint64 hf_tok_pad_id (HfTok *t);
 
+/* one text for a token classifier, WordPiece only (NULL for BPE); no added
+ * tokens.  spans gets an HfSpan per id: the characters of text it covers,
+ * whether it continues a word ("##") and whether it is [CLS]/[SEP]. */
+typedef struct
+{
+  glong start, end;
+  gboolean subword, special;
+} HfSpan;
+GArray *hf_tok_encode_spans (HfTok *t, const gchar *text, guint max_len, GArray **spans);
+
 /* a flat JSON object {"key": value, ...} as the model files use it: value
- * is an integer or an array of strings.  Calls cb for each pair (ints is
- * the integer, strs the NULL-terminated strings or NULL); FALSE with error
- * on bad syntax. */
+ * is an integer, a string or an array of strings.  Calls cb for each pair
+ * (num is the integer or -1, strs the NULL-terminated strings, one for a
+ * string, or NULL); FALSE with error on bad syntax. */
 typedef void (*HfJsonPair) (const gchar *key, gint64 num, gchar **strs, gpointer data);
 gboolean hf_json_flat_parse (const gchar *text, gsize len, HfJsonPair cb, gpointer data,
                              GError **error);

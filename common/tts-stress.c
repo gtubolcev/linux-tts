@@ -174,6 +174,7 @@ tts_stress_apply_mark (TtsStress *s, const gchar *text, const gchar *lang,
     }
   if (s->dict == NULL)
     return g_strdup (text);
+  ru_homograph_set_stress (s->homograph, s->dict);
   mark = s->cfg.mark_set ? s->cfg.mark : voice_mark;
   if (mark != RU_STRESS_PLUS && mark != RU_STRESS_ACUTE)
     mark = RU_STRESS_NONE;

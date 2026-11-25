@@ -332,7 +332,7 @@ from_variant (const Variant *var, int n_vowels, gboolean *stressed, gboolean *yo
 /* For the vowels of word, in order: where the stress is and which е is ё.
  * FALSE when no dictionary knows the word. */
 static gboolean
-lookup_stress (RuStress *s, const gchar *lower, int n_vowels, Want want,
+lookup_stress (RuStress *s, const gchar *lower, int n_vowels, Want want, gboolean no_yo,
                gboolean *stressed, gboolean *yo)
 {
   gchar *key = replace_yo (lower);
@@ -354,14 +354,29 @@ lookup_stress (RuStress *s, const gchar *lower, int n_vowels, Want want,
             val = dict_lookup (d, key);
           if (val != NULL)
             found = from_phonemes (val, n_vowels, stressed, yo);
+          for (int k = 0; found && no_yo && k < n_vowels; k++)
+            found = !yo[k];
         }
       else
         {
           Variant var[MAX_VARIANTS];
           const Variant *c;
 
+          int nv = 0;
+
           val = dict_lookup (d, key);
-          if (val != NULL && (c = choose (var, parse_variants (val, var), want)) != NULL)
+          if (val != NULL)
+            nv = parse_variants (val, var);
+          if (no_yo)
+            {
+              /* only the readings with е */
+              int k = 0;
+              for (int i = 0; i < nv; i++)
+                if (g_strstr_len (var[i].form, var[i].len, "ё") == NULL)
+                  var[k++] = var[i];
+              nv = k;
+            }
+          if (nv > 0 && (c = choose (var, nv, want)) != NULL)
             found = from_variant (c, n_vowels, stressed, yo);
         }
       g_free (val);
@@ -391,8 +406,8 @@ ends_sentence (gunichar c)
   return c == '.' || c == '!' || c == '?' || c == 0x2026 /* … */ || c == '\n';
 }
 
-gchar *
-ru_stress_apply (RuStress *s, const gchar *text, RuStressMark mark)
+static gchar *
+apply (RuStress *s, const gchar *text, RuStressMark mark, gboolean no_yo)
 {
   glong n;
   gunichar *t = g_utf8_to_ucs4_fast (text, -1, &n);
@@ -429,7 +444,7 @@ ru_stress_apply (RuStress *s, const gchar *text, RuStressMark mark)
           gchar *lower = g_utf8_strdown (word, -1);
           gboolean *stressed = g_new0 (gboolean, nv), *yo = g_new0 (gboolean, nv);
 
-          if (lookup_stress (s, lower, nv, want_of (t + i, j - i, sentence_start),
+          if (lookup_stress (s, lower, nv, want_of (t + i, j - i, sentence_start), no_yo,
                              stressed, yo))
             {
               int v = 0;
@@ -506,4 +521,16 @@ ru_stress_apply (RuStress *s, const gchar *text, RuStressMark mark)
     }
   g_free (t);
   return g_string_free (out, FALSE);
+}
+
+gchar *
+ru_stress_apply (RuStress *s, const gchar *text, RuStressMark mark)
+{
+  return apply (s, text, mark, FALSE);
+}
+
+gchar *
+ru_stress_apply_e (RuStress *s, const gchar *text, RuStressMark mark)
+{
+  return apply (s, text, mark, TRUE);
 }

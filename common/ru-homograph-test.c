@@ -5,9 +5,12 @@
  *
  *   ru-homograph-test DUMP.jsonl tiny|turbo RUACCENT_DIR [-v]
  *   ru-homograph-test --check-rules RUACCENT_DIR
+ *   ru-homograph-test --yo YODUMP.jsonl RUACCENT_DIR [-v]
  *
  * The rules (ru-homograph-rules) are off here: the model alone is compared;
  * --check-rules checks each rule gives a variant of omographs.json.gz.
+ * --yo checks the ё stage against tests/ruaccent-yo-dump.py: tokens with
+ * offsets, and the YO/NO_YO of every word of yo_homographs.json.gz.
  *
  * Words RUAccent scores but we keep on purpose (a capital inside the
  * sentence) are counted apart, not as errors.
@@ -87,6 +90,173 @@ json_ids_str (JsonArray *b)
   return g_string_free (s, FALSE);
 }
 
+typedef struct
+{
+  gchar *text, *word;
+  glong start;
+  gboolean yo;
+} YoEntry;
+
+static void
+yo_entry_free (gpointer p)
+{
+  YoEntry *e = p;
+  g_free (e->text);
+  g_free (e->word);
+  g_free (e);
+}
+
+static void
+yo_trace (const gchar *text, glong start, const gchar *word, gboolean yo, gpointer data)
+{
+  YoEntry *e = g_new0 (YoEntry, 1);
+
+  e->text = g_strdup (text);
+  e->word = g_strdup (word);
+  e->start = start;
+  e->yo = yo;
+  g_ptr_array_add (got, e);
+}
+
+/* ids and offsets of the tokenizer against the reference */
+static gboolean
+spans_equal (HfTok *tok, const gchar *text, JsonObject *o)
+{
+  GArray *spans, *ids = hf_tok_encode_spans (tok, text, 512, &spans);
+  JsonArray *rids = json_object_get_array_member (o, "ids");
+  JsonArray *roff = json_object_get_array_member (o, "offsets");
+  gboolean ok = ids != NULL && ids_equal (ids, rids) && json_array_get_length (roff) == spans->len;
+
+  for (guint i = 0; ok && i < spans->len; i++)
+    {
+      JsonArray *r = json_array_get_array_element (roff, i);
+      HfSpan *sp = &g_array_index (spans, HfSpan, i);
+
+      ok = json_array_get_int_element (r, 0) == sp->start && json_array_get_int_element (r, 1) == sp->end;
+    }
+  if (!ok && verbose)
+    {
+      gchar *a = ids ? ids_str (ids) : g_strdup ("NULL"), *b = json_ids_str (rids);
+      g_print ("TOK   [%s]\n  ours: %s\n  ref:  %s\n", text, a, b);
+      for (guint i = 0; ids && i < spans->len; i++)
+        g_print (" %ld-%ld%s", g_array_index (spans, HfSpan, i).start, g_array_index (spans, HfSpan, i).end,
+                 g_array_index (spans, HfSpan, i).subword ? "#" : "");
+      g_print ("\n");
+      g_free (a);
+      g_free (b);
+    }
+  if (ids != NULL)
+    {
+      g_array_free (ids, TRUE);
+      g_array_free (spans, TRUE);
+    }
+  return ok;
+}
+
+static int
+yo_main (const gchar *dump, const gchar *dir)
+{
+  RuHomograph *h = ru_homograph_new (dir, "tiny", 2, 0);
+  gchar *text, **lines, *mdir = g_build_filename (dir, "nn", "nn_yo_homograph_resolver", NULL);
+  HfTok *tok;
+  GError *error = NULL;
+  int sent = 0, n_ref = 0, n_ok = 0, missing = 0, differ = 0, extra = 0, tok_n = 0, tok_bad = 0;
+
+  ru_homograph_set_rules (h, FALSE);
+  ru_homograph_set_yo_trace (h, yo_trace, NULL);
+  if ((tok = hf_tok_load (mdir, &error)) == NULL || !g_file_get_contents (dump, &text, NULL, &error))
+    {
+      g_printerr ("%s\n", error->message);
+      return 1;
+    }
+  lines = g_strsplit (text, "\n", -1);
+  for (gchar **l = lines; *l != NULL; l++)
+    {
+      JsonParser *p;
+      JsonObject *o;
+
+      if (**l == '\0')
+        continue;
+      p = json_parser_new ();
+      if (!json_parser_load_from_data (p, *l, -1, NULL))
+        {
+          g_object_unref (p);
+          continue;
+        }
+      o = json_node_get_object (json_parser_get_root (p));
+      if (json_object_has_member (o, "yo"))
+        {
+          const gchar *s = json_object_get_string_member (o, "yo");
+          const gchar *rt = json_object_get_string_member (o, "text");
+          JsonArray *ref = json_object_get_array_member (o, "words");
+          gchar *res;
+          guint used = 0;
+
+          tok_n++;
+          if (!spans_equal (tok, rt, o))
+            tok_bad++;
+          got = g_ptr_array_new_with_free_func (yo_entry_free);
+          res = ru_homograph_resolve (h, s, s, RU_STRESS_PLUS);
+          sent++;
+          for (guint i = 0; i < json_array_get_length (ref); i++)
+            {
+              JsonArray *r = json_array_get_array_element (ref, i);
+              glong start = json_array_get_int_element (r, 0);
+              const gchar *w = json_array_get_string_element (r, 1);
+              gboolean ryo = strcmp (json_array_get_string_element (r, 2), "YO") == 0;
+              YoEntry *e = NULL;
+
+              n_ref++;
+              for (guint k = 0; k < got->len; k++)
+                {
+                  YoEntry *x = got->pdata[k];
+                  if (x->start == start && strcmp (x->text, rt) == 0)
+                    e = x;
+                }
+              if (e == NULL)
+                {
+                  missing++;
+                  if (verbose || missing <= 10)
+                    g_print ("MISS  %s @%ld in %s\n", w, start, s);
+                  continue;
+                }
+              used++;
+              if (e->yo != ryo)
+                {
+                  differ++;
+                  g_print ("YO    %s @%ld: ours %d, ref %d in %s\n", w, start, e->yo, ryo, s);
+                  continue;
+                }
+              n_ok++;
+            }
+          extra += got->len - used;
+          if (verbose && res != NULL)
+            g_print ("OUT   %s\n", res);
+          g_free (res);
+          g_ptr_array_unref (got);
+        }
+      else if (json_object_has_member (o, "tok"))
+        {
+          tok_n++;
+          if (!spans_equal (tok, json_object_get_string_member (o, "tok"), o))
+            {
+              tok_bad++;
+              if (!verbose && tok_bad <= 5)
+                g_print ("TOK   bad: %s\n", json_object_get_string_member (o, "tok"));
+            }
+        }
+      g_object_unref (p);
+    }
+  g_print ("yo: %d sentences, %d words: %d same, %d differ, %d missing, %d extra; "
+           "tokenizer %d/%d same\n", sent, n_ref, n_ok, differ, missing, extra, tok_n - tok_bad, tok_n);
+  g_strfreev (lines);
+  g_free (text);
+  g_free (mdir);
+  hf_tok_free (tok);
+  ru_homograph_free (h);
+  return differ + missing + tok_bad > 0;
+}
+
 int
 main (int argc, char **argv)
 {
@@ -109,16 +279,23 @@ main (int argc, char **argv)
       ru_homograph_free (h);
       return bad != 0;
     }
+  if (argc >= 4 && strcmp (argv[1], "--yo") == 0)
+    {
+      verbose = argc > 4 && strcmp (argv[4], "-v") == 0;
+      return yo_main (argv[2], argv[3]);
+    }
   if (argc < 4)
     {
       g_printerr ("usage: %s DUMP.jsonl tiny|turbo RUACCENT_DIR [-v]\n"
-                  "       %s --check-rules RUACCENT_DIR\n", argv[0], argv[0]);
+                  "       %s --check-rules RUACCENT_DIR\n"
+                  "       %s --yo YODUMP.jsonl RUACCENT_DIR [-v]\n", argv[0], argv[0], argv[0]);
       return 2;
     }
   verbose = argc > 4 && strcmp (argv[4], "-v") == 0;
   size = strcmp (argv[2], "turbo") == 0 ? "turbo" : "tiny";
   h = ru_homograph_new (argv[3], size, 2, 0);
   ru_homograph_set_rules (h, FALSE);
+  ru_homograph_set_yo (h, FALSE);     /* the dump has the ё stage off */
   ru_homograph_set_trace (h, trace, NULL);
   mdir = g_build_filename (argv[3], "nn", "nn_omograph", strcmp (size, "turbo") == 0 ? "turbo3.1" : "tiny2.1", NULL);
   if ((tok = hf_tok_load (mdir, &error)) == NULL)

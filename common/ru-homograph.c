@@ -52,7 +52,20 @@ struct RuHomograph
   gboolean stop;
   RuHomographTrace trace;
   gpointer trace_data;
+  /* the ё stage: yo_homographs.json.gz and nn_yo_homograph_resolver */
+  gboolean use_yo;
+  GHashTable *yo;               /* е-form -> ё-form, lower case */
+  gboolean yo_dict_failed;
+  HfTok *yo_tok;
+  gpointer yo_session;
+  gint64 yo_failed_at;
+  RuStress *stress;             /* borrowed: the е-form stress */
+  RuHomographYoTrace yo_trace;
+  gpointer yo_trace_data;
 };
+
+#define YO_LABELS 3             /* NO_YO, PUNCT, YO (config.json id2label) */
+#define YO_LABEL 2
 
 /* ------------------------------------------------------------ onnxruntime */
 
@@ -199,6 +212,98 @@ session_run (RuHomograph *h, GArray **rows, guint n, float *probs, GError **erro
   return ok;
 }
 
+/* a token classifier on one row of ids: softmax over n_labels per token
+ * into probs (ids->len * n_labels).  The inputs are found by name:
+ * input_ids, attention_mask, token_type_ids (zeros) */
+static gboolean
+session_run_tokens (gpointer session, GArray *ids, int n_labels, float *probs, GError **error)
+{
+  OrtSession *s = session;
+  OrtAllocator *alloc = NULL;
+  size_t n_in = 0, n_out = 0;
+  char *names[4] = { NULL }, *out_name = NULL;
+  OrtValue *in[4] = { NULL }, *out = NULL;
+  gint64 *buf[4] = { NULL };
+  guint len = ids->len;
+  int64_t shape[2] = { 1, len };
+  float *logits;
+  gboolean ok;
+
+  ok = ort_ok (ort->GetAllocatorWithDefaultOptions (&alloc), error)
+       && ort_ok (ort->SessionGetInputCount (s, &n_in), error)
+       && ort_ok (ort->SessionGetOutputCount (s, &n_out), error);
+  if (ok && (n_in < 1 || n_in > 4 || n_out < 1))
+    {
+      g_set_error (error, RH_ERROR, 1, "model: %zu inputs, %zu outputs", n_in, n_out);
+      ok = FALSE;
+    }
+  ok = ok && ort_ok (ort->SessionGetOutputName (s, 0, alloc, &out_name), error);
+  for (size_t i = 0; ok && i < n_in; i++)
+    {
+      ok = ort_ok (ort->SessionGetInputName (s, i, alloc, &names[i]), error);
+      if (!ok)
+        break;
+      buf[i] = g_new0 (gint64, len);
+      if (strcmp (names[i], "input_ids") == 0)
+        memcpy (buf[i], ids->data, sizeof (gint64) * len);
+      else if (strcmp (names[i], "attention_mask") == 0)
+        for (guint j = 0; j < len; j++)
+          buf[i][j] = 1;
+      else if (strcmp (names[i], "token_type_ids") != 0)
+        {
+          g_set_error (error, RH_ERROR, 1, "model: unknown input %s", names[i]);
+          ok = FALSE;
+          break;
+        }
+      ok = ort_ok (ort->CreateTensorWithDataAsOrtValue (ort_mem, buf[i], sizeof (gint64) * len, shape, 2,
+                                                        ONNX_TENSOR_ELEMENT_DATA_TYPE_INT64, &in[i]),
+                   error);
+    }
+  ok = ok && ort_ok (ort->Run (s, NULL, (const char *const *) names, (const OrtValue *const *) in, n_in,
+                               (const char *const *) &out_name, 1, &out), error)
+       && ort_ok (ort->GetTensorMutableData (out, (void **) &logits), error);
+  if (ok)
+    {
+      OrtTensorTypeAndShapeInfo *info = NULL;
+      size_t count = 0;
+
+      ok = ort_ok (ort->GetTensorTypeAndShape (out, &info), error)
+           && ort_ok (ort->GetTensorShapeElementCount (info, &count), error);
+      if (info != NULL)
+        ort->ReleaseTensorTypeAndShapeInfo (info);
+      if (ok && count != (size_t) len * n_labels)
+        {
+          g_set_error (error, RH_ERROR, 1, "model output: %zu values", count);
+          ok = FALSE;
+        }
+      for (guint j = 0; ok && j < len; j++)
+        {
+          const float *l = logits + (gsize) j * n_labels;
+          float mx = l[0], sum = 0;
+
+          for (int k = 1; k < n_labels; k++)
+            mx = MAX (mx, l[k]);
+          for (int k = 0; k < n_labels; k++)
+            sum += probs[(gsize) j * n_labels + k] = expf (l[k] - mx);
+          for (int k = 0; k < n_labels; k++)
+            probs[(gsize) j * n_labels + k] /= sum;
+        }
+    }
+  for (size_t i = 0; i < 4; i++)
+    {
+      if (in[i] != NULL)
+        ort->ReleaseValue (in[i]);
+      if (names[i] != NULL)
+        ort_ok (ort->AllocatorFree (alloc, names[i]), NULL);
+      g_free (buf[i]);
+    }
+  if (out_name != NULL)
+    ort_ok (ort->AllocatorFree (alloc, out_name), NULL);
+  if (out != NULL)
+    ort->ReleaseValue (out);
+  return ok;
+}
+
 static gchar *
 gz_read (const gchar *path, gsize *len, GError **error)
 {
@@ -239,6 +344,7 @@ ort_init (GError **error)
 static gpointer session_new (const gchar *p, int t, GError **e) { return NULL; }
 static void session_free (gpointer s) { }
 static gboolean session_run (RuHomograph *h, GArray **r, guint n, float *p, GError **e) { return FALSE; }
+static gboolean session_run_tokens (gpointer s, GArray *i, int n, float *p, GError **e) { return FALSE; }
 static gchar *
 gz_read (const gchar *path, gsize *len, GError **error)
 {
@@ -369,7 +475,94 @@ load_dict (RuHomograph *h, GError **error)
   return ok;
 }
 
+static void
+put_yo (const gchar *key, gint64 num, gchar **strs, gpointer data)
+{
+  GHashTable *h = data;
+  gchar *k, *v;
+
+  if (strs == NULL || strs[0] == NULL || strs[1] != NULL || g_utf8_strlen (key, -1) > 64)
+    return;
+  /* the е-form and its ё-form: the same letters but ё */
+  k = g_utf8_strdown (key, -1);
+  v = g_utf8_strdown (strs[0], -1);
+  if (strstr (k, "ё") == NULL && strstr (v, "ё") != NULL && g_utf8_strlen (k, -1) == g_utf8_strlen (v, -1))
+    {
+      gchar *fv = fold_word (v, -1);
+
+      if (strcmp (fv, k) == 0)
+        {
+          g_hash_table_replace (h, k, v);
+          k = v = NULL;
+        }
+      g_free (fv);
+    }
+  g_free (k);
+  g_free (v);
+}
+
+static gboolean
+load_yo_dict (RuHomograph *h, GError **error)
+{
+  gchar *pa = g_build_filename (h->dir, "yo_homographs.json.gz", NULL);
+  gchar *pb = g_build_filename (h->dir, "dictionary", "yo_homographs.json.gz", NULL);
+  gchar *path = first_existing (pa, pb), *text;
+  gsize len;
+  gboolean ok = FALSE;
+
+  if ((text = gz_read (path, &len, error)) != NULL)
+    {
+      h->yo = g_hash_table_new_full (g_str_hash, g_str_equal, g_free, g_free);
+      ok = hf_json_flat_parse (text, len, put_yo, h->yo, error);
+      if (!ok)
+        {
+          g_prefix_error (error, "%s: ", path);
+          g_clear_pointer (&h->yo, g_hash_table_unref);
+        }
+      g_free (text);
+    }
+  g_free (pa);
+  g_free (pb);
+  g_free (path);
+  return ok;
+}
+
 static gpointer reaper_run (gpointer data);
+
+/* with the lock held */
+static gboolean
+load_yo_model (RuHomograph *h, GError **error)
+{
+  gchar *pa = g_build_filename (h->dir, "yo", NULL);
+  gchar *pb = g_build_filename (h->dir, "nn", "nn_yo_homograph_resolver", NULL);
+  gchar *mdir = first_existing (pa, pb);
+  gchar *onnx = g_build_filename (mdir, "model.onnx", NULL);
+  gchar *cfg = g_build_filename (mdir, "config.json", NULL), *text = NULL;
+  gboolean ok;
+
+  /* the labels are fixed here: check them */
+  ok = g_file_get_contents (cfg, &text, NULL, error);
+  if (ok && !g_regex_match_simple ("\"0\"\\s*:\\s*\"NO_YO\"[^}]*\"2\"\\s*:\\s*\"YO\"", text, 0, 0))
+    {
+      g_set_error (error, RH_ERROR, 1, "%s: not the labels NO_YO, PUNCT, YO", cfg);
+      ok = FALSE;
+    }
+  ok = ok && ort_init (error) && (h->yo_tok = hf_tok_load (mdir, error)) != NULL
+       && (h->yo_session = session_new (onnx, h->threads, error)) != NULL;
+  if (!ok)
+    g_clear_pointer (&h->yo_tok, hf_tok_free);
+  else if (h->idle > 0 && h->reaper == NULL)
+    h->reaper = g_thread_new ("ru-homograph", reaper_run, h);
+  else
+    g_cond_broadcast (&h->cond);
+  g_free (text);
+  g_free (cfg);
+  g_free (pa);
+  g_free (pb);
+  g_free (mdir);
+  g_free (onnx);
+  return ok;
+}
 
 /* with the lock held */
 static gboolean
@@ -405,7 +598,7 @@ reaper_run (gpointer data)
   g_mutex_lock (&h->lock);
   while (!h->stop)
     {
-      if (h->session == NULL)
+      if (h->session == NULL && h->yo_session == NULL)
         g_cond_wait (&h->cond, &h->lock);
       else
         {
@@ -415,6 +608,9 @@ reaper_run (gpointer data)
               session_free (h->session);
               h->session = NULL;
               g_clear_pointer (&h->tok, hf_tok_free);
+              session_free (h->yo_session);
+              h->yo_session = NULL;
+              g_clear_pointer (&h->yo_tok, hf_tok_free);
             }
           else
             g_cond_wait_until (&h->cond, &h->lock, due);
@@ -449,6 +645,7 @@ ru_homograph_new (const gchar *dir, const gchar *size, int threads, int idle)
   h->idle = idle;
   h->use_model = strcmp (size, "rules") != 0;
   h->use_rules = TRUE;
+  h->use_yo = h->use_model;
   h->rules = ru_homo_rules_builtin ();
   g_mutex_init (&h->lock);
   g_cond_init (&h->cond);
@@ -468,7 +665,10 @@ ru_homograph_free (RuHomograph *h)
     g_thread_join (h->reaper);
   session_free (h->session);
   hf_tok_free (h->tok);
+  session_free (h->yo_session);
+  hf_tok_free (h->yo_tok);
   g_clear_pointer (&h->omographs, g_hash_table_unref);
+  g_clear_pointer (&h->yo, g_hash_table_unref);
   g_mutex_clear (&h->lock);
   g_cond_clear (&h->cond);
   g_free (h->dir);
@@ -484,6 +684,35 @@ ru_homograph_set_rules (RuHomograph *h, gboolean on)
   g_mutex_lock (&h->lock);
   h->use_rules = on;
   g_mutex_unlock (&h->lock);
+}
+
+void
+ru_homograph_set_yo (RuHomograph *h, gboolean on)
+{
+  if (h == NULL)
+    return;
+  g_mutex_lock (&h->lock);
+  h->use_yo = on && h->use_model;
+  g_mutex_unlock (&h->lock);
+}
+
+void
+ru_homograph_set_stress (RuHomograph *h, RuStress *stress)
+{
+  if (h == NULL)
+    return;
+  g_mutex_lock (&h->lock);
+  h->stress = stress;
+  g_mutex_unlock (&h->lock);
+}
+
+void
+ru_homograph_set_yo_trace (RuHomograph *h, RuHomographYoTrace trace, gpointer data)
+{
+  if (h == NULL)
+    return;
+  h->yo_trace = trace;
+  h->yo_trace_data = data;
 }
 
 typedef struct
@@ -625,6 +854,7 @@ typedef struct
   gchar *text;
   int unit;                     /* the unit it is all of, or -1 */
   glong a, b;                   /* [a, b) in the plain text */
+  glong m;                      /* its start in the model text */
   gboolean clean, is_word;
 } Tok;
 
@@ -760,11 +990,231 @@ typedef struct
 } Homo;
 
 static gboolean model_ready (RuHomograph *h);
+static gboolean yo_model_ready (RuHomograph *h);
+
+static int
+count_vowels (const gchar *w)
+{
+  int n = 0;
+
+  for (const gchar *p = w; *p != '\0'; p = g_utf8_next_char (p))
+    n += is_vowel (g_utf8_get_char (p));
+  return n;
+}
+
+/* fix_capital: the case of src on the letters of dst, if as long */
+static gchar *
+copy_case (const gchar *src, const gchar *dst)
+{
+  GString *o;
+  const gchar *p = src, *q = dst;
+
+  if (g_utf8_strlen (src, -1) != g_utf8_strlen (dst, -1))
+    return g_strdup (dst);
+  o = g_string_new (NULL);
+  for (; *q != '\0'; p = g_utf8_next_char (p), q = g_utf8_next_char (q))
+    {
+      gunichar c = g_utf8_get_char (q);
+      g_string_append_unichar (o, g_unichar_isupper (g_utf8_get_char (p)) ? g_unichar_toupper (c)
+                                                                         : g_unichar_tolower (c));
+    }
+  return g_string_free (o, FALSE);
+}
+
+/* word (letters) with the mark on vowel number k; no mark on a word of one
+ * vowel, none after ё with acute (as ru-stress writes them) */
+static gchar *
+mark_vowel (const gchar *word, int k, RuStressMark mark)
+{
+  GString *o = g_string_new (NULL);
+  int v = 0;
+  gboolean one = count_vowels (word) <= 1;
+
+  for (const gchar *p = word; *p != '\0'; p = g_utf8_next_char (p))
+    {
+      gunichar c = g_utf8_get_char (p);
+      gboolean st = is_vowel (c) && v++ == k && !one;
+
+      if (st && mark == RU_STRESS_PLUS)
+        g_string_append_c (o, '+');
+      g_string_append_unichar (o, c);
+      if (st && mark == RU_STRESS_ACUTE && c != 0x451 && c != 0x401)
+        g_string_append_unichar (o, 0x301);
+    }
+  return g_string_free (o, FALSE);
+}
+
+static void
+set_unit (Unit *u, gchar *repl)
+{
+  g_free (u->repl);
+  u->repl = repl;
+  u->changed = TRUE;
+}
+
+/* The ё stage (RUAccent _apply_yo): the words of yo_homographs.json.gz get
+ * their ё where the model says YO (все -> всё, слез -> слёз); where it says
+ * NO_YO and the dictionary wrote ё, the е-form with its own stress.  The
+ * model sees the text as the user wrote it (oplain), without the ё of the
+ * dictionary.  Token texts are updated for the stages after it. */
+static void
+resolve_yo (RuHomograph *h, const gunichar *plain, const gunichar *oplain, GArray *keep, GArray *toks,
+            glong first_word, GArray *units, RuStressMark mark)
+{
+  GArray *cand = g_array_new (FALSE, FALSE, sizeof (guint));
+  GPtrArray *orig = g_ptr_array_new_with_free_func (g_free);
+  GArray *ids = NULL, *spans = NULL, *ent = NULL;
+  GString *mt = NULL;
+  float *probs = NULL;
+  GError *error = NULL;
+
+  for (guint i = 0; i < toks->len; i++)
+    {
+      Tok *t = &g_array_index (toks, Tok, i);
+      GString *o;
+      gchar *low;
+
+      if (!t->is_word || !t->clean || t->unit < 0 || g_array_index (units, Unit, t->unit).user)
+        continue;
+      if (g_unichar_isupper (oplain[t->a]) && (glong) i != first_word && !caps_word (t->text))
+        continue;
+      o = g_string_new (NULL);
+      for (glong k = t->a; k < t->b; k++)
+        g_string_append_unichar (o, oplain[k]);
+      low = g_utf8_strdown (o->str, -1);
+      if (g_hash_table_contains (h->yo, low))
+        {
+          g_array_append_val (cand, i);
+          g_ptr_array_add (orig, g_string_free (o, FALSE));
+        }
+      else
+        g_string_free (o, TRUE);
+      g_free (low);
+    }
+  if (cand->len == 0 || !yo_model_ready (h))
+    goto out;
+
+  /* model_text.lower(), offsets in characters */
+  mt = g_string_new (NULL);
+  for (guint k = 0; k < keep->len; k++)
+    g_string_append_unichar (mt, g_unichar_tolower (oplain[g_array_index (keep, glong, k)]));
+  ids = hf_tok_encode_spans (h->yo_tok, mt->str, MAX_LEN, &spans);
+  if (ids == NULL)
+    goto out;
+  probs = g_new (float, (gsize) ids->len * YO_LABELS);
+  if (!session_run_tokens (h->yo_session, ids, YO_LABELS, probs, &error))
+    {
+      g_printerr ("ru-homograph: ё model: %s\n", error->message);
+      g_clear_error (&error);
+      goto out;
+    }
+  /* words of the tokenizer: a token and its "##" pieces; the label of the
+   * mean scores (TokenClassifier.predict) */
+  ent = g_array_new (FALSE, FALSE, sizeof (glong) * 3);
+  for (guint j = 0; j < ids->len;)
+    {
+      HfSpan *sp = &g_array_index (spans, HfSpan, j);
+      float mean[YO_LABELS] = { 0 };
+      guint e = j + 1;
+      glong x[3];
+      int best = 0;
+
+      if (sp->special)
+        {
+          j++;
+          continue;
+        }
+      while (e < ids->len && !g_array_index (spans, HfSpan, e).special
+             && g_array_index (spans, HfSpan, e).subword)
+        e++;
+      for (guint k = j; k < e; k++)
+        for (int l = 0; l < YO_LABELS; l++)
+          mean[l] += probs[(gsize) k * YO_LABELS + l] / (e - j);
+      for (int l = 1; l < YO_LABELS; l++)
+        if (mean[l] > mean[best])
+          best = l;
+      x[0] = sp->start;
+      x[1] = g_array_index (spans, HfSpan, e - 1).end;
+      x[2] = best;
+      g_array_append_vals (ent, x, 1);
+      j = e;
+    }
+  for (guint c = 0; c < cand->len; c++)
+    {
+      Tok *t = &g_array_index (toks, Tok, g_array_index (cand, guint, c));
+      Unit *u = &g_array_index (units, Unit, t->unit);
+      const gchar *o = orig->pdata[c];
+      gchar *low = g_utf8_strdown (o, -1);
+      gboolean yo = FALSE;
+      gint e = -1;
+
+      /* _SpanLookup.label: the last word starting at or before it */
+      for (guint k = 0; k < ent->len; k++)
+        if (((glong *) ent->data)[3 * k] <= t->m)
+          e = k;
+      if (e >= 0 && t->m < ((glong *) ent->data)[3 * e + 1])
+        yo = ((glong *) ent->data)[3 * e + 2] == YO_LABEL;
+      if (h->yo_trace != NULL)
+        h->yo_trace (mt->str, t->m, low, yo, h->yo_trace_data);
+      if (yo)
+        {
+          gchar *w = copy_case (o, g_hash_table_lookup (h->yo, low));
+          const gchar *at = strstr (w, "ё") != NULL ? strstr (w, "ё") : strstr (w, "Ё");
+          int k = 0;
+
+          for (const gchar *p = w; at != NULL && p < at; p = g_utf8_next_char (p))
+            k += is_vowel (g_utf8_get_char (p));
+          set_unit (u, mark_vowel (w, k, mark));
+          g_free (t->text);
+          t->text = w;
+        }
+      else if (strcmp (t->text, o) != 0)
+        {
+          /* the dictionary wrote ё: the е-form, stressed as the dictionary
+           * has it, else on the vowel the ё was */
+          gchar *re = h->stress != NULL && mark != RU_STRESS_NONE
+                      ? ru_stress_apply_e (h->stress, o, mark) : NULL;
+          int k = 0;
+
+          if (re == NULL || (count_vowels (o) > 1 && strchr (re, '+') == NULL
+                             && strstr (re, "\xcc\x81") == NULL))
+            {
+              const gchar *p = t->text;
+              const gchar *q = o;
+
+              g_free (re);
+              for (; *p != '\0' && *q != '\0'; p = g_utf8_next_char (p), q = g_utf8_next_char (q))
+                {
+                  if (g_utf8_get_char (p) != g_utf8_get_char (q))
+                    break;
+                  k += is_vowel (g_utf8_get_char (q));
+                }
+              re = mark_vowel (o, k, mark);
+            }
+          set_unit (u, re);
+          g_free (t->text);
+          t->text = g_strdup (o);
+        }
+      g_free (low);
+    }
+out:
+  if (ent != NULL)
+    g_array_free (ent, TRUE);
+  if (ids != NULL)
+    g_array_free (ids, TRUE);
+  if (spans != NULL)
+    g_array_free (spans, TRUE);
+  if (mt != NULL)
+    g_string_free (mt, TRUE);
+  g_free (probs);
+  g_ptr_array_free (orig, TRUE);
+  g_array_free (cand, TRUE);
+}
 
 /* one sentence: plain[s0..s1) with unit_of; updates units */
 static void
-resolve_sentence (RuHomograph *h, const gunichar *plain, const int *unit_of, glong s0, glong s1,
-                  GArray *units, const gchar *marked, RuStressMark mark)
+resolve_sentence (RuHomograph *h, const gunichar *plain, const gunichar *oplain, const int *unit_of,
+                  glong s0, glong s1, GArray *units, const gchar *marked, RuStressMark mark)
 {
   GArray *keep = g_array_new (FALSE, FALSE, sizeof (glong));
   GArray *toks = g_array_new (FALSE, TRUE, sizeof (Tok));
@@ -816,6 +1266,7 @@ resolve_sentence (RuHomograph *h, const gunichar *plain, const int *unit_of, glo
         g_string_append_unichar (s, mt[k]);
       t.text = g_string_free (s, FALSE);
       t.is_word = py_word (mt[i]);
+      t.m = i;
       t.a = g_array_index (keep, glong, i);
       t.b = g_array_index (keep, glong, j - 1) + 1;
       /* clean: nothing dropped inside, no "~" */
@@ -838,6 +1289,9 @@ resolve_sentence (RuHomograph *h, const gunichar *plain, const int *unit_of, glo
       i = j;
     }
   g_free (mt);
+
+  if (h->use_yo && h->yo != NULL)
+    resolve_yo (h, plain, oplain, keep, toks, first_word, units, mark);
 
   /* the words for the rules: lower case, е for ё, "из-за" one word;
    * punct[k]: anything but spaces between words k - 1 and k */
@@ -1055,7 +1509,33 @@ ready (RuHomograph *h)
       g_error_free (error);
       h->dict_failed = TRUE;
     }
-  return h->omographs != NULL || (h->use_rules && h->rules != NULL);
+  if (h->use_yo && h->yo == NULL && !h->yo_dict_failed && !load_yo_dict (h, &error))
+    {
+      g_printerr ("ru-homograph: %s; no ё from the context\n", error->message);
+      g_error_free (error);
+      h->yo_dict_failed = TRUE;
+    }
+  return h->omographs != NULL || h->yo != NULL || (h->use_rules && h->rules != NULL);
+}
+
+static gboolean
+yo_model_ready (RuHomograph *h)
+{
+  GError *error = NULL;
+
+  if (h->yo_session != NULL)
+    return TRUE;
+  if (h->yo_failed_at != 0 && g_get_monotonic_time () - h->yo_failed_at < RETRY_US)
+    return FALSE;
+  if (!load_yo_model (h, &error))
+    {
+      g_printerr ("ru-homograph: %s: %s; no ё from the context\n", h->dir, error->message);
+      g_error_free (error);
+      h->yo_failed_at = g_get_monotonic_time ();
+      return FALSE;
+    }
+  h->yo_failed_at = 0;
+  return TRUE;
 }
 
 static gboolean
@@ -1097,6 +1577,7 @@ has_homograph (RuHomograph *h, const gchar *plain_text)
             q = g_utf8_next_char (q);
           k = fold_word (p, q - p);
           hit = (h->omographs != NULL && g_hash_table_contains (h->omographs, k))
+                || (h->use_yo && h->yo != NULL && g_hash_table_contains (h->yo, k))
                 || (h->use_rules && ru_homo_rules_has (h->rules, k));
           g_free (k);
           if (hit)
@@ -1113,7 +1594,7 @@ gchar *
 ru_homograph_resolve (RuHomograph *h, const gchar *orig, const gchar *marked, RuStressMark mark)
 {
   GArray *uo, *um, *mo, *mm;
-  gunichar *plain;
+  gunichar *plain, *oplain;
   int *unit_of;
   glong n = 0, s0 = 0;
   GString *ptext, *out = NULL;
@@ -1157,13 +1638,42 @@ ru_homograph_resolve (RuHomograph *h, const gchar *orig, const gchar *marked, Ru
         n++;
       }
   }
+  /* the same with the letters of orig: ё only where the user wrote it */
+  oplain = g_memdup2 (plain, sizeof (gunichar) * (n + 1));
+  {
+    const gchar *q = NULL, *qe = NULL;
+
+    for (glong i = 0; i < n; i++)
+      {
+        int u = unit_of[i];
+
+        if (u < 0)
+          continue;
+        if (i == 0 || unit_of[i - 1] != u)
+          {
+            q = orig + g_array_index (uo, Unit, u).start;
+            qe = orig + g_array_index (uo, Unit, u).end;
+          }
+        while (q < qe && (g_utf8_get_char (q) == 0x301 || plus_starts (q)))
+          q = g_utf8_next_char (q);
+        if (q < qe)
+          {
+            gunichar c = g_utf8_get_char (q);
+
+            /* only е for ё: anything else is not this letter */
+            if (fold (c) == fold (plain[i]))
+              oplain[i] = c;
+            q = g_utf8_next_char (q);
+          }
+      }
+  }
   if (has_homograph (h, ptext->str))
     {
       h->last_use = g_get_monotonic_time ();
       for (glong i = 0; i < n; i++)
         if (sentence_end (plain, s0, i, n) || i == n - 1)
           {
-            resolve_sentence (h, plain, unit_of, s0, i + 1, um, marked, mark);
+            resolve_sentence (h, plain, oplain, unit_of, s0, i + 1, um, marked, mark);
             s0 = i + 1;
           }
       h->last_use = g_get_monotonic_time ();
@@ -1171,6 +1681,7 @@ ru_homograph_resolve (RuHomograph *h, const gchar *orig, const gchar *marked, Ru
     }
   g_string_free (ptext, TRUE);
   g_free (plain);
+  g_free (oplain);
   g_free (unit_of);
 
   /* the output: units with a new reading replaced */
