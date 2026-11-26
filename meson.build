@@ -111,7 +111,13 @@ install_data('common/tts-normalize.py', rename: 'tts-normalize',
   install_dir: module_dir, install_mode: 'rwxr-xr-x')
 # The RUAccent homograph models come as packages (packaging/ruaccent-models,
 # whose make-source.sh fetches them with audiocpp-models.py and
-# data/ruaccent/models.json); nothing of them is installed from here.
+# data/ruaccent/models.json). The settings app can also download them into
+# ~/.local/share/linux-tts/ruaccent: the same helper next to the catalogue,
+# package linux-tts-ruaccent-installer.
+ru_share = get_option('datadir') / 'linux-tts-ruaccent-installer'
+install_data('audiocpp/audiocpp-models.py', rename: 'ruaccent-models.py',
+  install_dir: ru_share, install_mode: 'rwxr-xr-x')
+install_data('data/ruaccent/models.json', install_dir: ru_share / 'models')
 test('tts-config', executable('tts-config-test', 'common/tts-config-test.c', 'common/tts-config.c',
   include_directories: common_inc, dependencies: glib))
 test('user-stress', executable('user-stress-test', 'common/user-stress-test.c',

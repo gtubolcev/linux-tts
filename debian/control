@@ -215,6 +215,17 @@ Description: text normalization and stress marks for other speech-dispatcher mod
  zyphra-textnorm for 43 other languages) and gets ё and stress marks from
  the stress dictionaries (the Vosk model's one).
 
+Package: linux-tts-ruaccent-installer
+Architecture: all
+Depends: ${misc:Depends}, python3
+Description: downloads the RUAccent homograph models for the settings app
+ A small installer (ruaccent-models.py and its catalogue, every file pinned
+ by URL, size and SHA-256) that xfce4-speech-settings runs to download the
+ RUAccent small or large model into ~/.local/share/linux-tts/ruaccent, with a
+ progress report, when "Rules and small/large model" is chosen for the
+ Russian homographs. The packages ruaccent-model-tiny and -turbo hold the
+ same models system-wide.
+
 Package: linux-tts-ru
 Architecture: all
 Depends: speech-dispatcher-sherpa-onnx (>= ${source:Version}),
