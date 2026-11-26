@@ -17,6 +17,8 @@
 #include <string.h>
 
 static gboolean espeak_ready;
+static gchar *espeak_path;      /* the data our own calls run on (NULL: default) */
+static gboolean espeak_own;     /* espeak-ng runs on espeak_path, not on foreign code's data */
 static gchar *espeak_voice;     /* the voice espeak-ng has loaded */
 static GRegex *marks_re;        /* phonemizer's punctuation */
 G_LOCK_DEFINE_STATIC (espeak);
@@ -73,16 +75,35 @@ espeak_g2p_init (const gchar *path, GError **error)
                                   "|(?<![0-9])[,.]|[,.](?![0-9]))+\\s*)+",
                                   G_REGEX_OPTIMIZE, 0, NULL);
           espeak_ready = TRUE;
+          espeak_own = TRUE;
+          espeak_path = g_strdup (path);
         }
     }
   G_UNLOCK (espeak);
   return ok;
 }
 
+/* restarts espeak-ng on @path (NULL: its default data) with the lock held:
+ * the translators it has loaded belong to the data it was started with */
+static void
+restart_on (const gchar *path)
+{
+  espeak_Terminate ();
+  if (espeak_Initialize (AUDIO_OUTPUT_SYNCHRONOUS, 0, path, espeakINITIALIZE_DONT_EXIT) < 0)
+    g_warning ("espeak-ng: cannot restart with the data in %s", path ? path : "(default)");
+  g_clear_pointer (&espeak_voice, g_free);
+}
+
 /* with the lock held */
 static gboolean
 use_voice (const gchar *voice)
 {
+  if (!espeak_own)
+    {
+      /* foreign code has run on the default data meanwhile: back to ours */
+      restart_on (espeak_path);
+      espeak_own = TRUE;
+    }
   if (g_strcmp0 (espeak_voice, voice) == 0)
     return TRUE;
   g_free (espeak_voice);
@@ -105,9 +126,20 @@ use_voice (const gchar *voice)
 }
 
 void
-espeak_g2p_foreign_begin (void)
+espeak_g2p_foreign_begin (gboolean uses_espeak)
 {
   G_LOCK (espeak);
+  /* The library starts espeak-ng by itself on the system's data once and
+   * then assumes it is still running on them; our data (a ru_dict that
+   * reads Kokoro's phonemes, not Piper's) would be loaded into its
+   * translators, and starting it twice on different data mixes the two
+   * ("Invalid instruction ... for phoneme", broken Piper). So whoever
+   * runs gets its own data. */
+  if (uses_espeak && espeak_ready && espeak_own)
+    {
+      restart_on (NULL);
+      espeak_own = FALSE;
+    }
 }
 
 void

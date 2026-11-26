@@ -87,7 +87,7 @@
  * Every call into the library that can phonemize runs under our lock, or the
  * two collide (SIGSEGV in espeak_TextToPhonemes, 2026-11-24 and -25). */
 #ifdef AUDIOCPP_KOKORO
-#define ESPEAK_BEGIN() espeak_g2p_foreign_begin ()
+#define ESPEAK_BEGIN() espeak_g2p_foreign_begin (!m->kokoro)
 #define ESPEAK_END() espeak_g2p_foreign_end ()
 #else
 #define ESPEAK_BEGIN() ((void) 0)

@@ -19,8 +19,10 @@
  * first path */
 gboolean espeak_g2p_init (const gchar *path, GError **error);
 /* around a call into code that uses espeak-ng by itself (libaudiocpp): keeps
- * our own calls out meanwhile and forgets the voice we had set */
-void espeak_g2p_foreign_begin (void);
+ * our own calls out meanwhile and forgets the voice we had set.  @uses_espeak:
+ * the code really phonemizes with espeak-ng (it then gets the default data,
+ * ours come back with our next call) */
+void espeak_g2p_foreign_begin (gboolean uses_espeak);
 void espeak_g2p_foreign_end (void);
 /* whether espeak-ng has the voice @voice ("ru", "en-us") */
 gboolean espeak_g2p_check_voice (const gchar *voice, GError **error);
