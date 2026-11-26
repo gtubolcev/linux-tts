@@ -1,6 +1,6 @@
 # textnorm — C port of ru_normalizr (in progress)
 
-Plan: RESEARCH-text-normalization.md §10. Python ru_normalizr is the oracle; the C port must
+Plan: the local notes (not published). Python ru_normalizr is the oracle; the C port must
 match its output byte for byte in compat mode; bugs of the originals are fixed behind flags
 and listed in `QUIRKS.md` for review.
 

@@ -22,8 +22,7 @@ only the models it can run (Piper, MMS).
 there until its model stops inventing words in about a quarter of the phrases.
 
 Every directory has `build.sh` (in docker) and `build-deb.sh`. The models are packaged
-separately; see each `build-deb.sh`. Measurements and notes on the engines:
-[RESEARCH-tts-engines.md](RESEARCH-tts-engines.md). How the modules, sherpa-onnx, ONNX Runtime,
+separately; see each `build-deb.sh`. How the modules, sherpa-onnx, ONNX Runtime,
 ggml and the graphics card fit together: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 Russian text goes through [ru-normalizr](https://github.com/NickZaitsev/ru-normalizr)
