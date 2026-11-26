@@ -63,6 +63,7 @@ $SRC ($VERSION~$DIST) $DIST; urgency=medium
 
   * tiny-voca-ru for sd_audiocpp (egnch/tiny-voca-ru, revision
     $HF_REV).
+  * debian/copyright: the training data and tools are credited.
 
  -- $MAINT  $(date -R)
 X
@@ -105,6 +106,11 @@ Source: https://huggingface.co/egnch/tiny-voca-ru
 Comment: revision $HF_REV. tiny-voca-ru-orig.gguf holds the weights of
  model.safetensors unchanged (float32), converted with audio.cpp's
  convert_tiny_voca_ru.py.
+ Training data (from the model and dataset cards, checked 2026-11-26): the
+ synthetic dataset egnch/tiny-voca-ru-dataset, CC BY 4.0 (attribution:
+ Evgeniy Chetvertkov), made with Qwen3-TTS (Apache-2.0, Alibaba Qwen) from
+ texts of Mozilla Common Voice (CC0), LLM-written sentences and templates;
+ stress marks by RUAccent (MIT). The dataset itself is not shipped.
 
 Files: *
 Copyright: 2026 Evgeniy Chetvertkov
